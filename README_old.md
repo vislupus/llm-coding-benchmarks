@@ -1155,7 +1155,7 @@ Testing different LLMs to do software tasks
 | Model                 | Score    |
 | --------------------- | -------- |
 | **Gemini 3.1**        | **2/10** |
-| **Gemini 3**          | **0/10** |
+| **Gemini 3**          | **1/10** |
 | **Gemini 2.5**        | **1/10** |
 | **ChatGPT 5.5**       | **2/10** |
 | **ChatGPT 5.4**       | **2/10** |
