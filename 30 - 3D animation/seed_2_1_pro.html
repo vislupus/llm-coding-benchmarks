@@ -1,0 +1,1457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Japanese Pagoda Garden — Cinematic 3D</title>
+<style>
+  :root { color-scheme: dark; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { width:100%; height:100%; overflow:hidden; background:#f4efe6; font-family: system-ui, -apple-system, sans-serif; }
+  canvas { display:block; }
+  #loader {
+    position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
+    background: radial-gradient(ellipse at center, #fff7ef 0%, #e9ddc8 100%);
+    z-index:10; transition: opacity 1s ease;
+    font-size: 15px; letter-spacing: 3px; color: #7a5a3a; text-transform: uppercase;
+  }
+  #loader.hidden { opacity:0; pointer-events:none; }
+  #hint {
+    position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+    color: #5a4a32; font-size: 12px; letter-spacing: 2px; text-transform: uppercase;
+    background: rgba(255,255,255,0.55); backdrop-filter: blur(6px);
+    padding: 8px 18px; border-radius: 99px; z-index: 5; opacity: .85;
+    pointer-events:none;
+  }
+</style>
+</head>
+<body>
+<div id="loader">Cultivating the garden…</div>
+<div id="hint">Cinematic 3D · Japanese Pagoda Garden</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass }     from 'three/addons/postprocessing/RenderPass.js';
+import { BokehPass }      from 'three/addons/postprocessing/BokehPass.js';
+import { OutputPass }     from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass }     from 'three/addons/postprocessing/ShaderPass.js';
+import { FXAAShader }     from 'three/addons/shaders/FXAAShader.js';
+
+/* ======================================================================
+   JAPANESE PAGODA GARDEN — Cinematic isometric diorama
+   Palette picked from the original illustration.
+   ====================================================================== */
+
+const C = {
+  pagodaRed:      0xb33a3a,   // red lacquer
+  pagodaRedDark:  0x8a2a2a,
+  roof:           0x3a3a42,   // dark tiled roof
+  roofHi:         0x55555f,
+  gold:           0xe8c15a,
+  wallWhite:      0xf6f0e4,
+  wallShade:      0xddc8a8,
+  stoneBase:      0xbab2a4,
+  stoneDark:      0x8f887a,
+  stoneLight:     0xd6d0c1,
+  waterA:         0x8ed0cf,
+  waterB:         0x4fa8ad,
+  waterDeep:      0x3d8e95,
+  bridgeRed:      0xc43c3c,
+  plank:          0xddb080,
+  grass:          0x98a459,
+  grassDark:      0x7e8a45,
+  trunk:          0x704a33,
+  trunkDark:      0x4f3323,
+  blossomA:       0xfdd5e1,
+  blossomB:       0xf7a9c5,
+  bamboo:         0x6aa84f,
+  bambooDark:     0x4e7d3a,
+  koiOrange:      0xff7b3d,
+  koiWhite:       0xfafafa,
+  koiBlack:       0x1d1d1d,
+  rock:           0x9c9a90,
+  rockDark:       0x6f6d64,
+  path:           0xd8d2c0,
+  pathDark:       0xa8a292,
+  fence:          0xc7c1b1,
+  skirt:          0x2f3548,
+  shirtWhite:     0xffffff,
+  greenShirt:     0x507a3c,
+  blueShirt:      0x30475d,
+  skin:           0xf2c9a7,
+  hair:           0x352216,
+  pantsGray:      0xd4d0c2
+};
+
+/* ---------- Renderer / Scene / Camera ---------- */
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xf6f0e6);
+scene.fog = new THREE.Fog(0xf6f0e6, 38, 70);
+
+const camera = new THREE.PerspectiveCamera(38, innerWidth/innerHeight, 0.1, 200);
+camera.position.set(18, 22, 22);
+camera.lookAt(0, 2.5, 0);
+
+/* ---------- Lighting (warm golden hour) ---------- */
+const hemi = new THREE.HemisphereLight(0xfff4df, 0x6b7a4d, 0.55);
+scene.add(hemi);
+
+const sun = new THREE.DirectionalLight(0xfff0d4, 1.6);
+sun.position.set(14, 22, 10);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.near = 1;
+sun.shadow.camera.far = 80;
+sun.shadow.camera.left = -22;
+sun.shadow.camera.right = 22;
+sun.shadow.camera.top = 22;
+sun.shadow.camera.bottom = -22;
+sun.shadow.bias = -0.0004;
+sun.shadow.normalBias = 0.02;
+sun.shadow.radius = 3;
+scene.add(sun);
+
+const fill = new THREE.DirectionalLight(0xb7d0ff, 0.25);
+fill.position.set(-12, 10, -8);
+scene.add(fill);
+
+// soft warm rim
+const rim = new THREE.DirectionalLight(0xffd0a0, 0.3);
+rim.position.set(-6, 8, 14);
+scene.add(rim);
+
+/* ---------- Root group so we can scale the whole diorama ---------- */
+const world = new THREE.Group();
+scene.add(world);
+
+// All elements that sit ON TOP of the grass (grass top at world y = 0.22) go here.
+const above = new THREE.Group();
+above.position.y = 0.22;
+world.add(above);
+
+/* =================================================================
+   UTILS
+   ================================================================== */
+function mat(color, opts={}) {
+  return new THREE.MeshStandardMaterial({
+    color,
+    roughness: opts.roughness ?? 0.85,
+    metalness: opts.metalness ?? 0.0,
+    emissive: opts.emissive ?? 0x000000,
+    emissiveIntensity: opts.emissiveIntensity ?? 0,
+    flatShading: opts.flatShading ?? false,
+    transparent: opts.transparent ?? false,
+    opacity: opts.opacity ?? 1,
+    side: opts.side ?? THREE.FrontSide
+  });
+}
+function mesh(geo, material, castSh=true, recvSh=true) {
+  const m = new THREE.Mesh(geo, material);
+  m.castShadow = castSh;
+  m.receiveShadow = recvSh;
+  return m;
+}
+
+/* =================================================================
+   GROUND — the rounded island base (extruded shape)
+   The pond shapes share coordinates with buildPondsAndBridge().
+   Holes are cut into the grass/soil so water shows through.
+   ================================================================== */
+// Shared pond outlines (plan-view XZ: x = world X, y = world Z; positive Z = closer to camera).
+// Large pond BEHIND the bridge (closer to pagoda, further from camera)
+const POND_LARGE = [
+  [-3.2, -1.0], [-1.4, 0.0], [0.8, 0.3], [3.2, -0.2], [4.5, -1.0],
+  [4.6, -2.4], [3.5, -3.3], [1.6, -3.4], [-0.2, -3.0], [-1.8, -2.2], [-2.9, -1.5], [-3.3, -1.2]
+];
+// Small pond IN FRONT of the bridge (closer to viewer)
+const POND_SMALL = [
+  [-1.0, 2.2], [0.9, 2.6], [2.9, 2.7], [4.2, 2.2], [4.6, 1.4],
+  [3.8, 0.8], [2.0, 0.6], [0.0, 0.7], [-1.1, 1.1], [-1.2, 1.9]
+];
+// Narrow connecting stream between them (the waist under the bridge)
+const STREAM_PTS = (() => {
+  // Left bank (from large-pond front to small-pond back)
+  const left = [
+    [-1.4, 0.0], [-0.9, 0.6], [-1.1, 1.1]
+  ];
+  // Right bank (from large-pond front to small-pond back), reversed so polygon closes correctly
+  const right = [
+    [3.8, 0.8], [2.6, 0.3], [0.8, 0.3]
+  ];
+  return [...left, ...right];
+})();
+
+// Backwards-compat aliases (so we don't have to rename everywhere)
+const POND_UPPER = POND_LARGE;
+const POND_LOWER = POND_SMALL;
+
+function addPondHoles(shape, inset=0.0) {
+  function ptsToPath(pts) {
+    const p = new THREE.Path();
+    const off = inset;
+    for (let i=0; i<pts.length; i++) {
+      let [x,y] = pts[i];
+      if (i===0) p.moveTo(x, y);
+      else p.lineTo(x, y);
+    }
+    p.closePath();
+    return p;
+  }
+  shape.holes.push(ptsToPath(POND_UPPER));
+  shape.holes.push(ptsToPath(POND_LOWER));
+  shape.holes.push(ptsToPath(STREAM_PTS));
+}
+
+function buildGround() {
+  const grp = new THREE.Group();
+
+  const segs = 48;
+
+  // Lower soil plinth (darker brown) — WITH holes cut for ponds.
+  const soilShape = new THREE.Shape();
+  const rx = 12.3, ry = 10.3;
+  for (let i=0; i<=segs; i++) {
+    const a = (i/segs) * Math.PI*2;
+    const wob = 1 + 0.06*Math.sin(a*3+0.4) + 0.03*Math.cos(a*5);
+    const x = Math.cos(a) * rx * wob;
+    const y = Math.sin(a) * ry * wob;
+    if (i===0) soilShape.moveTo(x, y); else soilShape.lineTo(x, y);
+  }
+  addPondHoles(soilShape, -0.12); // slightly larger holes in soil
+  const soilGeo = new THREE.ExtrudeGeometry(soilShape, { depth: 0.9, bevelEnabled: true, bevelThickness: 0.35, bevelSize: 0.35, bevelSegments: 6 });
+  // Rotate so shape lies flat in XZ plane and extrusion goes DOWN (-Y).
+  soilGeo.rotateX(Math.PI/2);
+  const soil = mesh(soilGeo, mat(0x6f5235, { roughness: 1 }));
+  // After rotateX(+PI/2): local z=0 → world y=0 (top), z=depth → world y=-depth.
+  soil.position.y = 0;
+  soil.receiveShadow = true;
+  grp.add(soil);
+
+  // Grass top (slightly smaller, same shape, raised) — WITH holes for ponds.
+  const grassShape = new THREE.Shape();
+  const rxG = 11.9, ryG = 9.9;
+  for (let i=0; i<=segs; i++) {
+    const a = (i/segs) * Math.PI*2;
+    const wob = 1 + 0.07*Math.sin(a*3+0.4) + 0.04*Math.cos(a*5);
+    const x = Math.cos(a) * rxG * wob;
+    const y = Math.sin(a) * ryG * wob;
+    if (i===0) grassShape.moveTo(x, y); else grassShape.lineTo(x, y);
+  }
+  addPondHoles(grassShape, 0.0);
+  const grassGeo = new THREE.ExtrudeGeometry(grassShape, { depth: 0.25, bevelEnabled: true, bevelThickness: 0.12, bevelSize: 0.15, bevelSegments: 4 });
+  grassGeo.rotateX(Math.PI/2);
+  const grass = mesh(grassGeo, mat(C.grass, { roughness: 0.95, flatShading: false }));
+  // Lift grass slightly so its top surface is at y=0.22 and its bottom meets soil top (y=0).
+  grass.position.y = 0.22;
+  grass.receiveShadow = true;
+  grp.add(grass);
+
+  // Subtle darker grass tufts — a scattered second layer for color variation
+  const tuftGeo = new THREE.CircleGeometry(0.35, 8);
+  const tuftMat = mat(C.grassDark, { roughness: 1 });
+  const tuftCount = 120;
+  for (let i=0; i<tuftCount; i++) {
+    const a = Math.random()*Math.PI*2;
+    const r = Math.random()*10.5;
+    const x = Math.cos(a)*r*1.2;
+    const z = Math.sin(a)*r*0.95;
+    if (((x/12)**2 + (z/10)**2) > 0.85) continue;
+    // avoid pond areas (large behind bridge, small in front)
+    const inLarge  = (x-1.5)**2/(4.5)**2 + (z+1.8)**2/(2.8)**2 < 1;
+    const inSmall  = (x-1.8)**2/(3.2)**2 + (z-1.5)**2/(1.8)**2 < 1;
+    const inStream = x > -1.5 && x < 4 && z > 0 && z < 1.2;
+    if (inLarge || inSmall || inStream) continue;
+    const t = mesh(tuftGeo, tuftMat, false, true);
+    t.rotation.x = -Math.PI/2;
+    t.position.set(x, 0.26 + Math.random()*0.02, z);
+    t.scale.setScalar(0.6 + Math.random()*0.9);
+    grp.add(t);
+  }
+
+  return grp;
+}
+
+/* =================================================================
+   PAGODA — three-tiered Japanese pagoda
+   ================================================================== */
+function buildPagoda() {
+  const pagoda = new THREE.Group();
+
+  const red     = mat(C.pagodaRed, { roughness: 0.55 });
+  const redD    = mat(C.pagodaRedDark, { roughness: 0.6 });
+  const roofMat = mat(C.roof, { roughness: 0.75, flatShading: true });
+  const roofHi  = mat(C.roofHi, { roughness: 0.7, flatShading: true });
+  const gold    = mat(C.gold, { roughness: 0.3, metalness: 0.6, emissive: 0x3a2c00, emissiveIntensity: 0.15 });
+  const wall    = mat(C.wallWhite, { roughness: 0.85 });
+  const wallD   = mat(C.wallShade, { roughness: 0.85 });
+  const base    = mat(C.stoneBase, { roughness: 0.95 });
+  const stairSt = mat(C.stoneLight, { roughness: 0.9 });
+
+  // Stone foundation
+  const baseW = 5.6, baseD = 5.6, baseH = 0.9;
+  const baseGeo = new THREE.BoxGeometry(baseW, baseH, baseD);
+  const baseMesh = mesh(baseGeo, base);
+  baseMesh.position.y = baseH/2;
+  pagoda.add(baseMesh);
+  // base top slab slightly larger
+  const slab = mesh(new THREE.BoxGeometry(baseW+0.2, 0.15, baseD+0.2), base);
+  slab.position.y = baseH + 0.07;
+  pagoda.add(slab);
+
+  // Stairs
+  const stairCount = 6;
+  const stairW = 1.8;
+  for (let i=0; i<stairCount; i++) {
+    const s = mesh(new THREE.BoxGeometry(stairW, 0.18, 0.35), stairSt);
+    s.position.set(0, 0.18/2 + i*0.18, baseD/2 + 0.15 + i*0.35);
+    s.receiveShadow = true;
+    pagoda.add(s);
+  }
+  // stair handrails (red)
+  for (const sx of [-stairW/2 - 0.05, stairW/2 + 0.05]) {
+    const rail = mesh(new THREE.BoxGeometry(0.08, 0.6, stairCount*0.35 + 0.4), red);
+    rail.position.set(sx, 0.45, baseD/2 + 0.15 + stairCount*0.35*0.5);
+    rail.rotation.x = -0.28;
+    pagoda.add(rail);
+  }
+
+  // Helper: create one tier (body + balcony + roof)
+  function makeTier(cx, cy, cz, w, d, h, roofOverhang, roofHeight, isTop=false) {
+    const g = new THREE.Group();
+    g.position.set(cx, cy, cz);
+
+    // Body walls (white panels in red frame)
+    // Full body
+    const body = mesh(new THREE.BoxGeometry(w, h, d), wall);
+    body.position.y = h/2;
+    g.add(body);
+    // Red corner posts
+    const postR = 0.12;
+    const postOffs = [[-w/2,-d/2],[w/2,-d/2],[-w/2,d/2],[w/2,d/2]];
+    for (const [x,z] of postOffs) {
+      const p = mesh(new THREE.BoxGeometry(postR, h, postR), red);
+      p.position.set(x, h/2, z);
+      g.add(p);
+    }
+    // Horizontal red rails (top and bottom)
+    for (const yOff of [0.08, h-0.08]) {
+      const railF = mesh(new THREE.BoxGeometry(w+postR, 0.12, 0.08), red);
+      railF.position.set(0, yOff, d/2);
+      g.add(railF);
+      const railB = railF.clone(); railB.position.z = -d/2; g.add(railB);
+      const railL = mesh(new THREE.BoxGeometry(0.08, 0.12, d+postR), red);
+      railL.position.set(-w/2, yOff, 0); g.add(railL);
+      const railR = railL.clone(); railR.position.x = w/2; g.add(railR);
+    }
+    // Dark door panels (front) if not top; for bottom tier bigger doors
+    const doorH = h*0.6, doorW = w*0.22;
+    if (!isTop) {
+      for (const dx of [-w*0.18, w*0.18]) {
+        const door = mesh(new THREE.BoxGeometry(doorW, doorH, 0.05), mat(0x3a1e1a, { roughness: 0.7 }));
+        door.position.set(dx, doorH/2 + 0.05, d/2 + 0.01);
+        g.add(door);
+        // gold door accents
+        const knobs = mesh(new THREE.SphereGeometry(0.05, 8, 6), gold);
+        knobs.position.set(dx + (dx>0 ? -0.05 : 0.05), doorH*0.55, d/2 + 0.05);
+        g.add(knobs);
+      }
+      // side windows (dark panels)
+      for (const sx of [-w*0.25, 0, w*0.25]) {
+        if (sx===0) continue;
+        const win = mesh(new THREE.BoxGeometry(0.05, h*0.35, w*0.3), mat(0x3a1e1a, { roughness:0.7 }));
+        win.position.set(-w/2 - 0.01, h*0.55, sx);
+        g.add(win);
+        const win2 = win.clone(); win2.position.x = w/2 + 0.01; g.add(win2);
+      }
+    } else {
+      // top tier has small windows too
+      for (const dx of [-w*0.22, w*0.22]) {
+        const win = mesh(new THREE.BoxGeometry(doorW, h*0.45, 0.05), mat(0x3a1e1a, { roughness:0.7 }));
+        win.position.set(dx, h*0.55, d/2 + 0.01);
+        g.add(win);
+      }
+    }
+
+    // Balcony (on all but top)
+    if (!isTop) {
+      const balW = w + 0.7, balD = d + 0.7, balH = 0.08;
+      const floor = mesh(new THREE.BoxGeometry(balW, balH, balD), redD);
+      floor.position.y = 0; // tier sits on previous roof; balcony floor at tier bottom
+      g.add(floor);
+      // railings
+      const railH = 0.55;
+      for (let side=0; side<4; side++) {
+        const horizontal = (side % 2 === 0);
+        const len = horizontal ? balW : balD;
+        const rr = mesh(new THREE.BoxGeometry(horizontal?len:0.08, railH, horizontal?0.08:len), red);
+        const offX = horizontal ? 0 : (side<2 ? -balW/2 : balW/2);
+        const offZ = horizontal ? (side<2 ? balD/2 : -balD/2) : 0;
+        rr.position.set(offX, railH/2 + 0.1, offZ);
+        g.add(rr);
+        // vertical balusters
+        const nB = 7;
+        for (let i=1; i<nB; i++) {
+          const t = i/nB;
+          const p = mesh(new THREE.BoxGeometry(0.05, railH, 0.05), red);
+          if (horizontal) p.position.set(-len/2 + t*len, railH/2 + 0.1, offZ);
+          else           p.position.set(offX, railH/2 + 0.1, -len/2 + t*len);
+          g.add(p);
+        }
+      }
+      // gold ornaments at corners
+      for (const [x,z] of [[-balW/2,-balD/2],[balW/2,-balD/2],[-balW/2,balD/2],[balW/2,balD/2]]) {
+        const kn = mesh(new THREE.SphereGeometry(0.08, 8, 6), gold);
+        kn.position.set(x, railH + 0.1, z);
+        g.add(kn);
+      }
+    }
+
+    // ---- Roof (pagoda-style, curved) ----
+    // Build a stylized flared tiled roof using a segmented cone/frustum with slight uplift at corners
+    const roofGroup = new THREE.Group();
+    roofGroup.position.y = h + (isTop ? 0.05 : 0.05);
+    g.add(roofGroup);
+
+    // Main roof: use a four-sided slightly flared pyramid with uplifted corners via vertex manipulation
+    const rw = w + roofOverhang;
+    const rd = d + roofOverhang;
+    // We'll build a custom geometry: top square and bottom square, then push bottom corners up+out a bit
+    const roofGeo = new THREE.BufferGeometry();
+    const topY = roofHeight;
+    const botY = 0;
+    const topW = w*0.2; // smaller top
+    // vertices
+    const verts = [
+      // top quad
+      -topW/2, topY, -topW/2,   topW/2, topY, -topW/2,   topW/2, topY,  topW/2,  -topW/2, topY,  topW/2,
+      // bottom quad (with flared extended corners slightly uplifted)
+      -rw/2*1.06, botY+0.18, -rd/2*1.06,   rw/2*1.06, botY+0.18, -rd/2*1.06,
+       rw/2*1.06, botY+0.18,  rd/2*1.06,  -rw/2*1.06, botY+0.18,  rd/2*1.06,
+      // bottom midpoints (regular, not flared)
+       0,      botY+0.02, -rd/2*0.98,
+       rw/2*0.98, botY+0.02, 0,
+       0,      botY+0.02,  rd/2*0.98,
+      -rw/2*0.98, botY+0.02, 0,
+    ];
+    // Faces (triangulate). Top (0,1,2,3) and bottom (4,5,6,7) with midpoints (8,9,10,11)
+    // We'll do triangles: top face, four slanted sides between top and bottom, using the corners and midpoints.
+    const idx = [];
+    // top (fan)
+    idx.push(0,1,2, 0,2,3);
+    // sides (4 corners) — each side: corner A, midpoint, corner B (two tris with top edges)
+    // front (z negative): corners 4,5 and midpoint 8. top edges: 0,1
+    idx.push(4,8,5, 4,5,1, 4,1,0);
+    // right (x positive): corners 5,6 and midpoint 9. top edges: 1,2
+    idx.push(5,9,6, 5,6,2, 5,2,1);
+    // back (z positive): corners 6,7 and midpoint 10. top edges: 2,3
+    idx.push(6,10,7, 6,7,3, 6,3,2);
+    // left (x negative): corners 7,4 and midpoint 11. top edges: 3,0
+    idx.push(7,11,4, 7,4,0, 7,0,3);
+    roofGeo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+    roofGeo.setIndex(idx);
+    roofGeo.computeVertexNormals();
+    // Add tiled ridges: slightly raised ribs using thin boxes across each face
+    const roof = mesh(roofGeo, roofMat, true, true);
+    roofGroup.add(roof);
+
+    // Ribbed tile lines on each roof face (horizontal strips of slightly darker geometry)
+    const ribs = 5;
+    for (let i=1; i<ribs; i++) {
+      const t = i/ribs;
+      const yw = botY + (topY-botY)*t;
+      const ww = THREE.MathUtils.lerp(rw, topW, t);
+      const dd = THREE.MathUtils.lerp(rd, topW, t);
+      const ribGeo = new THREE.BoxGeometry(ww*1.01, 0.04, dd*1.01);
+      const rib = mesh(ribGeo, roofHi, false, false);
+      rib.position.y = yw;
+      roofGroup.add(rib);
+    }
+    // Ridge along top edge
+    const ridge = mesh(new THREE.BoxGeometry(topW*1.2, 0.1, topW*1.2), roofHi);
+    ridge.position.y = topY;
+    roofGroup.add(ridge);
+
+    // Gold corner drops (small gold ornaments hanging from corners for lower tiers)
+    if (!isTop) {
+      for (const [x,z] of [[-rw/2*1.04,-rd/2*1.04],[rw/2*1.04,-rd/2*1.04],
+                           [-rw/2*1.04, rd/2*1.04],[rw/2*1.04, rd/2*1.04]]) {
+        const drop = mesh(new THREE.ConeGeometry(0.07, 0.22, 6), gold);
+        drop.position.set(x*0.98, botY+0.08, z*0.98);
+        drop.rotation.x = Math.PI;
+        roofGroup.add(drop);
+      }
+    }
+
+    return g;
+  }
+
+  // Three tiers with decreasing size
+  const tier1Y = baseH + 0.1;
+  const t1 = makeTier(0, tier1Y, 0, 4.6, 4.6, 2.0, 2.3, 1.15, false);
+  pagoda.add(t1);
+
+  const t2 = makeTier(0, tier1Y + 2.0 + 1.15 - 0.3, 0, 3.4, 3.4, 1.7, 1.9, 0.95, false);
+  // t2 balcony sits on the lower roof — we need to shift it up so its base aligns with the top of the roof below
+  t2.position.y = tier1Y + 2.0 + 0.4;
+  pagoda.add(t2);
+
+  const t3 = makeTier(0, 0, 0, 2.3, 2.3, 1.4, 1.5, 0.8, true);
+  t3.position.y = t2.position.y + 1.7 + 0.35;
+  pagoda.add(t3);
+
+  // Golden spire (sōrin) on top
+  const spireBase = new THREE.Group();
+  spireBase.position.y = t3.position.y + 1.4 + 0.8;
+  pagoda.add(spireBase);
+  const spire1 = mesh(new THREE.CylinderGeometry(0.22, 0.3, 0.2, 8), gold);
+  spire1.position.y = 0.1;
+  spireBase.add(spire1);
+  const spire2 = mesh(new THREE.CylinderGeometry(0.12, 0.22, 0.3, 8), gold);
+  spire2.position.y = 0.35;
+  spireBase.add(spire2);
+  const spire3 = mesh(new THREE.ConeGeometry(0.16, 0.9, 8), gold);
+  spire3.position.y = 0.95;
+  spireBase.add(spire3);
+  const spireTip = mesh(new THREE.SphereGeometry(0.1, 10, 8), gold);
+  spireTip.position.y = 1.45;
+  spireBase.add(spireTip);
+
+  return pagoda;
+}
+
+/* =================================================================
+   BRIDGE — red arched bridge
+   ================================================================== */
+function buildBridge() {
+  const g = new THREE.Group();
+  const red     = mat(C.bridgeRed, { roughness: 0.55 });
+  const plank   = mat(C.plank, { roughness: 0.8 });
+  const gold    = mat(C.gold, { roughness: 0.3, metalness: 0.5 });
+
+  // Arch shape (walking deck) using a curved path
+  const archPts = [];
+  const archW = 3.4;     // horizontal span
+  const archH = 1.2;     // arch height above water
+  const steps = 14;
+  for (let i=0; i<=steps; i++) {
+    const t = i/steps;
+    const x = -archW/2 + t*archW;
+    // gentle arch
+    const y = archH * (1 - Math.pow(2*t - 1, 2)) + 0.02;
+    archPts.push(new THREE.Vector3(x, y, 0));
+  }
+  const deckW = 1.5;
+  const plankGeo = new THREE.BoxGeometry(0.24, 0.06, deckW);
+  for (let i=0; i<archPts.length-1; i++) {
+    const p = archPts[i];
+    const pn = archPts[i+1];
+    const dx = pn.x - p.x, dy = pn.y - p.y;
+    const angle = Math.atan2(dy, dx);
+    const pl = mesh(plankGeo, plank, true, true);
+    pl.position.set(p.x + dx*0.5, p.y + dy*0.5, 0);
+    pl.rotation.z = angle;
+    g.add(pl);
+  }
+  // Arch under-structure (curved support)
+  const supportGeo = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(archPts.map(p=>new THREE.Vector3(p.x, p.y - 0.25, 0))), 20, 0.12, 6, false);
+  const s1 = mesh(supportGeo, red, true, true);
+  g.add(s1);
+  const s2 = mesh(supportGeo, red, true, true);
+  s2.position.z = -deckW/2;
+  g.add(s2);
+  const s3 = s2.clone(); s3.position.z = deckW/2; g.add(s3);
+
+  // Vertical posts + rails along both sides
+  for (const side of [-1, 1]) {
+    const z = side * deckW*0.48;
+    // inner and outer rails
+    for (let i=0; i<archPts.length; i++) {
+      const p = archPts[i];
+      if (i===0 || i===archPts.length-1 || i%2===0) {
+        const postH = 0.5;
+        const post = mesh(new THREE.BoxGeometry(0.08, postH, 0.08), red);
+        post.position.set(p.x, p.y + postH/2, z);
+        g.add(post);
+        // gold top
+        const fin = mesh(new THREE.SphereGeometry(0.07, 8, 6), gold);
+        fin.position.set(p.x, p.y + postH + 0.02, z);
+        g.add(fin);
+      }
+    }
+    // top rail (curved)
+    const railPts = archPts.map(p => new THREE.Vector3(p.x, p.y + 0.5, z));
+    const railGeo = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(railPts), 24, 0.05, 6, false);
+    const rail = mesh(railGeo, red, true, true);
+    g.add(rail);
+    // mid rail
+    const midPts = archPts.map(p => new THREE.Vector3(p.x, p.y + 0.25, z));
+    const midGeo = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(midPts), 24, 0.04, 6, false);
+    const mid = mesh(midGeo, red, true, true);
+    g.add(mid);
+  }
+
+  // Abutments (bases at both ends)
+  for (const sx of [-archW/2 - 0.1, archW/2 + 0.1]) {
+    const a = mesh(new THREE.BoxGeometry(0.4, 0.4, deckW+0.2), mat(C.stoneLight, { roughness:0.9 }));
+    a.position.set(sx, 0.0, 0);
+    g.add(a);
+  }
+
+  return g;
+}
+
+/* =================================================================
+   PONDS — two connected pools with stone edging
+   ================================================================== */
+function buildPondsAndBridge() {
+  const g = new THREE.Group();
+
+  const waterMat = new THREE.MeshStandardMaterial({
+    color: C.waterA,
+    roughness: 0.15,
+    metalness: 0.2,
+    transparent: true,
+    opacity: 0.92,
+    emissive: 0x11393b,
+    emissiveIntensity: 0.12
+  });
+
+  // Upper pond (behind bridge, larger)
+  const upperShape = new THREE.Shape();
+  POND_UPPER.forEach((p, i) => {
+    if (i===0) upperShape.moveTo(p[0], p[1]); else upperShape.lineTo(p[0], p[1]);
+  });
+  upperShape.closePath();
+  const upperGeo = new THREE.ExtrudeGeometry(upperShape, { depth: 0.5, bevelEnabled: false });
+  upperGeo.rotateX(Math.PI/2);
+  const upperPond = mesh(upperGeo, waterMat, false, false);
+  // With rotateX(+PI/2), extrusion goes down (-Y). Place top of water at y=0.1 (below grass top at 0.22).
+  upperPond.position.y = 0.1;
+  g.add(upperPond);
+
+  // Lower pond (front, narrower)
+  const lowerShape = new THREE.Shape();
+  POND_LOWER.forEach((p, i) => {
+    if (i===0) lowerShape.moveTo(p[0], p[1]); else lowerShape.lineTo(p[0], p[1]);
+  });
+  lowerShape.closePath();
+  const lowerGeo = new THREE.ExtrudeGeometry(lowerShape, { depth: 0.5, bevelEnabled: false });
+  lowerGeo.rotateX(Math.PI/2);
+  const lowerPond = mesh(lowerGeo, waterMat, false, false);
+  lowerPond.position.y = 0.1;
+  g.add(lowerPond);
+
+  // Connecting stream under the bridge
+  const streamShape = new THREE.Shape();
+  STREAM_PTS.forEach((p, i) => {
+    if (i===0) streamShape.moveTo(p[0], p[1]); else streamShape.lineTo(p[0], p[1]);
+  });
+  streamShape.closePath();
+  const streamGeo = new THREE.ExtrudeGeometry(streamShape, { depth: 0.45, bevelEnabled: false });
+  streamGeo.rotateX(Math.PI/2);
+  const stream = mesh(streamGeo, mat(C.waterB, { ...waterMat, color: C.waterB, emissiveIntensity: 0.14 }), false, false);
+  stream.position.y = 0.1;
+  g.add(stream);
+
+  // Pond stone edging (flat oval stones around rims)
+  function addStoneRim(points, y=0.22, size=0.22) {
+    for (let i=0; i<points.length; i++) {
+      const p = points[i];
+      const pn = points[(i+1) % points.length];
+      const segs = 3;
+      for (let s=0; s<segs; s++) {
+        const t = s/segs;
+        const x = p[0] + (pn[0]-p[0])*t;
+        const z = p[1] + (pn[1]-p[1])*t;
+        const sg = 0.7 + Math.random()*0.5;
+        const stone = mesh(new THREE.SphereGeometry(size*sg, 7, 5), mat(C.stoneLight, { roughness: 0.95, flatShading: true }));
+        stone.scale.set(1.3*sg, 0.55*sg, 0.9*sg);
+        stone.position.set(x*1.015, y, z*1.015);
+        stone.rotation.y = Math.random()*Math.PI;
+        g.add(stone);
+      }
+    }
+  }
+  addStoneRim(POND_UPPER, 0.22, 0.24);
+  addStoneRim(POND_LOWER, 0.22, 0.22);
+  addStoneRim(STREAM_PTS, 0.22, 0.16);
+
+  // Water ripples: floating circles (flat discs) with subtle movement
+  const rippleMat = new THREE.MeshStandardMaterial({
+    color: 0xffffff, transparent: true, opacity: 0.3,
+    roughness: 0.2, metalness: 0.3, depthWrite: false
+  });
+  const ripples = [];
+  for (let i=0; i<22; i++) {
+    const r = mesh(new THREE.RingGeometry(0.06, 0.09, 16), rippleMat, false, false);
+    r.rotation.x = -Math.PI/2;
+    // pick a spot inside one of the ponds
+    const inLarge = Math.random() < 0.6;
+    let x, z;
+    if (inLarge) {
+      // Large pond: roughly x ∈ [-2.5, 5], z ∈ [-3.8, 0.2]
+      x = -2.5 + Math.random()*7.5;
+      z = -3.8 + Math.random()*4.0;
+    } else {
+      // Small pond: x ∈ [-1, 4.5], z ∈ [0.3, 2.7]
+      x = -1.0 + Math.random()*5.5;
+      z = 0.3 + Math.random()*2.4;
+    }
+    r.position.set(x, 0.12, z);
+    r.userData = { phase: Math.random()*Math.PI*2, speed: 0.4 + Math.random()*0.6, inLarge };
+    g.add(r);
+    ripples.push(r);
+  }
+  g.userData.ripples = ripples;
+
+  // ==== Bridge placement: position it between the ponds, arching over the connecting stream. ====
+  const bridge = buildBridge();
+  bridge.position.set(0.4, 0.22, 0.5);
+  bridge.rotation.y = -Math.PI*0.25;
+  g.add(bridge);
+  g.userData.bridge = bridge;
+
+  return g;
+}
+
+/* =================================================================
+   KOI FISH
+   ================================================================== */
+function buildKoi(colorA, colorB) {
+  const g = new THREE.Group();
+
+  const matA = mat(colorA, { roughness: 0.5 });
+  const matB = mat(colorB, { roughness: 0.5 });
+  const bodyMat = colorB === C.koiWhite ? matB : matA;
+
+  // Body (elongated sphere)
+  const body = mesh(new THREE.SphereGeometry(0.22, 10, 8), bodyMat, false, false);
+  body.scale.set(2.1, 0.75, 0.85);
+  g.add(body);
+
+  // Tail (wedge)
+  const tailGeo = new THREE.ConeGeometry(0.28, 0.4, 4);
+  const tail = mesh(tailGeo, bodyMat, false, false);
+  tail.rotation.z = Math.PI/2;
+  tail.rotation.y = Math.PI/2;
+  tail.position.set(-0.42, 0, 0);
+  tail.scale.set(0.5, 1.3, 0.1);
+  g.add(tail);
+  g.userData.tail = tail;
+
+  // Head bump
+  const head = mesh(new THREE.SphereGeometry(0.17, 8, 6), bodyMat, false, false);
+  head.scale.set(1.2, 0.95, 0.95);
+  head.position.set(0.28, 0.02, 0);
+  g.add(head);
+
+  // Dorsal fin
+  const finGeo = new THREE.ConeGeometry(0.08, 0.25, 4);
+  const fin = mesh(finGeo, mat(colorA === C.koiOrange ? C.koiOrange : C.koiBlack, { roughness: 0.5 }), false, false);
+  fin.position.set(-0.05, 0.18, 0);
+  fin.scale.set(0.3, 2.2, 0.2);
+  g.add(fin);
+
+  // Spots (if koiWhite body with orange/black)
+  if (colorB === C.koiWhite) {
+    const spotMat = mat(colorA, { roughness: 0.5 });
+    const s1 = mesh(new THREE.SphereGeometry(0.08, 8, 6), spotMat, false, false);
+    s1.scale.set(1.5, 0.8, 0.2);
+    s1.position.set(-0.05, 0.14, 0.17);
+    g.add(s1);
+    const s2 = mesh(new THREE.SphereGeometry(0.06, 8, 6), spotMat, false, false);
+    s2.scale.set(1.2, 0.8, 0.2);
+    s2.position.set(0.15, 0.1, -0.16);
+    g.add(s2);
+    if (colorA === C.koiBlack) {
+      const s3 = mesh(new THREE.SphereGeometry(0.05, 8, 6), mat(C.koiOrange, { roughness: 0.5 }), false, false);
+      s3.scale.set(1.3, 0.7, 0.2);
+      s3.position.set(-0.2, 0.12, 0.15);
+      g.add(s3);
+    }
+  }
+
+  // Eye
+  const eye = mesh(new THREE.SphereGeometry(0.025, 6, 6), mat(0x000000), false, false);
+  eye.position.set(0.37, 0.05, 0.13);
+  g.add(eye);
+  const eye2 = eye.clone(); eye2.position.z = -0.13; g.add(eye2);
+
+  g.scale.setScalar(0.9);
+  return g;
+}
+
+function populateKoi(group) {
+  const koiList = [];
+  // Large pond (behind bridge, near pagoda)
+  const largeDefs = [
+    [C.koiWhite, C.koiOrange], [C.koiBlack, C.koiWhite], [C.koiOrange, C.koiWhite],
+    [C.koiOrange, C.koiWhite], [C.koiWhite, C.koiOrange], [C.koiBlack, C.koiWhite]
+  ];
+  // Small pond (in front of bridge)
+  const smallDefs = [
+    [C.koiWhite, C.koiOrange], [C.koiOrange, C.koiWhite],
+    [C.koiOrange, C.koiWhite], [C.koiBlack, C.koiWhite], [C.koiWhite, C.koiOrange]
+  ];
+
+  // Large pond centered roughly at (1.5, -1.8) — kidney shape
+  largeDefs.forEach((c, i) => {
+    const koi = buildKoi(c[0], c[1]);
+    const a = Math.random()*Math.PI*2;
+    const r = 1.0 + Math.random()*2.2;
+    const cx = 1.5, cz = -1.8;
+    koi.position.set(Math.cos(a)*r*1.1 + cx, 0.05, Math.sin(a)*r*0.75 + cz);
+    koi.userData.cx = cx; koi.userData.cz = cz;
+    koi.userData.radius = r;
+    koi.userData.angle = a;
+    koi.userData.speed = 0.18 + Math.random()*0.2;
+    koi.userData.phase = Math.random()*Math.PI*2;
+    koi.userData.pond = 'large';
+    group.add(koi);
+    koiList.push(koi);
+  });
+  // Small pond centered roughly at (1.8, 1.5)
+  smallDefs.forEach((c, i) => {
+    const koi = buildKoi(c[0], c[1]);
+    const a = Math.random()*Math.PI*2;
+    const r = 0.8 + Math.random()*1.4;
+    const cx = 1.8, cz = 1.5;
+    koi.position.set(Math.cos(a)*r*1.0 + cx, 0.05, Math.sin(a)*r*0.6 + cz);
+    koi.userData.cx = cx; koi.userData.cz = cz;
+    koi.userData.radius = r;
+    koi.userData.angle = a;
+    koi.userData.speed = 0.22 + Math.random()*0.22;
+    koi.userData.phase = Math.random()*Math.PI*2;
+    koi.userData.pond = 'small';
+    group.add(koi);
+    koiList.push(koi);
+  });
+  group.userData.koi = koiList;
+}
+
+/* =================================================================
+   TREES — cherry blossoms
+   ================================================================== */
+function buildCherryTree(scale=1) {
+  const g = new THREE.Group();
+
+  const trunkMat = mat(C.trunk, { roughness: 0.95 });
+  const trunk = mesh(new THREE.CylinderGeometry(0.22*scale, 0.35*scale, 2.8*scale, 8), trunkMat);
+  trunk.position.y = 1.4*scale;
+  g.add(trunk);
+
+  // a few branches
+  const branchMat = mat(C.trunkDark, { roughness: 0.95 });
+  const branches = [
+    [0.0, 2.2*scale, 0.1*scale, 1.2*scale, -0.4, 0.0],
+    [0.15*scale, 2.5*scale, 0.15*scale, 1.0*scale, 0.3, 0.5],
+    [-0.18*scale, 2.4*scale, -0.1*scale, 0.9*scale, -0.3, -0.7],
+    [0.22*scale, 2.0*scale, -0.2*scale, 0.8*scale, -0.6, -0.2]
+  ];
+  for (const [x,y,z,l,rx,rz] of branches) {
+    const b = mesh(new THREE.CylinderGeometry(0.06*scale, 0.1*scale, l, 6), branchMat);
+    b.position.set(x, y - l*0.25, z);
+    b.rotation.z = rz;
+    b.rotation.x = rx;
+    g.add(b);
+  }
+
+  // Canopy — layered clusters of pink spheres
+  const pinkLight = mat(C.blossomA, { roughness: 0.8 });
+  const pinkDark  = mat(C.blossomB, { roughness: 0.85 });
+  const clusters = [
+    [0, 3.0*scale, 0, 1.15*scale, pinkLight],
+    [0.6*scale, 2.7*scale, 0.5*scale, 0.85*scale, pinkDark],
+    [-0.7*scale, 2.6*scale, -0.2*scale, 0.9*scale, pinkLight],
+    [0.2*scale, 2.4*scale, -0.7*scale, 0.7*scale, pinkDark],
+    [0.9*scale, 2.4*scale, -0.3*scale, 0.7*scale, pinkLight],
+    [-0.5*scale, 2.3*scale, 0.6*scale, 0.75*scale, pinkDark],
+    [-1.0*scale, 2.8*scale, 0.1*scale, 0.7*scale, pinkLight],
+    [0.4*scale, 3.2*scale, -0.4*scale, 0.65*scale, pinkDark]
+  ];
+  clusters.forEach(([x,y,z,s,m], i) => {
+    const cluster = mesh(new THREE.IcosahedronGeometry(s, 0), m, true, true);
+    cluster.position.set(x, y, z);
+    cluster.scale.y = 0.85;
+    g.add(cluster);
+  });
+
+  // Add tiny pink dot "blossoms" as leaves for extra fluff (instanced points look nice but simple meshes work)
+  const pGeo = new THREE.SphereGeometry(0.06*scale, 5, 4);
+  const blossomMats = [pinkLight, pinkDark];
+  for (let i=0; i<50; i++) {
+    const a = Math.random()*Math.PI*2;
+    const b = (Math.random()-0.5)*Math.PI*0.8;
+    const r = (0.7 + Math.random()*0.7)*scale;
+    const x = Math.cos(a)*Math.cos(b)*r;
+    const y = 2.7*scale + Math.sin(b)*r*0.9;
+    const z = Math.sin(a)*Math.cos(b)*r;
+    const p = mesh(pGeo, blossomMats[i%2], false, true);
+    p.position.set(x,y,z);
+    p.scale.setScalar(0.6 + Math.random()*0.8);
+    g.add(p);
+  }
+
+  return g;
+}
+
+/* =================================================================
+   BAMBOO
+   ================================================================== */
+function buildBamboo(clusterW=0.6) {
+  const g = new THREE.Group();
+  const stalkMat = mat(C.bamboo, { roughness: 0.8 });
+  const leafMat  = mat(C.bambooDark, { roughness: 0.8, flatShading: true });
+  const count = 6 + Math.floor(Math.random()*4);
+  for (let i=0; i<count; i++) {
+    const h = 2.0 + Math.random()*1.5;
+    const x = (Math.random()-0.5)*clusterW;
+    const z = (Math.random()-0.5)*clusterW;
+    const stalk = mesh(new THREE.CylinderGeometry(0.06, 0.08, h, 6), stalkMat, true, true);
+    stalk.position.set(x, h/2, z);
+    g.add(stalk);
+    // nodes
+    for (let n=1; n<4; n++) {
+      const nd = mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.04, 6), mat(C.bambooDark, { roughness: 0.9 }), false, true);
+      nd.position.set(x, n*h*0.25, z);
+      g.add(nd);
+    }
+    // leaves at top
+    for (let l=0; l<5; l++) {
+      const leaf = mesh(new THREE.ConeGeometry(0.12, 0.5, 4), leafMat, true, true);
+      leaf.position.set(x + (Math.random()-0.5)*0.35, h - 0.1 - Math.random()*0.3, z + (Math.random()-0.5)*0.35);
+      leaf.rotation.z = (Math.random()-0.5)*1.4;
+      leaf.rotation.x = (Math.random()-0.5)*0.8;
+      leaf.scale.set(0.5, 1.2, 0.3);
+      g.add(leaf);
+    }
+  }
+  return g;
+}
+
+/* =================================================================
+   BUSHES — round trimmed
+   ================================================================== */
+function buildBush(r=0.5, color=C.grassDark) {
+  const g = new THREE.Group();
+  const m = mat(color, { roughness: 0.95, flatShading: true });
+  const body = mesh(new THREE.IcosahedronGeometry(r, 0), m, true, true);
+  body.scale.y = 0.7;
+  body.position.y = r*0.55;
+  g.add(body);
+  // small indent bumps for stylized look
+  for (let i=0; i<3; i++) {
+    const bump = mesh(new THREE.SphereGeometry(r*0.2, 6, 5), m, true, true);
+    const a = Math.random()*Math.PI*2;
+    bump.position.set(Math.cos(a)*r*0.5, r*0.5, Math.sin(a)*r*0.5);
+    g.add(bump);
+  }
+  return g;
+}
+
+/* =================================================================
+   ROCKS
+   ================================================================== */
+function buildRock(size=0.5) {
+  const g = mesh(new THREE.DodecahedronGeometry(size, 0), mat(C.rock, { roughness: 1, flatShading: true }), true, true);
+  g.scale.set(1 + Math.random()*0.3, 0.6 + Math.random()*0.4, 0.9 + Math.random()*0.4);
+  g.rotation.set(Math.random()*Math.PI, Math.random()*Math.PI, Math.random()*Math.PI);
+  g.position.y = g.scale.y * size * 0.4;
+  return g;
+}
+
+/* =================================================================
+   STONE LANTERN (tōrō)
+   ================================================================== */
+function buildLantern(h=1.1) {
+  const g = new THREE.Group();
+  const st = mat(C.stoneLight, { roughness: 0.9, flatShading: true });
+  const std = mat(C.stoneDark, { roughness: 0.95 });
+
+  // base
+  const base = mesh(new THREE.CylinderGeometry(0.28, 0.32, 0.15, 6), st);
+  base.position.y = 0.07; g.add(base);
+  // pedestal (flared)
+  const ped = mesh(new THREE.CylinderGeometry(0.18, 0.28, 0.2, 6), st);
+  ped.position.y = 0.25; g.add(ped);
+  // column
+  const col = mesh(new THREE.CylinderGeometry(0.12, 0.14, 0.35, 6), st);
+  col.position.y = 0.55; g.add(col);
+  // middle platform
+  const mid = mesh(new THREE.BoxGeometry(0.38, 0.08, 0.38), std);
+  mid.position.y = 0.78; g.add(mid);
+  // lantern body
+  const body = mesh(new THREE.BoxGeometry(0.28, 0.28, 0.28), st);
+  body.position.y = 0.95; g.add(body);
+  // decorative openings (inset)
+  const hole = new THREE.MeshStandardMaterial({ color: 0x2c2a24, roughness: 0.6, emissive: 0x553b20, emissiveIntensity: 0.2 });
+  for (const sx of [-0.15, 0.15]) {
+    const win = mesh(new THREE.BoxGeometry(0.02, 0.1, 0.08), hole);
+    win.position.set(sx, 0.95, 0); g.add(win);
+  }
+  for (const sz of [-0.15, 0.15]) {
+    const win = mesh(new THREE.BoxGeometry(0.08, 0.1, 0.02), hole);
+    win.position.set(0, 0.95, sz); g.add(win);
+  }
+  // roof
+  const roof = mesh(new THREE.ConeGeometry(0.38, 0.25, 4), std);
+  roof.position.y = 1.15;
+  roof.rotation.y = Math.PI/4;
+  g.add(roof);
+  // top knob
+  const knob = mesh(new THREE.SphereGeometry(0.06, 6, 6), st);
+  knob.position.y = 1.32; g.add(knob);
+
+  g.scale.setScalar(h/1.1);
+  return g;
+}
+
+/* =================================================================
+   PATH (stepping stones)
+   ================================================================== */
+function buildPath() {
+  const g = new THREE.Group();
+  const stoneMat = mat(C.path, { roughness: 0.9, flatShading: true });
+  // Define a winding sequence of stepping-stone positions from front-left toward pagoda
+  const stones = [
+    // front entry
+    [-3.0, 6.2], [-2.5, 5.4], [-2.0, 4.6], [-1.3, 3.9], [-0.5, 3.3],
+    [0.2, 2.8], [0.8, 2.2], [0.3, 1.6], [-0.6, 1.2], [-0.2, 0.6],
+    [0.5, 0.1], [1.0, -0.5], [0.3, -1.0], [-0.4, -1.4], [-1.1, -2.0],
+    // approaching pagoda stairs
+    [-0.6, -2.8], [-0.1, -3.4]
+  ];
+  stones.forEach(([x, z], i) => {
+    const s = 0.55 + (i%3)*0.07;
+    const stone = mesh(new THREE.CircleGeometry(s, 9), stoneMat, false, true);
+    stone.rotation.x = -Math.PI/2;
+    stone.position.set(x, 0.05, z);
+    // add some thickness (cylinder)
+    const thick = mesh(new THREE.CylinderGeometry(s*0.95, s, 0.07, 9), mat(C.pathDark, { roughness: 0.95 }), true, true);
+    thick.position.set(x, 0.015, z);
+    g.add(thick);
+    g.add(stone);
+  });
+  // small scattered flowers (tiny pale pink/white dots on ground)
+  return g;
+}
+
+/* =================================================================
+   FENCE (front low stone fence)
+   ================================================================== */
+function buildFence() {
+  const g = new THREE.Group();
+  const postMat = mat(C.stoneLight, { roughness: 0.9 });
+  const railMat = mat(C.stoneDark, { roughness: 0.9 });
+
+  const posts = [
+    [-4.8, 5.5], [-4.0, 6.3], [-3.1, 6.7], [-2.2, 6.9], [-1.2, 6.8],
+    [-0.2, 6.5], [0.9, 5.9], [2.0, 5.2]
+  ];
+  let prev = null;
+  for (const [x,z] of posts) {
+    const p = mesh(new THREE.BoxGeometry(0.18, 0.7, 0.18), postMat, true, true);
+    p.position.set(x, 0.35, z);
+    g.add(p);
+    // cap
+    const cap = mesh(new THREE.BoxGeometry(0.28, 0.08, 0.28), railMat, true, true);
+    cap.position.set(x, 0.74, z);
+    g.add(cap);
+    if (prev) {
+      const dx = x - prev[0], dz = z - prev[1];
+      const len = Math.sqrt(dx*dx + dz*dz);
+      const angle = Math.atan2(dx, dz);
+      for (let i=0; i<2; i++) {
+        const rail = mesh(new THREE.BoxGeometry(0.1, 0.1, len), railMat, true, true);
+        rail.position.set(prev[0] + dx*0.5, 0.25 + i*0.2, prev[1] + dz*0.5);
+        rail.rotation.y = angle;
+        g.add(rail);
+      }
+    }
+    prev = [x,z];
+  }
+  return g;
+}
+
+/* =================================================================
+   PEOPLE (stylized low-poly)
+   ================================================================== */
+function buildPerson(opts) {
+  const g = new THREE.Group();
+  const skin = mat(C.skin, { roughness: 0.8 });
+  const hair = mat(C.hair, { roughness: 0.9 });
+  const shoe = mat(0x1a1a1a, { roughness: 0.7 });
+
+  // Legs
+  const pantMat = mat(opts.pantsColor, { roughness: 0.85 });
+  const legL = mesh(new THREE.BoxGeometry(0.16, 0.55, 0.18), pantMat);
+  legL.position.set(-0.1, 0.28, 0); g.add(legL);
+  const legR = legL.clone(); legR.position.x = 0.1; g.add(legR);
+  // Shoes
+  const sL = mesh(new THREE.BoxGeometry(0.18, 0.08, 0.25), shoe);
+  sL.position.set(-0.1, 0.04, 0.03); g.add(sL);
+  const sR = sL.clone(); sR.position.x = 0.1; g.add(sR);
+  // Torso (shirt)
+  const shirt = mat(opts.shirtColor, { roughness: 0.8 });
+  const torso = mesh(new THREE.BoxGeometry(0.42, 0.55, 0.28), shirt);
+  torso.position.y = 0.85; g.add(torso);
+  // Arms
+  const armL = mesh(new THREE.BoxGeometry(0.12, 0.5, 0.14), shirt);
+  armL.position.set(-0.28, 0.85, 0); g.add(armL);
+  const armR = armL.clone(); armR.position.x = 0.28; g.add(armR);
+  // Hands
+  const hL = mesh(new THREE.SphereGeometry(0.08, 6, 6), skin);
+  hL.position.set(-0.28, 0.6, 0); g.add(hL);
+  const hR = hL.clone(); hR.position.x = 0.28; g.add(hR);
+  // Head
+  const head = mesh(new THREE.BoxGeometry(0.28, 0.3, 0.28), skin);
+  head.position.y = 1.3; g.add(head);
+  // Hair cap
+  const hairCap = mesh(new THREE.BoxGeometry(0.32, 0.18, 0.32), hair);
+  hairCap.position.y = 1.43; g.add(hairCap);
+
+  if (opts.female) {
+    // Skirt
+    const skirt = mesh(new THREE.ConeGeometry(0.32, 0.5, 8), mat(opts.skirtColor, { roughness: 0.85 }));
+    skirt.position.y = 0.5; g.add(skirt);
+    legL.visible = legR.visible = false;
+    // Ponytail
+    const pony = mesh(new THREE.SphereGeometry(0.1, 8, 6), hair);
+    pony.position.set(-0.02, 1.35, -0.2); g.add(pony);
+    // Bag strap (diagonal)
+    const strap = mesh(new THREE.BoxGeometry(0.03, 0.55, 0.05), mat(0x111111));
+    strap.position.set(0.12, 0.88, 0.05);
+    strap.rotation.z = -0.5;
+    g.add(strap);
+    // Bag
+    const bag = mesh(new THREE.BoxGeometry(0.18, 0.22, 0.08), mat(0x1a1a1a));
+    bag.position.set(0.28, 0.58, 0.12);
+    g.add(bag);
+  }
+  return g;
+}
+
+/* =================================================================
+   SCATTERED CHERRY PETALS on ground
+   ================================================================== */
+function scatterPetals(group, count=120) {
+  const pGeo = new THREE.CircleGeometry(0.06, 5);
+  const pMats = [mat(C.blossomA, { roughness: 1 }), mat(C.blossomB, { roughness: 1 })];
+  for (let i=0; i<count; i++) {
+    const a = Math.random()*Math.PI*2;
+    const r = Math.random()*10.5;
+    const x = Math.cos(a)*r*1.18;
+    const z = Math.sin(a)*r*0.95;
+    if (((x/12)**2 + (z/10)**2) > 0.95) continue;
+    // avoid pond areas roughly
+    if (x>-3.3 && x<5 && z>-1.8 && z<3.3) continue;
+    if (x>-2.3 && x<4.8 && z>3.3 && z<6.3) continue;
+    const p = mesh(pGeo, pMats[i%2], false, true);
+    p.rotation.x = -Math.PI/2;
+    p.rotation.z = Math.random()*Math.PI*2;
+    p.position.set(x, 0.03 + Math.random()*0.03, z);
+    p.scale.setScalar(0.6 + Math.random()*0.8);
+    group.add(p);
+  }
+}
+
+/* =================================================================
+   FALLING CHERRY BLOSSOM PETALS (animated)
+   ================================================================== */
+function buildPetalSystem(count=200) {
+  const geo = new THREE.BufferGeometry();
+  const positions = new Float32Array(count*3);
+  const velocities = new Float32Array(count*3);
+  const seeds = new Float32Array(count);
+  for (let i=0; i<count; i++) {
+    positions[i*3]   = (Math.random()-0.5)*24;
+    positions[i*3+1] = Math.random()*14;
+    positions[i*3+2] = (Math.random()-0.5)*20;
+    velocities[i*3]   = (Math.random()-0.5)*0.2;
+    velocities[i*3+1] = -0.3 - Math.random()*0.3;
+    velocities[i*3+2] = (Math.random()-0.5)*0.2;
+    seeds[i] = Math.random()*Math.PI*2;
+  }
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('seed', new THREE.BufferAttribute(seeds, 1));
+
+  const mat = new THREE.PointsMaterial({
+    color: C.blossomA, size: 0.18, transparent: true, opacity: 0.8,
+    depthWrite: false, sizeAttenuation: true
+  });
+  const points = new THREE.Points(geo, mat);
+  points.userData.count = count;
+  return points;
+}
+
+/* =================================================================
+   ASSEMBLE SCENE
+   ================================================================== */
+const ground = buildGround();
+world.add(ground);
+
+// Ponds + bridge (water added here, so koi can be parented after)
+const pondGroup = buildPondsAndBridge();
+world.add(pondGroup);
+populateKoi(pondGroup);
+
+// Path
+above.add(buildPath());
+
+// Pagoda
+const pagoda = buildPagoda();
+pagoda.position.set(0, 0, -1.8);
+above.add(pagoda);
+
+// Cherry trees
+const treeL = buildCherryTree(1.05);
+treeL.position.set(-5.2, 0, -3.8);
+above.add(treeL);
+const treeR = buildCherryTree(0.95);
+treeR.position.set(5.6, 0, -3.2);
+above.add(treeR);
+
+// Bamboo clusters
+const bamL = buildBamboo(0.7);
+bamL.position.set(-6.2, 0, -1.8);
+above.add(bamL);
+const bamR = buildBamboo(0.6);
+bamR.position.set(6.0, 0, -1.3);
+above.add(bamR);
+const bamR2 = buildBamboo(0.5);
+bamR2.position.set(5.2, 0, -0.8);
+above.add(bamR2);
+
+// Bushes scattered around pagoda
+const bushPositions = [
+  [-4.5, -1.2, 0.7], [-3.2, -0.2, 0.55], [-2.0, -1.5, 0.6],
+  [2.2, -2.2, 0.6], [3.3, -2.6, 0.8], [4.2, -0.5, 0.5], [3.1, 0.8, 0.55],
+  [-0.5, 2.5, 0.5], [1.5, 2.6, 0.5], [-2.2, 2.8, 0.6], [-3.0, 6.0, 0.2]
+];
+bushPositions.forEach(([x, z, s], i) => {
+  const b = buildBush(0.45*s, i%2 ? C.grassDark : 0x5d7d3a);
+  b.position.set(x, 0, z);
+  above.add(b);
+});
+
+// Rocks
+const rockPositions = [
+  [-6.4, 0.3, 0.9], [-5.6, 1.0, 0.7], [5.8, -0.5, 0.85],
+  [5.0, 0.3, 0.8], [4.4, -0.2, 0.6], [-1.8, 6.3, 0.6]
+];
+rockPositions.forEach(([x,z,s]) => {
+  const r = buildRock(0.35*s);
+  r.position.set(x, 0, z);
+  above.add(r);
+});
+
+// Lanterns
+const lanternPositions = [
+  [-4.2, 0, -0.3, 1.0], [-3.0, 0, -1.8, 0.95],
+  [-1.0, 0, -3.3, 0.9], [1.0, 0, -3.3, 0.9],
+  [0.2, 0, 5.0, 0.85]
+];
+lanternPositions.forEach(([x,z,s,h]) => {
+  const l = buildLantern(h);
+  l.position.set(x, s, z);
+  above.add(l);
+});
+
+// Fence
+above.add(buildFence());
+
+// People
+const visitor1 = buildPerson({
+  female: true,
+  shirtColor: C.shirtWhite,
+  pantsColor: C.pantsGray,
+  skirtColor: C.skirt,
+});
+visitor1.position.set(-2.1, 0, 3.7);
+visitor1.rotation.y = Math.PI*0.35;
+above.add(visitor1);
+
+const visitor2 = buildPerson({
+  female: false,
+  shirtColor: C.greenShirt,
+  pantsColor: 0x2a3040,
+  skirtColor: 0x000000
+});
+visitor2.position.set(-1.3, 0, 3.0);
+visitor2.rotation.y = Math.PI*0.28;
+above.add(visitor2);
+
+const visitor3 = buildPerson({
+  female: false,
+  shirtColor: C.blueShirt,
+  pantsColor: C.pantsGray,
+  skirtColor: 0x000000
+});
+visitor3.position.set(2.0, -0.05, 0.6);
+visitor3.rotation.y = -Math.PI*0.55;
+above.add(visitor3);
+
+// Ground petals (local to `above`)
+scatterPetals(above, 180);
+
+// Falling petals (in the air across whole scene — world space)
+const petals = buildPetalSystem(260);
+world.add(petals);
+
+/* =================================================================
+   POST PROCESSING
+   ================================================================== */
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+
+const bokeh = new BokehPass(scene, camera, {
+  focus: 22.0,
+  aperture: 0.00018,
+  maxblur: 0.008
+});
+composer.addPass(bokeh);
+
+const fxaa = new ShaderPass(FXAAShader);
+fxaa.material.uniforms['resolution'].value.set(
+  1 / (innerWidth * renderer.getPixelRatio()),
+  1 / (innerHeight * renderer.getPixelRatio())
+);
+composer.addPass(fxaa);
+composer.addPass(new OutputPass());
+
+/* =================================================================
+   CAMERA ANIMATION (cinematic orbit with gentle parallax)
+   ================================================================== */
+const cameraRig = new THREE.Group();
+cameraRig.add(camera);
+scene.add(cameraRig);
+
+const clock = new THREE.Clock();
+let elapsed = 0;
+
+function animate() {
+  const dt = clock.getDelta();
+  elapsed += dt;
+
+  // Smooth orbit around diorama
+  const orbitSpeed = 0.055;
+  const angle = elapsed * orbitSpeed - 0.6;
+  const radiusX = 19.5;
+  const radiusZ = 17.5;
+  const targetY = 7.5;
+
+  // Add a gentle vertical sway
+  const camY = targetY + Math.sin(elapsed*0.3)*0.8;
+  const camX = Math.cos(angle) * radiusX;
+  const camZ = Math.sin(angle) * radiusZ;
+  camera.position.lerp(new THREE.Vector3(camX, camY, camZ), 0.04);
+
+  // Look slightly toward pagoda
+  const lookTarget = new THREE.Vector3(
+    Math.sin(elapsed*0.2)*0.6,
+    2.2 + Math.sin(elapsed*0.4)*0.2,
+    -0.5
+  );
+  camera.lookAt(lookTarget);
+
+  // Slow focus pull for cinematic feel
+  const focusTarget = 20 + Math.sin(elapsed*0.15)*3;
+  bokeh.uniforms['focus'].value += (focusTarget - bokeh.uniforms['focus'].value) * 0.02;
+
+  // Animate koi
+  const koiList = pondGroup.userData.koi;
+  koiList.forEach(k => {
+    k.userData.angle += dt * k.userData.speed;
+    const rx = k.userData.pond === 'large' ? k.userData.radius*1.1 : k.userData.radius;
+    const rz = k.userData.pond === 'large' ? k.userData.radius*0.75 : k.userData.radius*0.65;
+    const cx = k.userData.cx, cz = k.userData.cz;
+    const x = cx + Math.cos(k.userData.angle)*rx;
+    const z = cz + Math.sin(k.userData.angle)*rz;
+    k.position.x += (x - k.position.x) * 0.1;
+    k.position.z += (z - k.position.z) * 0.1;
+    k.position.y = 0.03 + Math.sin(elapsed*2 + k.userData.phase)*0.02;
+    k.rotation.y = -k.userData.angle + Math.PI/2;
+    k.rotation.z = Math.sin(elapsed*3 + k.userData.phase)*0.08;
+    if (k.userData.tail) {
+      k.userData.tail.rotation.y = Math.sin(elapsed*6 + k.userData.phase)*0.4 + Math.PI/2;
+    }
+  });
+
+  // Animate water ripples
+  pondGroup.userData.ripples.forEach(r => {
+    const t = elapsed*r.userData.speed + r.userData.phase;
+    const s = (Math.sin(t)*0.5+0.5)*1.3 + 0.6;
+    r.scale.setScalar(s);
+    r.material.opacity = 0.35 * (1 - (s-0.6)/1.6);
+  });
+
+  // Animate falling petals
+  const pos = petals.geometry.attributes.position.array;
+  const seeds = petals.geometry.attributes.seed.array;
+  for (let i=0; i<petals.userData.count; i++) {
+    const ix = i*3, iy=ix+1, iz=ix+2;
+    pos[iy] += -0.05 - Math.sin(elapsed*2 + seeds[i])*0.02;
+    pos[ix] += Math.sin(elapsed + seeds[i]*3)*0.01;
+    pos[iz] += Math.cos(elapsed*0.7 + seeds[i]*2)*0.008;
+    if (pos[iy] < 0.2) {
+      pos[ix] = (Math.random()-0.5)*24;
+      pos[iy] = 10 + Math.random()*5;
+      pos[iz] = (Math.random()-0.5)*20;
+    }
+  }
+  petals.geometry.attributes.position.needsUpdate = true;
+  petals.rotation.y = elapsed * 0.02;
+
+  // Subtle pagoda/fence shimmer? Nothing major.
+  composer.render();
+  requestAnimationFrame(animate);
+}
+
+/* =================================================================
+   RESIZE
+   ================================================================== */
+addEventListener('resize', () => {
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+  composer.setSize(innerWidth, innerHeight);
+  fxaa.material.uniforms['resolution'].value.set(
+    1 / (innerWidth * renderer.getPixelRatio()),
+    1 / (innerHeight * renderer.getPixelRatio())
+  );
+});
+
+/* =================================================================
+   START
+   ================================================================== */
+// Hide loader after a short delay to let first frame render
+requestAnimationFrame(() => {
+  animate();
+  setTimeout(() => {
+    document.getElementById('loader').classList.add('hidden');
+    setTimeout(() => document.getElementById('loader').remove(), 1200);
+  }, 400);
+});
+</script>
+</body>
+</html>

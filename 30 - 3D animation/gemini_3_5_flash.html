@@ -1,0 +1,2511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zen Garden - Cinematic 3D Interactive Animation</title>
+    <!-- Tailwind CSS (v4) -->
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <!-- Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+    
+    <!-- Three.js and Helper Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tween.js/18.6.4/tween.umd.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            margin: 0;
+            overflow: hidden;
+            background-color: #0d0f12;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        h1, h2, h3, .font-cinzel {
+            font-family: 'Cinzel', serif;
+        }
+        /* Custom Scrollbar for Settings Panel */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.1);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.4);
+        }
+        /* Glassmorphism Classes */
+        .glass-panel {
+            background: rgba(13, 15, 18, 0.7);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .glass-button {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .glass-button:hover {
+            background: rgba(255, 255, 255, 0.15);
+            border-color: rgba(255, 255, 255, 0.25);
+            transform: translateY(-1px);
+        }
+        .glass-button.active {
+            background: rgba(239, 68, 68, 0.2);
+            border-color: rgba(239, 68, 68, 0.5);
+            box-shadow: 0 0 12px rgba(239, 68, 68, 0.2);
+        }
+        /* Loading Animation */
+        @keyframes pulse-slow {
+            0%, 100% { opacity: 0.3; transform: scale(0.98); }
+            50% { opacity: 0.9; transform: scale(1.02); }
+        }
+        .pulse-ambient {
+            animation: pulse-slow 4s ease-in-out infinite;
+        }
+        /* Custom Range Input */
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            background: rgba(255, 255, 255, 0.1);
+            height: 4px;
+            border-radius: 2px;
+            outline: none;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: #ef4444;
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+        }
+    </style>
+</head>
+<body class="text-slate-100 select-none">
+
+    <!-- Loading Screen -->
+    <div id="loading-screen" class="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#0d0f12] transition-opacity duration-1000">
+        <div class="text-center max-w-md px-6">
+            <div class="mb-8 relative flex justify-center">
+                <!-- Outer glowing ring -->
+                <div class="absolute w-24 h-24 rounded-full border-2 border-red-500/20 animate-ping"></div>
+                <!-- Inner procedural Torii/Enso logo -->
+                <div class="w-20 h-20 rounded-full border-4 border-t-red-500 border-r-transparent border-b-red-500/50 border-l-transparent flex items-center justify-center pulse-ambient">
+                    <span class="font-cinzel text-2xl text-red-500">禪</span>
+                </div>
+            </div>
+            
+            <h1 class="font-cinzel text-3xl tracking-widest text-slate-100 mb-2">MINDFUL GARDEN</h1>
+            <p class="text-red-400 font-cinzel tracking-wider text-xs uppercase mb-8">Procedural Zen Sanctuary</p>
+            
+            <!-- Quote Container -->
+            <div class="h-16 flex items-center justify-center mb-10">
+                <p id="loading-quote" class="text-sm italic text-slate-400 tracking-wide transition-opacity duration-500 opacity-0">
+                    "In the landscape of the mind, there is always a quiet corner."
+                </p>
+            </div>
+
+            <!-- Progress Bar -->
+            <div class="w-64 h-1 bg-slate-800 rounded-full overflow-hidden mb-3 mx-auto">
+                <div id="loading-bar" class="w-0 h-full bg-red-500 transition-all duration-300"></div>
+            </div>
+            <p id="loading-status" class="text-[10px] uppercase tracking-widest text-slate-500">Generating Terrain...</p>
+        </div>
+    </div>
+
+    <!-- WebGL Canvas Container -->
+    <div id="canvas-container" class="w-full h-screen absolute inset-0"></div>
+
+    <!-- UI Overlay Header -->
+    <header class="fixed top-6 left-6 z-10 flex flex-col pointer-events-none">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center text-red-500 shadow-lg shadow-red-500/5">
+                <i data-lucide="flower-2" class="w-5 h-5"></i>
+            </div>
+            <div>
+                <h1 class="font-cinzel text-xl tracking-wider font-semibold text-slate-100 leading-tight">KOMOREBI GARDEN</h1>
+                <p class="text-[10px] uppercase tracking-widest text-slate-400 font-cinzel">Interactive Japanese Sanctuary</p>
+            </div>
+        </div>
+    </header>
+
+    <!-- UI Controls (Right Floating Sidebar) -->
+    <div id="settings-panel" class="fixed top-6 right-6 bottom-6 w-96 glass-panel rounded-2xl z-10 flex flex-col shadow-2xl transition-all duration-500 transform translate-x-0 overflow-hidden">
+        
+        <!-- Tab Headers -->
+        <div class="flex border-b border-white/5 bg-black/20 p-2 shrink-0">
+            <button onclick="switchTab('environment')" id="tab-btn-environment" class="flex-1 py-2 text-xs font-semibold uppercase tracking-wider rounded-lg transition-all text-red-400 bg-white/5 border border-white/5">
+                Environment
+            </button>
+            <button onclick="switchTab('camera')" id="tab-btn-camera" class="flex-1 py-2 text-xs font-semibold uppercase tracking-wider rounded-lg transition-all text-slate-400 hover:text-white">
+                Camera
+            </button>
+            <button onclick="switchTab('audio')" id="tab-btn-audio" class="flex-1 py-2 text-xs font-semibold uppercase tracking-wider rounded-lg transition-all text-slate-400 hover:text-white font-cinzel">
+                Sound (禅)
+            </button>
+        </div>
+
+        <!-- Scrollable Tab Content Container -->
+        <div class="flex-1 overflow-y-auto p-6 space-y-6">
+
+            <!-- ENVIRONMENT TAB -->
+            <div id="tab-environment" class="space-y-6">
+                <!-- Season Selection -->
+                <div>
+                    <label class="block text-xs uppercase tracking-widest text-slate-400 mb-3 font-semibold">Select Season</label>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button onclick="setSeason('spring')" id="season-spring" class="glass-button active flex items-center justify-center gap-2 py-3 px-2 rounded-xl text-xs font-medium text-slate-200">
+                            <i data-lucide="flower" class="w-4 h-4 text-pink-400"></i>
+                            <span>Spring</span>
+                        </button>
+                        <button onclick="setSeason('autumn')" id="season-autumn" class="glass-button flex items-center justify-center gap-2 py-3 px-2 rounded-xl text-xs font-medium text-slate-200">
+                            <i data-lucide="leaf" class="w-4 h-4 text-orange-400"></i>
+                            <span>Autumn</span>
+                        </button>
+                        <button onclick="setSeason('night')" id="season-night" class="glass-button flex items-center justify-center gap-2 py-3 px-2 rounded-xl text-xs font-medium text-slate-200">
+                            <i data-lucide="moon" class="w-4 h-4 text-blue-400"></i>
+                            <span>Night</span>
+                        </button>
+                        <button onclick="setSeason('winter')" id="season-winter" class="glass-button flex items-center justify-center gap-2 py-3 px-2 rounded-xl text-xs font-medium text-slate-200">
+                            <i data-lucide="snowflake" class="w-4 h-4 text-sky-200"></i>
+                            <span>Winter</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Day Time Slider (Only applicable if not night) -->
+                <div id="time-slider-container">
+                    <div class="flex justify-between items-center mb-2">
+                        <label class="text-xs uppercase tracking-widest text-slate-400 font-semibold">Time of Day</label>
+                        <span id="time-val" class="text-xs text-slate-300 font-medium">15:00</span>
+                    </div>
+                    <div class="flex items-center gap-4">
+                        <i data-lucide="sun" class="w-4 h-4 text-amber-400"></i>
+                        <input id="time-range" type="range" min="6" max="18" step="0.1" value="15" oninput="updateTimeOfDay(this.value)" class="flex-1">
+                        <i data-lucide="sunset" class="w-4 h-4 text-orange-400"></i>
+                    </div>
+                </div>
+
+                <!-- Climate Controls -->
+                <div class="space-y-4 pt-2 border-t border-white/5">
+                    <h3 class="text-xs uppercase tracking-widest text-slate-400 font-semibold mb-2">Climate Settings</h3>
+                    
+                    <!-- Wind Speed -->
+                    <div>
+                        <div class="flex justify-between items-center mb-1">
+                            <span class="text-xs text-slate-400">Wind Intensity</span>
+                            <span id="wind-val" class="text-xs text-slate-200">Gentle</span>
+                        </div>
+                        <input id="wind-range" type="range" min="0.1" max="2.0" step="0.1" value="0.8" oninput="updateWind(this.value)" class="w-full">
+                    </div>
+
+                    <!-- Particle Density -->
+                    <div>
+                        <div class="flex justify-between items-center mb-1">
+                            <span class="text-xs text-slate-400" id="particle-label">Falling Petals</span>
+                            <span id="particle-val" class="text-xs text-slate-200">Medium</span>
+                        </div>
+                        <input id="particle-range" type="range" min="50" max="400" step="10" value="200" oninput="updateParticleCount(this.value)" class="w-full">
+                    </div>
+                </div>
+
+                <!-- Interactions Panel -->
+                <div class="space-y-3 pt-4 border-t border-white/5">
+                    <h3 class="text-xs uppercase tracking-widest text-slate-400 font-semibold">Sanctuary Interactions</h3>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button onclick="triggerFeedKoi()" class="glass-button flex items-center justify-center gap-2 py-3 px-3 rounded-xl text-xs font-medium text-slate-200">
+                            <i data-lucide="cookie" class="w-4 h-4 text-amber-500"></i>
+                            <span>Feed Koi</span>
+                        </button>
+                        <button onclick="triggerShakeTrees()" class="glass-button flex items-center justify-center gap-2 py-3 px-3 rounded-xl text-xs font-medium text-slate-200">
+                            <i data-lucide="wind" class="w-4 h-4 text-emerald-400"></i>
+                            <span>Shake Cherry</span>
+                        </button>
+                        <button onclick="triggerToggleLanterns()" id="btn-lanterns" class="glass-button flex items-center justify-center gap-2 py-3 px-3 rounded-xl text-xs font-medium text-slate-200">
+                            <i data-lucide="sparkles" class="w-4 h-4 text-yellow-400"></i>
+                            <span>Light Lanterns</span>
+                        </button>
+                        <button onclick="triggerFishScare()" class="glass-button flex items-center justify-center gap-2 py-3 px-3 rounded-xl text-xs font-medium text-slate-200">
+                            <i data-lucide="waves" class="w-4 h-4 text-sky-400"></i>
+                            <span>Splash Water</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CAMERA TAB -->
+            <div id="tab-camera" class="hidden space-y-6">
+                <!-- Camera Preset Paths -->
+                <div>
+                    <label class="block text-xs uppercase tracking-widest text-slate-400 mb-3 font-semibold">Cinematic Angles</label>
+                    <div class="space-y-2">
+                        <button onclick="setCameraTrack('cinematic')" id="track-cinematic" class="w-full glass-button active flex items-center justify-between p-3 rounded-xl text-xs text-left">
+                            <div class="flex items-center gap-3">
+                                <i data-lucide="film" class="w-4 h-4 text-red-400"></i>
+                                <div>
+                                    <div class="font-semibold">Cinematic Floating Sweep</div>
+                                    <div class="text-[10px] text-slate-400 mt-0.5">Slow panning orbit with dynamic depth</div>
+                                </div>
+                            </div>
+                            <span class="text-[10px] uppercase text-red-400 tracking-wider font-semibold">Auto</span>
+                        </button>
+                        
+                        <button onclick="setCameraTrack('orbit')" id="track-orbit" class="w-full glass-button flex items-center justify-between p-3 rounded-xl text-xs text-left">
+                            <div class="flex items-center gap-3">
+                                <i data-lucide="hand" class="w-4 h-4 text-slate-300"></i>
+                                <div>
+                                    <div class="font-semibold">Interactive Free Orbit</div>
+                                    <div class="text-[10px] text-slate-400 mt-0.5">Drag to explore, scroll to zoom</div>
+                                </div>
+                            </div>
+                            <span class="text-[10px] uppercase text-slate-400 tracking-wider">Manual</span>
+                        </button>
+
+                        <button onclick="setCameraTrack('pond')" id="track-pond" class="w-full glass-button flex items-center justify-between p-3 rounded-xl text-xs text-left">
+                            <div class="flex items-center gap-3">
+                                <i data-lucide="shrub" class="w-4 h-4 text-emerald-400"></i>
+                                <div>
+                                    <div class="font-semibold">Bridge & Koi Pond</div>
+                                    <div class="text-[10px] text-slate-400 mt-0.5">Focus close-up on the red bridge and swimming koi</div>
+                                </div>
+                            </div>
+                            <span class="text-[10px] uppercase text-slate-400 tracking-wider">Lock</span>
+                        </button>
+
+                        <button onclick="setCameraTrack('pagoda')" id="track-pagoda" class="w-full glass-button flex items-center justify-between p-3 rounded-xl text-xs text-left">
+                            <div class="flex items-center gap-3">
+                                <i data-lucide="landmark" class="w-4 h-4 text-amber-500"></i>
+                                <div>
+                                    <div class="font-semibold">Majestic Pagoda View</div>
+                                    <div class="text-[10px] text-slate-400 mt-0.5">Scenic low-angle view looking up at the pagoda</div>
+                                </div>
+                            </div>
+                            <span class="text-[10px] uppercase text-slate-400 tracking-wider">Lock</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Speed Control -->
+                <div>
+                    <div class="flex justify-between items-center mb-2">
+                        <label class="text-xs uppercase tracking-widest text-slate-400 font-semibold">Camera Move Speed</label>
+                        <span id="cam-speed-val" class="text-xs text-slate-200">1.0x</span>
+                    </div>
+                    <div class="flex items-center gap-4">
+                        <i data-lucide="navigation-2" class="w-4 h-4 text-slate-400"></i>
+                        <input id="cam-speed-range" type="range" min="0.2" max="3.0" step="0.1" value="1.0" oninput="updateCameraSpeed(this.value)" class="flex-1">
+                        <i data-lucide="gauge" class="w-4 h-4 text-red-500"></i>
+                    </div>
+                </div>
+
+                <!-- Depth of Field Toggle -->
+                <div class="flex items-center justify-between pt-4 border-t border-white/5">
+                    <div>
+                        <div class="text-xs uppercase tracking-widest text-slate-400 font-semibold">Depth of Field Blur</div>
+                        <div class="text-[10px] text-slate-500 mt-0.5">Simulate authentic camera aperture blur</div>
+                    </div>
+                    <button id="btn-dof" onclick="toggleDoF()" class="w-12 h-6 bg-red-500/20 border border-red-500/50 rounded-full p-0.5 flex items-center justify-end transition-all duration-300">
+                        <div class="w-4 h-4 bg-red-500 rounded-full shadow shadow-red-500/50"></div>
+                    </button>
+                </div>
+            </div>
+
+            <!-- AUDIO TAB -->
+            <div id="tab-audio" class="hidden space-y-6">
+                <!-- Master Volume Slider -->
+                <div>
+                    <div class="flex justify-between items-center mb-2">
+                        <label class="text-xs uppercase tracking-widest text-slate-400 font-semibold">Master Volume</label>
+                        <span id="vol-val" class="text-xs text-slate-200">70%</span>
+                    </div>
+                    <div class="flex items-center gap-4">
+                        <i data-lucide="volume-1" class="w-4 h-4 text-slate-400"></i>
+                        <input id="vol-range" type="range" min="0" max="100" step="5" value="70" oninput="updateVolume(this.value)" class="flex-1">
+                        <i data-lucide="volume-2" class="w-4 h-4 text-red-500"></i>
+                    </div>
+                </div>
+
+                <!-- Dynamic Sound Synthesizers -->
+                <div class="space-y-4 pt-2">
+                    <h3 class="text-xs uppercase tracking-widest text-slate-400 font-semibold">Procedural Synthesizers</h3>
+
+                    <!-- Zen Pad Ambient Melody -->
+                    <div class="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/5">
+                        <div class="flex items-center gap-3">
+                            <i data-lucide="music" class="w-4 h-4 text-purple-400"></i>
+                            <div>
+                                <div class="text-xs font-semibold text-slate-200">Ambient Zen Pad</div>
+                                <div class="text-[10px] text-slate-400">Deep, meditative base drone</div>
+                            </div>
+                        </div>
+                        <button onclick="toggleSynth('drone')" id="btn-synth-drone" class="w-10 h-6 bg-slate-800 rounded-full p-0.5 flex items-center transition-all duration-300">
+                            <div class="w-4 h-4 bg-slate-500 rounded-full"></div>
+                        </button>
+                    </div>
+
+                    <!-- Koto Melodic Plucks -->
+                    <div class="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/5">
+                        <div class="flex items-center gap-3">
+                            <i data-lucide="sparkles" class="w-4 h-4 text-amber-400"></i>
+                            <div>
+                                <div class="text-xs font-semibold text-slate-200">Japanese Koto (筝)</div>
+                                <div class="text-[10px] text-slate-400">Procedural pentatonic chimes</div>
+                            </div>
+                        </div>
+                        <button onclick="toggleSynth('koto')" id="btn-synth-koto" class="w-10 h-6 bg-slate-800 rounded-full p-0.5 flex items-center transition-all duration-300">
+                            <div class="w-4 h-4 bg-slate-500 rounded-full"></div>
+                        </button>
+                    </div>
+
+                    <!-- Environment (Wind & Water) -->
+                    <div class="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/5">
+                        <div class="flex items-center gap-3">
+                            <i data-lucide="wind" class="w-4 h-4 text-sky-400"></i>
+                            <div>
+                                <div class="text-xs font-semibold text-slate-200">Wind & Water Rustle</div>
+                                <div class="text-[10px] text-slate-400">Natural wind and pond sounds</div>
+                            </div>
+                        </div>
+                        <button onclick="toggleSynth('nature')" id="btn-synth-nature" class="w-10 h-6 bg-slate-800 rounded-full p-0.5 flex items-center transition-all duration-300">
+                            <div class="w-4 h-4 bg-slate-500 rounded-full"></div>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Zen Quote Generator Button -->
+                <div class="pt-4 border-t border-white/5">
+                    <button onclick="playMelodicFlurry()" class="w-full glass-button flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-semibold uppercase tracking-wider text-red-400 font-cinzel">
+                        <i data-lucide="wand-2" class="w-4 h-4"></i>
+                        <span>Harmonic Sweep</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer / Panel toggle inside sidebar -->
+        <div class="p-4 bg-black/30 border-t border-white/5 flex items-center justify-between shrink-0">
+            <span class="text-[10px] text-slate-500 uppercase tracking-widest font-semibold">Controls</span>
+            <button onclick="toggleSidebar()" class="text-xs text-slate-400 hover:text-white flex items-center gap-1 transition-colors">
+                <span id="hide-txt">Collapse</span>
+                <i id="hide-icon" data-lucide="chevron-right" class="w-4 h-4"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- UI Overlay Bottom Bar -->
+    <div class="fixed bottom-6 left-6 z-10 flex flex-col md:flex-row md:items-center gap-3 max-w-lg pointer-events-none">
+        <!-- Zen Quote Bubble -->
+        <div class="glass-panel py-3 px-5 rounded-2xl flex items-center gap-3 shadow-xl transition-all pointer-events-auto cursor-pointer" onclick="nextInteractiveQuote()">
+            <div class="w-6 h-6 rounded-full bg-red-500/10 flex items-center justify-center text-red-500 flex-shrink-0 animate-pulse">
+                <i data-lucide="heart" class="w-3.5 h-3.5"></i>
+            </div>
+            <p id="garden-quote" class="text-xs italic text-slate-300 leading-relaxed">
+                "In quiet spaces, the mind begins to hear."
+            </p>
+        </div>
+    </div>
+
+    <!-- Panel Restore Button (Floats when sidebar is hidden) -->
+    <button id="restore-panel-btn" onclick="toggleSidebar()" class="fixed top-6 right-6 z-10 w-11 h-11 rounded-xl glass-panel flex items-center justify-center text-slate-300 hover:text-white transition-all shadow-xl hidden">
+        <i data-lucide="settings" class="w-5 h-5"></i>
+    </button>
+
+    <!-- Floating Help / Tips Panel -->
+    <div class="fixed bottom-6 right-6 md:right-1/2 md:translate-x-1/2 z-10 glass-panel py-2.5 px-4 rounded-full text-[11px] text-slate-400 flex items-center gap-3 shadow-xl pointer-events-none opacity-80 max-sm:hidden">
+        <span class="flex items-center gap-1"><kbd class="px-1.5 py-0.5 rounded bg-white/10 font-mono text-[9px]">L-Click</kbd> Drag to rotate</span>
+        <span class="w-1 h-1 rounded-full bg-white/20"></span>
+        <span class="flex items-center gap-1"><kbd class="px-1.5 py-0.5 rounded bg-white/10 font-mono text-[9px]">Scroll</kbd> Zoom</span>
+        <span class="w-1 h-1 rounded-full bg-white/20"></span>
+        <span class="flex items-center gap-1"><kbd class="px-1.5 py-0.5 rounded bg-white/10 font-mono text-[9px]">Click Scene</kbd> Interact!</span>
+    </div>
+
+    <!-- Script Block containing all the Three.js 3D and synthesis logic -->
+    <script>
+        // Init Lucide Icons
+        lucide.createIcons();
+
+        // Loading Quotes
+        const quotes = [
+            "\"In the landscape of the mind, there is always a quiet corner.\"",
+            "\"Quiet the mind, and the soul will speak.\"",
+            "\"The wind sings in the bamboo; the water flows in the quiet pond.\"",
+            "\"Cherry blossoms fall like quiet thoughts, floating down in silence.\"",
+            "\"Nature does not hurry, yet everything is accomplished.\"",
+            "\"The light of a single lantern can disperse a thousand shadows.\"",
+            "\"In the stillness of the stone path, find your own peace.\"",
+            "\"Like a fish in clear waters, glide gently through life.\""
+        ];
+
+        let quoteIndex = 0;
+        setInterval(() => {
+            const quoteEl = document.getElementById('loading-quote');
+            if (quoteEl) {
+                quoteEl.style.opacity = 0;
+                setTimeout(() => {
+                    quoteIndex = (quoteIndex + 1) % quotes.length;
+                    quoteEl.textContent = quotes[quoteIndex];
+                    quoteEl.style.opacity = 1;
+                }, 500);
+            }
+        }, 5000);
+
+        function nextInteractiveQuote() {
+            const quoteEl = document.getElementById('garden-quote');
+            quoteEl.style.opacity = 0;
+            setTimeout(() => {
+                quoteIndex = (quoteIndex + 1) % quotes.length;
+                quoteEl.textContent = quotes[quoteIndex];
+                quoteEl.style.opacity = 1;
+            }, 300);
+            
+            // Play a gentle musical pluck when interacting
+            if (synthEnabled.koto) {
+                playRandomScaleNote();
+            }
+        }
+
+        // --- GLOBAL VARIABLES ---
+        let scene, camera, renderer, controls;
+        let ambientLight, dirLight, pointLights = [];
+        let clock = new THREE.Clock();
+        let loadedPercentage = 0;
+        let isSidebarCollapsed = false;
+
+        // Custom settings state
+        let currentSeason = 'spring';
+        let currentCameraTrack = 'cinematic';
+        let timeOfDay = 15.0; // Hours (6 to 18)
+        let windIntensity = 0.8;
+        let particleDensity = 200;
+        let cameraSpeed = 1.0;
+        let dofEnabled = true;
+        let lanternsLit = true;
+
+        // 3D Objects lists for animations
+        let bambooGroves = [];
+        let sakuraCanopies = [];
+        let koiFishList = [];
+        let stoneLanterns = [];
+        let particleSystem = null;
+        let waterPlane = null;
+        let rippleMeshes = [];
+        let groundIslands = [];
+        let pathStones = [];
+        let peopleCharacters = [];
+
+        // Loading Progress Management
+        function updateProgress(value, statusText) {
+            loadedPercentage = Math.max(loadedPercentage, value);
+            document.getElementById('loading-bar').style.width = loadedPercentage + '%';
+            document.getElementById('loading-status').textContent = statusText;
+            if (loadedPercentage >= 100) {
+                setTimeout(() => {
+                    document.getElementById('loading-screen').style.opacity = '0';
+                    setTimeout(() => {
+                        document.getElementById('loading-screen').classList.add('hidden');
+                        // Start audio systems softly if user allows
+                    }, 1000);
+                }, 800);
+            }
+        }
+
+        // --- WEB AUDIO API PROCEDURAL AUDIO ---
+        let audioCtx = null;
+        let masterGain = null;
+        let ambientDroneNode = null;
+        let windNoiseNode = null;
+        let waterNoiseNode = null;
+        
+        let synthEnabled = {
+            drone: false,
+            koto: false,
+            nature: false
+        };
+
+        const pentatonicScale = [110.00, 123.47, 130.81, 164.81, 174.61, 220.00, 246.94, 261.63, 329.63, 349.23, 440.00, 493.88, 523.25, 659.25, 698.46, 880.00];
+
+        function initAudio() {
+            if (audioCtx) return;
+            try {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                masterGain = audioCtx.createGain();
+                // Start volume based on UI
+                const initialVol = document.getElementById('vol-range').value / 100;
+                masterGain.gain.setValueAtTime(initialVol * 0.15, audioCtx.currentTime); // keep overall synth soft
+                masterGain.connect(audioCtx.destination);
+            } catch (e) {
+                console.error("Web Audio API not supported", e);
+            }
+        }
+
+        function updateVolume(val) {
+            document.getElementById('vol-val').textContent = val + '%';
+            if (!audioCtx) initAudio();
+            if (masterGain) {
+                masterGain.gain.setValueAtTime((val / 100) * 0.15, audioCtx.currentTime);
+            }
+        }
+
+        // Ambient Drone Synthesizer (Zen Pad)
+        function startDrone() {
+            if (!audioCtx) initAudio();
+            if (!audioCtx) return;
+
+            // Two low triangle wave oscillators slightly detuned
+            const osc1 = audioCtx.createOscillator();
+            const osc2 = audioCtx.createOscillator();
+            const filter = audioCtx.createBiquadFilter();
+            const droneGain = audioCtx.createGain();
+
+            osc1.type = 'triangle';
+            osc1.frequency.setValueAtTime(55, audioCtx.currentTime); // A1
+            
+            osc2.type = 'triangle';
+            osc2.frequency.setValueAtTime(55.4, audioCtx.currentTime); // Slight detune for chorus
+
+            filter.type = 'lowpass';
+            filter.frequency.setValueAtTime(150, audioCtx.currentTime);
+
+            // Modulate filter cutoff with a slow LFO
+            const lfo = audioCtx.createOscillator();
+            const lfoGain = audioCtx.createGain();
+            lfo.frequency.setValueAtTime(0.05, audioCtx.currentTime); // Very slow
+            lfoGain.gain.setValueAtTime(40, audioCtx.currentTime);
+
+            lfo.connect(lfoGain);
+            lfoGain.connect(filter.frequency);
+
+            droneGain.gain.setValueAtTime(0, audioCtx.currentTime);
+            droneGain.gain.linearRampToValueAtTime(0.4, audioCtx.currentTime + 3.0);
+
+            osc1.connect(filter);
+            osc2.connect(filter);
+            filter.connect(droneGain);
+            droneGain.connect(masterGain);
+
+            osc1.start();
+            osc2.start();
+            lfo.start();
+
+            ambientDroneNode = { osc1, osc2, lfo, droneGain };
+        }
+
+        function stopDrone() {
+            if (ambientDroneNode) {
+                const now = audioCtx.currentTime;
+                ambientDroneNode.droneGain.gain.cancelScheduledValues(now);
+                ambientDroneNode.droneGain.gain.linearRampToValueAtTime(0, now + 1.0);
+                const nodeRef = ambientDroneNode;
+                setTimeout(() => {
+                    nodeRef.osc1.stop();
+                    nodeRef.osc2.stop();
+                    nodeRef.lfo.stop();
+                }, 1100);
+                ambientDroneNode = null;
+            }
+        }
+
+        // Noise Synthesizer (Wind & Water)
+        function startNatureSounds() {
+            if (!audioCtx) initAudio();
+            if (!audioCtx) return;
+
+            // Create white noise buffer
+            const bufferSize = audioCtx.sampleRate * 2;
+            const noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+            const output = noiseBuffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) {
+                output[i] = Math.random() * 2 - 1;
+            }
+
+            // Wind Generator
+            const windSource = audioCtx.createBufferSource();
+            windSource.buffer = noiseBuffer;
+            windSource.loop = true;
+
+            const windFilter = audioCtx.createBiquadFilter();
+            windFilter.type = 'bandpass';
+            windFilter.Q.setValueAtTime(2.0, audioCtx.currentTime);
+            windFilter.frequency.setValueAtTime(250, audioCtx.currentTime);
+
+            const windLfo = audioCtx.createOscillator();
+            const windLfoGain = audioCtx.createGain();
+            windLfo.frequency.setValueAtTime(0.08, audioCtx.currentTime);
+            windLfoGain.gain.setValueAtTime(150, audioCtx.currentTime);
+
+            const windGain = audioCtx.createGain();
+            windGain.gain.setValueAtTime(0, audioCtx.currentTime);
+            windGain.gain.linearRampToValueAtTime(0.12, audioCtx.currentTime + 2.0);
+
+            windLfo.connect(windLfoGain);
+            windLfoGain.connect(windFilter.frequency);
+            windSource.connect(windFilter);
+            windFilter.connect(windGain);
+            windGain.connect(masterGain);
+
+            windSource.start();
+            windLfo.start();
+
+            windNoiseNode = { source: windSource, lfo: windLfo, gain: windGain };
+
+            // Water Rippling/Stream Generator
+            const waterSource = audioCtx.createBufferSource();
+            waterSource.buffer = noiseBuffer;
+            waterSource.loop = true;
+
+            const waterFilter = audioCtx.createBiquadFilter();
+            waterFilter.type = 'lowpass';
+            waterFilter.frequency.setValueAtTime(300, audioCtx.currentTime);
+
+            const waterLfo = audioCtx.createOscillator();
+            const waterLfoGain = audioCtx.createGain();
+            waterLfo.frequency.setValueAtTime(0.2, audioCtx.currentTime);
+            waterLfoGain.gain.setValueAtTime(60, audioCtx.currentTime);
+
+            const waterGain = audioCtx.createGain();
+            waterGain.gain.setValueAtTime(0, audioCtx.currentTime);
+            waterGain.gain.linearRampToValueAtTime(0.06, audioCtx.currentTime + 2.0);
+
+            waterLfo.connect(waterLfoGain);
+            waterLfoGain.connect(waterFilter.frequency);
+            waterSource.connect(waterFilter);
+            waterFilter.connect(waterGain);
+            waterGain.connect(masterGain);
+
+            waterSource.start();
+            waterLfo.start();
+
+            waterNoiseNode = { source: waterSource, lfo: waterLfo, gain: waterGain };
+        }
+
+        function stopNatureSounds() {
+            const now = audioCtx.currentTime;
+            if (windNoiseNode) {
+                windNoiseNode.gain.gain.cancelScheduledValues(now);
+                windNoiseNode.gain.gain.linearRampToValueAtTime(0, now + 1.0);
+                const ref = windNoiseNode;
+                setTimeout(() => {
+                    ref.source.stop();
+                    ref.lfo.stop();
+                }, 1100);
+                windNoiseNode = null;
+            }
+            if (waterNoiseNode) {
+                waterNoiseNode.gain.gain.cancelScheduledValues(now);
+                waterNoiseNode.gain.gain.linearRampToValueAtTime(0, now + 1.0);
+                const ref = waterNoiseNode;
+                setTimeout(() => {
+                    ref.source.stop();
+                    ref.lfo.stop();
+                }, 1100);
+                waterNoiseNode = null;
+            }
+        }
+
+        // Japanese Koto Pluck Scheduler (Generative Pentatonic Melody)
+        let kotoTimer = null;
+        function startKotoMelody() {
+            if (!audioCtx) initAudio();
+            if (!audioCtx) return;
+
+            const playNextPluck = () => {
+                if (!synthEnabled.koto) return;
+                
+                // Play a random note in the Japanese Pentatonic scale
+                playRandomScaleNote();
+
+                // Schedule next pluck between 1.5 to 5.0 seconds randomly
+                const delay = 1500 + Math.random() * 3500;
+                kotoTimer = setTimeout(playNextPluck, delay);
+            };
+
+            playNextPluck();
+        }
+
+        function stopKotoMelody() {
+            if (kotoTimer) {
+                clearTimeout(kotoTimer);
+                kotoTimer = null;
+            }
+        }
+
+        function playRandomScaleNote() {
+            if (!audioCtx) return;
+            const randIdx = Math.floor(Math.random() * pentatonicScale.length);
+            const freq = pentatonicScale[randIdx];
+            triggerKotoPluck(freq);
+        }
+
+        function triggerKotoPluck(freq) {
+            if (!audioCtx) return;
+
+            const osc = audioCtx.createOscillator();
+            const envelope = audioCtx.createGain();
+            const resonantFilter = audioCtx.createBiquadFilter();
+
+            // Pluck sound: combination of triangle & sine with rich harmonics
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+
+            // Resonant filter simulates the wooden chamber of the Koto
+            resonantFilter.type = 'bandpass';
+            resonantFilter.frequency.setValueAtTime(freq * 1.5, audioCtx.currentTime);
+            resonantFilter.Q.setValueAtTime(3.0, audioCtx.currentTime);
+
+            // Envelope: instantaneous attack, rapid decay, slow release
+            const now = audioCtx.currentTime;
+            envelope.gain.setValueAtTime(0, now);
+            envelope.gain.linearRampToValueAtTime(0.35, now + 0.005);
+            envelope.gain.exponentialRampToValueAtTime(0.01, now + 2.5);
+
+            osc.connect(resonantFilter);
+            resonantFilter.connect(envelope);
+            envelope.connect(masterGain);
+
+            osc.start(now);
+            osc.stop(now + 2.6);
+        }
+
+        // Play quick series of harmonious plucks
+        function playMelodicFlurry() {
+            if (!audioCtx) initAudio();
+            if (!audioCtx) return;
+
+            const notes = [
+                pentatonicScale[Math.floor(Math.random() * 4)],
+                pentatonicScale[Math.floor(4 + Math.random() * 4)],
+                pentatonicScale[Math.floor(8 + Math.random() * 4)],
+                pentatonicScale[Math.floor(12 + Math.random() * 3)]
+            ];
+
+            const now = audioCtx.currentTime;
+            notes.forEach((freq, idx) => {
+                setTimeout(() => {
+                    triggerKotoPluck(freq);
+                }, idx * 180);
+            });
+        }
+
+        // SFX: Water Splash
+        function playSplashSfx() {
+            if (!audioCtx) return;
+            const now = audioCtx.currentTime;
+            
+            const osc = audioCtx.createOscillator();
+            const filter = audioCtx.createBiquadFilter();
+            const gain = audioCtx.createGain();
+
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(80, now);
+            osc.frequency.exponentialRampToValueAtTime(300, now + 0.2);
+
+            filter.type = 'lowpass';
+            filter.frequency.setValueAtTime(600, now);
+
+            gain.gain.setValueAtTime(0, now);
+            gain.gain.linearRampToValueAtTime(0.15, now + 0.01);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+
+            osc.connect(filter);
+            filter.connect(gain);
+            gain.connect(masterGain);
+
+            osc.start(now);
+            osc.stop(now + 0.45);
+        }
+
+        // SFX: Chime / Light Lantern
+        function playChimeSfx() {
+            if (!audioCtx) return;
+            const now = audioCtx.currentTime;
+            const osc = audioCtx.createOscillator();
+            const filter = audioCtx.createBiquadFilter();
+            const gain = audioCtx.createGain();
+
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(1200, now);
+
+            filter.type = 'bandpass';
+            filter.frequency.setValueAtTime(1200, now);
+            filter.Q.setValueAtTime(10, now);
+
+            gain.gain.setValueAtTime(0, now);
+            gain.gain.linearRampToValueAtTime(0.2, now + 0.002);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
+
+            osc.connect(filter);
+            filter.connect(gain);
+            gain.connect(masterGain);
+
+            osc.start(now);
+            osc.stop(now + 0.9);
+        }
+
+        // UI Tabs & Toggles
+        function switchTab(tabId) {
+            const tabs = ['environment', 'camera', 'audio'];
+            tabs.forEach(t => {
+                const content = document.getElementById('tab-' + t);
+                const btn = document.getElementById('tab-btn-' + t);
+                if (t === tabId) {
+                    content.classList.remove('hidden');
+                    btn.classList.add('text-red-400', 'bg-white/5', 'border', 'border-white/5');
+                    btn.classList.remove('text-slate-400', 'hover:text-white');
+                } else {
+                    content.classList.add('hidden');
+                    btn.classList.remove('text-red-400', 'bg-white/5', 'border', 'border-white/5');
+                    btn.classList.add('text-slate-400', 'hover:text-white');
+                }
+            });
+        }
+
+        function toggleSynth(synthType) {
+            synthEnabled[synthType] = !synthEnabled[synthType];
+            const btn = document.getElementById('btn-synth-' + synthType);
+            const indicator = btn.querySelector('div');
+
+            if (synthEnabled[synthType]) {
+                btn.classList.add('bg-red-500/20', 'border-red-500/50');
+                btn.classList.remove('bg-slate-800');
+                indicator.classList.add('bg-red-500', 'translate-x-4');
+                indicator.classList.remove('bg-slate-500');
+
+                if (synthType === 'drone') startDrone();
+                if (synthType === 'nature') startNatureSounds();
+                if (synthType === 'koto') startKotoMelody();
+            } else {
+                btn.classList.remove('bg-red-500/20', 'border-red-500/50');
+                btn.classList.add('bg-slate-800');
+                indicator.classList.remove('bg-red-500', 'translate-x-4');
+                indicator.classList.add('bg-slate-500');
+
+                if (synthType === 'drone') stopDrone();
+                if (synthType === 'nature') stopNatureSounds();
+                if (synthType === 'koto') stopKotoMelody();
+            }
+        }
+
+        function toggleSidebar() {
+            isSidebarCollapsed = !isSidebarCollapsed;
+            const panel = document.getElementById('settings-panel');
+            const restoreBtn = document.getElementById('restore-panel-btn');
+            
+            if (isSidebarCollapsed) {
+                panel.classList.add('translate-x-[410px]');
+                setTimeout(() => restoreBtn.classList.remove('hidden'), 350);
+            } else {
+                restoreBtn.classList.add('hidden');
+                panel.classList.remove('translate-x-[410px]');
+            }
+        }
+
+        // --- THREE.JS GRAPHICS SETUP ---
+        
+        function initGraphics() {
+            updateProgress(5, "Initializing Scene...");
+            const container = document.getElementById('canvas-container');
+
+            // Scene & Sky
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x13171c, 0.015); // soft depth fog
+
+            // Camera
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(22, 18, 22);
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // limit pixel ratio for performance
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.0;
+            container.appendChild(renderer.domElement);
+
+            // Controls
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.maxPolarAngle = Math.PI / 2 - 0.02; // Don't allow camera under ground
+            controls.minDistance = 8;
+            controls.maxDistance = 50;
+            controls.target.set(0, 2, 0);
+
+            // Lighting
+            ambientLight = new THREE.AmbientLight(0xfff0e5, 0.6);
+            scene.add(ambientLight);
+
+            dirLight = new THREE.DirectionalLight(0xffecd1, 1.4);
+            dirLight.position.set(15, 20, 10);
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 2048;
+            dirLight.shadow.mapSize.height = 2048;
+            dirLight.shadow.camera.near = 0.5;
+            dirLight.shadow.camera.far = 60;
+            const d = 25;
+            dirLight.shadow.camera.left = -d;
+            dirLight.shadow.camera.right = d;
+            dirLight.shadow.camera.top = d;
+            dirLight.shadow.camera.bottom = -d;
+            dirLight.shadow.bias = -0.0005;
+            scene.add(dirLight);
+
+            // Resize Event
+            window.addEventListener('resize', onWindowResize);
+
+            // Mouse Click Raycasting for interactive scene clicks
+            window.addEventListener('pointerdown', onDocumentPointerDown);
+
+            updateProgress(15, "Sculpting floating island...");
+            buildIslandTerrain();
+        }
+
+        // --- PROCEDURAL 3D MESH GENERATORS ---
+
+        // 1. The Island Terrain Base
+        function buildIslandTerrain() {
+            // Rounded square floating island block
+            const baseGeo = new THREE.CylinderGeometry(15, 14, 2.5, 32);
+            // Apply slight noise to cylinder vertical vertices to look organic and earthy
+            const pos = baseGeo.attributes.position;
+            for (let i = 0; i < pos.count; i++) {
+                let y = pos.getY(i);
+                let x = pos.getX(i);
+                let z = pos.getZ(i);
+                // only modify top surface
+                if (y > 0.5) {
+                    let noise = Math.sin(x * 0.4) * Math.cos(z * 0.4) * 0.25;
+                    pos.setY(i, y + noise);
+                } else {
+                    // pull bottom in slightly for organic rock look
+                    let scale = 0.95 + Math.sin(y*4) * 0.05;
+                    pos.setX(i, x * scale);
+                    pos.setZ(i, z * scale);
+                }
+            }
+            baseGeo.computeVertexNormals();
+
+            const grassMat = new THREE.MeshStandardMaterial({
+                color: 0x5a7a42,
+                roughness: 0.95,
+                metalness: 0.05,
+                flatShading: true
+            });
+            const earthMat = new THREE.MeshStandardMaterial({
+                color: 0x3d312a,
+                roughness: 0.9,
+                flatShading: true
+            });
+
+            // Multi-material for top (grass) and sides/bottom (dirt)
+            const islandMesh = new THREE.Mesh(baseGeo, [grassMat, earthMat, earthMat]);
+            islandMesh.receiveShadow = true;
+            islandMesh.castShadow = true;
+            islandMesh.position.y = -1;
+            scene.add(islandMesh);
+            groundIslands.push(islandMesh);
+
+            updateProgress(25, "Laying stepping stone paths...");
+            buildStonePath();
+        }
+
+        // 2. The Stone Path (Cobblestones)
+        function buildStonePath() {
+            const stoneMat = new THREE.MeshStandardMaterial({
+                color: 0x8a8e93,
+                roughness: 0.8,
+                flatShading: true
+            });
+
+            // Replicate the curving path coordinates from front-left to pagoda steps
+            // And towards bridge
+            const pathCoords = [
+                // Main route towards pagoda steps
+                {x: -9, z: 6}, {x: -8, z: 5}, {x: -7, z: 3.5}, {x: -6, z: 2}, 
+                {x: -5, z: 0.5}, {x: -4, z: -1}, {x: -3, z: -2.2}, {x: -1.5, z: -3},
+                {x: 0, z: -3.5}, {x: 1.5, z: -3.5}, {x: 3, z: -3}, {x: 4.5, z: -2.2},
+                // Steps path branch
+                {x: -1, z: 1}, {x: -2, z: -0.5}, {x: -2.5, z: -2}
+            ];
+
+            pathCoords.forEach(coord => {
+                const w = 0.7 + Math.random() * 0.4;
+                const h = 0.5 + Math.random() * 0.3;
+                const d = 0.08 + Math.random() * 0.04;
+                
+                const stoneGeo = new THREE.BoxGeometry(w, d, h);
+                const stone = new THREE.Mesh(stoneGeo, stoneMat);
+                
+                stone.position.set(coord.x, 0.15, coord.z);
+                stone.rotation.y = Math.random() * Math.PI;
+                stone.rotation.x = (Math.random() - 0.5) * 0.08;
+                stone.rotation.z = (Math.random() - 0.5) * 0.08;
+                stone.receiveShadow = true;
+                
+                scene.add(stone);
+                pathStones.push(stone);
+            });
+
+            // Smooth grey borders/river pebbles along the pond
+            const pebbleCoords = [
+                {x: 1, z: 1, s: 0.4}, {x: -2.5, z: 4, s: 0.5}, {x: 6.5, z: -1, s: 0.6},
+                {x: 7.5, z: 1, s: 0.75}, {x: 3, z: 5.5, s: 0.5}, {x: -4.5, z: 5, s: 0.65}
+            ];
+            pebbleCoords.forEach(c => {
+                const geo = new THREE.DodecahedronGeometry(c.s, 1);
+                const mat = new THREE.MeshStandardMaterial({ color: 0x757a80, roughness: 0.7 });
+                const m = new THREE.Mesh(geo, mat);
+                m.position.set(c.x, 0.1, c.z);
+                m.scale.set(1.2, 0.6, 1);
+                m.rotation.set(Math.random(), Math.random(), Math.random());
+                m.receiveShadow = true;
+                m.castShadow = true;
+                scene.add(m);
+            });
+
+            updateProgress(35, "Digging the scenic pond...");
+            buildScenicPond();
+        }
+
+        // 3. Curved Pond & Floating Water
+        function buildScenicPond() {
+            // Cutout-visual strategy: we place a dark pool bed underneath
+            const pondBedGeo = new THREE.CylinderGeometry(6.5, 6, 0.8, 24);
+            const pondBedMat = new THREE.MeshStandardMaterial({
+                color: 0x1d2c2d, // dark, murky pond bottom
+                roughness: 1.0,
+                flatShading: true
+            });
+            const pondBed = new THREE.Mesh(pondBedGeo, pondBedMat);
+            pondBed.position.set(4, -0.4, 2.5);
+            pondBed.scale.set(1.2, 1, 0.75); // stretch into elegant oval
+            scene.add(pondBed);
+
+            // Semi-transparent animated water plane
+            const waterGeo = new THREE.CylinderGeometry(6.4, 6.4, 0.1, 24);
+            const waterMat = new THREE.MeshStandardMaterial({
+                color: 0x4fa6ab, // vivid turquoise water
+                transparent: true,
+                opacity: 0.75,
+                roughness: 0.08,
+                metalness: 0.1,
+                flatShading: false
+            });
+            waterPlane = new THREE.Mesh(waterGeo, waterMat);
+            waterPlane.position.set(4, 0.02, 2.5);
+            waterPlane.scale.set(1.19, 1, 0.74);
+            scene.add(waterPlane);
+
+            updateProgress(45, "Assembling Koi Fish...");
+            spawnKoiFish();
+        }
+
+        // 4. Detailed 3D Koi Fish with swimming AI
+        function spawnKoiFish() {
+            const koiColors = [
+                { base: 0xffffff, spot: 0xff3b30 }, // Kohaku (White & Red)
+                { base: 0xff8c00, spot: 0x1a1a1a }, // Sanke (Orange & Black)
+                { base: 0xffffff, spot: 0xff8c00 }, // Showa (White, Orange)
+                { base: 0xff4500, spot: 0x000000 }  // Red-orange & Black
+            ];
+
+            const createKoiTexture = (baseColor, spotColor) => {
+                // Generate procedural spot pattern texture on a canvas
+                const canvas = document.createElement('canvas');
+                canvas.width = 128;
+                canvas.height = 64;
+                const ctx = canvas.getContext('2d');
+
+                ctx.fillStyle = '#' + baseColor.toString(16).padStart(6, '0');
+                ctx.fillRect(0, 0, 128, 64);
+
+                ctx.fillStyle = '#' + spotColor.toString(16).padStart(6, '0');
+                for (let i = 0; i < 5; i++) {
+                    const x = 20 + Math.random() * 80;
+                    const y = 15 + Math.random() * 34;
+                    const r = 8 + Math.random() * 12;
+                    ctx.beginPath();
+                    ctx.arc(x, y, r, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                return new THREE.CanvasTexture(canvas);
+            };
+
+            for (let i = 0; i < 8; i++) {
+                const koiGroup = new THREE.Group();
+                const col = koiColors[i % koiColors.length];
+                const texture = createKoiTexture(col.base, col.spot);
+                
+                const fishMat = new THREE.MeshStandardMaterial({
+                    map: texture,
+                    roughness: 0.2,
+                    metalness: 0.1
+                });
+
+                // Tail fin / pectoral fins (translucent orange-red)
+                const finMat = new THREE.MeshStandardMaterial({
+                    color: 0xffa500,
+                    transparent: true,
+                    opacity: 0.75,
+                    roughness: 0.2
+                });
+
+                // Body: elongated ellipsoid
+                const bodyGeo = new THREE.SphereGeometry(0.24, 8, 8);
+                bodyGeo.scale(1.8, 0.7, 0.7); // flatten slightly
+                const body = new THREE.Mesh(bodyGeo, fishMat);
+                body.receiveShadow = true;
+                koiGroup.add(body);
+
+                // Tail joint & Fin
+                const tailJoint = new THREE.Group();
+                tailJoint.position.set(-0.45, 0, 0);
+                
+                const tailGeo = new THREE.ConeGeometry(0.12, 0.4, 4);
+                tailGeo.rotateZ(Math.PI / 2);
+                const tailFin = new THREE.Mesh(tailGeo, finMat);
+                tailFin.position.set(-0.2, 0, 0);
+                tailFin.scale.set(1, 0.1, 1.4); // flat wide fin
+                tailJoint.add(tailFin);
+                
+                koiGroup.add(tailJoint);
+
+                // Pectoral Fins
+                const finGeo = new THREE.PlaneGeometry(0.18, 0.25);
+                finGeo.rotateX(-Math.PI / 2);
+                
+                const leftFin = new THREE.Mesh(finGeo, finMat);
+                leftFin.position.set(0.15, -0.05, 0.22);
+                leftFin.rotation.y = -0.3;
+                koiGroup.add(leftFin);
+
+                const rightFin = leftFin.clone();
+                rightFin.position.z = -0.22;
+                rightFin.rotation.y = 0.3;
+                koiGroup.add(rightFin);
+
+                // Set initial random pond coordinates
+                const radius = 1.0 + Math.random() * 2.8;
+                const angle = Math.random() * Math.PI * 2;
+                koiGroup.position.set(
+                    4 + Math.cos(angle) * radius * 1.15,
+                    -0.18,
+                    2.5 + Math.sin(angle) * radius * 0.72
+                );
+
+                koiGroup.scale.setScalar(0.7 + Math.random() * 0.5);
+                scene.add(koiGroup);
+
+                koiFishList.push({
+                    mesh: koiGroup,
+                    tail: tailJoint,
+                    targetAngle: angle,
+                    radius: radius,
+                    speed: 0.4 + Math.random() * 0.4,
+                    swimPhase: Math.random() * 100,
+                    fleeTimer: 0,
+                    fleeDir: new THREE.Vector3()
+                });
+            }
+
+            updateProgress(55, "Constructing Red Arched Bridge...");
+            buildRedBridge();
+        }
+
+        // 5. Arched Red Wooden Bridge (Taiko-bashi)
+        function buildRedBridge() {
+            const redMat = new THREE.MeshStandardMaterial({
+                color: 0xcd2d23, // bold crimson red
+                roughness: 0.7,
+                metalness: 0.15
+            });
+            const woodMat = new THREE.MeshStandardMaterial({
+                color: 0x7c493a, // rustic natural wood planks
+                roughness: 0.85
+            });
+            const goldMat = new THREE.MeshStandardMaterial({
+                color: 0xdfb43d, // glowing brassy gold caps
+                roughness: 0.1,
+                metalness: 0.95
+            });
+
+            const bridgeGroup = new THREE.Group();
+            bridgeGroup.position.set(4, 0.05, -0.2);
+            bridgeGroup.rotation.y = -Math.PI / 4.4; // aligned with island composition
+
+            // Arched support beams (made from segmented parts to form nice smooth curve)
+            const segments = 12;
+            const width = 1.5;
+            const length = 4.2;
+            const rise = 0.5;
+
+            for (let side = -1; side <= 1; side += 2) {
+                const beamGroup = new THREE.Group();
+                beamGroup.position.z = side * (width / 2 + 0.08);
+
+                // Construct an arched curve from small rot-offset box segments
+                for (let i = 0; i <= segments; i++) {
+                    const t = i / segments;
+                    const x = (t - 0.5) * length;
+                    const y = Math.sin(t * Math.PI) * rise;
+                    
+                    const segGeo = new THREE.BoxGeometry(length / segments + 0.05, 0.12, 0.1);
+                    const seg = new THREE.Mesh(segGeo, redMat);
+                    seg.position.set(x, y - 0.08, 0);
+                    
+                    // Angle of segment matching derivative of arch
+                    const angle = Math.cos(t * Math.PI) * (rise / length) * Math.PI;
+                    seg.rotation.z = angle;
+                    
+                    seg.castShadow = true;
+                    seg.receiveShadow = true;
+                    beamGroup.add(seg);
+                }
+                bridgeGroup.add(beamGroup);
+
+                // Vertical posts with golden caps
+                const postPositions = [-1.6, -0.8, 0, 0.8, 1.6];
+                postPositions.forEach(pX => {
+                    const t = (pX + length/2) / length;
+                    const pY = Math.sin(t * Math.PI) * rise;
+
+                    const postGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.8);
+                    const post = new THREE.Mesh(postGeo, redMat);
+                    post.position.set(pX, pY + 0.22, side * (width / 2 + 0.08));
+                    post.castShadow = true;
+                    bridgeGroup.add(post);
+
+                    // Gold sphere cap
+                    const capGeo = new THREE.SphereGeometry(0.055, 8, 8);
+                    const cap = new THREE.Mesh(capGeo, goldMat);
+                    cap.position.set(pX, pY + 0.63, side * (width / 2 + 0.08));
+                    bridgeGroup.add(cap);
+                });
+
+                // Curved Railing Bars
+                for (let i = 0; i < segments; i++) {
+                    const t = (i + 0.5) / segments;
+                    const x = (t - 0.5) * length;
+                    const y = Math.sin(t * Math.PI) * rise + 0.42;
+
+                    const railGeo = new THREE.BoxGeometry(length / segments + 0.05, 0.04, 0.04);
+                    const rail = new THREE.Mesh(railGeo, redMat);
+                    rail.position.set(x, y, side * (width / 2 + 0.08));
+                    
+                    const angle = Math.cos(t * Math.PI) * (rise / length) * Math.PI;
+                    rail.rotation.z = angle;
+                    
+                    rail.castShadow = true;
+                    bridgeGroup.add(rail);
+                }
+            }
+
+            // Planks across the arch
+            const plankCount = 20;
+            for (let i = 0; i <= plankCount; i++) {
+                const t = i / plankCount;
+                const x = (t - 0.5) * length;
+                const y = Math.sin(t * Math.PI) * rise;
+
+                const plankGeo = new THREE.BoxGeometry(0.16, 0.04, width);
+                const plank = new THREE.Mesh(plankGeo, woodMat);
+                plank.position.set(x, y - 0.02, 0);
+                
+                const angle = Math.cos(t * Math.PI) * (rise / length) * Math.PI;
+                plank.rotation.z = angle;
+                plank.rotation.y = 0;
+                plank.receiveShadow = true;
+                plank.castShadow = true;
+                bridgeGroup.add(plank);
+            }
+
+            scene.add(bridgeGroup);
+
+            updateProgress(70, "Erecting multi-tiered Pagoda...");
+            buildPagoda();
+        }
+
+        // 6. Multi-tiered Pagoda with detailed curved roofs
+        function buildPagoda() {
+            const stoneMat = new THREE.MeshStandardMaterial({ color: 0x93979b, roughness: 0.85, flatShading: true });
+            const redMat = new THREE.MeshStandardMaterial({ color: 0xbe362e, roughness: 0.6, metalness: 0.1 });
+            const wallMat = new THREE.MeshStandardMaterial({ color: 0xf4f0ea, roughness: 0.9 });
+            const doorMat = new THREE.MeshStandardMaterial({ color: 0x422d25, roughness: 0.8 });
+            const tileMat = new THREE.MeshStandardMaterial({ color: 0x333538, roughness: 0.45, metalness: 0.15, flatShading: true });
+            const goldMat = new THREE.MeshStandardMaterial({ color: 0xe5c158, roughness: 0.1, metalness: 0.95 });
+
+            const pagodaGroup = new THREE.Group();
+            pagodaGroup.position.set(-1.8, 0.2, -4.5); // centered behind path
+
+            // Raised stone base
+            const baseGeo = new THREE.CylinderGeometry(2.5, 2.7, 0.8, 8);
+            const base = new THREE.Mesh(baseGeo, stoneMat);
+            base.position.y = 0.4;
+            base.rotation.y = Math.PI / 8;
+            base.receiveShadow = true;
+            base.castShadow = true;
+            pagodaGroup.add(base);
+
+            // Steps leading up to door - perfectly calculated to reach local height 0.8 (base top)
+            const stepCount = 5;
+            for (let i = 0; i < stepCount; i++) {
+                const stepH = 0.12;
+                const stepGeo = new THREE.BoxGeometry(1.2 - i * 0.16, stepH, 0.4);
+                const step = new THREE.Mesh(stepGeo, stoneMat);
+                step.position.set(0, (i + 0.5) * stepH, 2.4 - i * 0.2);
+                step.receiveShadow = true;
+                step.castShadow = true;
+                pagodaGroup.add(step);
+            }
+
+            // Procedural custom flared pagoda roof deformer
+            function createPagodaRoofGeometry(radius, height, flare) {
+                // Low-poly 4-sided pyramid with height divisions so we can curve/flare
+                const geo = new THREE.ConeGeometry(radius, height, 4, 12);
+                geo.rotateY(Math.PI / 4); // orient corners nicely
+
+                const pos = geo.attributes.position;
+                for (let i = 0; i < pos.count; i++) {
+                    let x = pos.getX(i);
+                    let y = pos.getY(i);
+                    let z = pos.getZ(i);
+
+                    let dist = Math.sqrt(x*x + z*z);
+                    let hFact = (height/2 - y) / height; // 0 at peak, 1 at bottom
+
+                    if (hFact > 0.05) {
+                        // bend lower margins upwards
+                        let bend = Math.pow(dist / radius, 2.8) * flare;
+                        pos.setY(i, y + bend);
+
+                        // flare corners outwards
+                        let flareOut = 1.0 + Math.pow(hFact, 2) * 0.14;
+                        pos.setX(i, x * flareOut);
+                        pos.setZ(i, z * flareOut);
+                    }
+                }
+                geo.computeVertexNormals();
+                return geo;
+            }
+
+            // Building Tiers - calculated dynamically to avoid gaps
+            const scales = [1.0, 0.82, 0.67];
+            const tierHeights = [];
+            let currentHeight = 0.8; // base top sits at 0.8
+
+            for (let t = 0; t < 3; t++) {
+                tierHeights.push(currentHeight);
+                currentHeight += 1.0 * scales[t]; // increment by wall height of current tier
+            }
+
+            for (let t = 0; t < 3; t++) {
+                const tY = tierHeights[t];
+                const s = scales[t];
+                
+                // Walls (square white box)
+                const wallGeo = new THREE.BoxGeometry(1.6 * s, 1.0 * s, 1.6 * s);
+                const wall = new THREE.Mesh(wallGeo, wallMat);
+                wall.position.y = tY + 0.5 * s;
+                wall.castShadow = true;
+                wall.receiveShadow = true;
+                pagodaGroup.add(wall);
+
+                // Corner Support Columns (red)
+                const colOffset = 0.77 * s;
+                for (let cX = -1; cX <= 1; cX += 2) {
+                    for (let cZ = -1; cZ <= 1; cZ += 2) {
+                        const colGeo = new THREE.CylinderGeometry(0.04 * s, 0.04 * s, 1.0 * s);
+                        const col = new THREE.Mesh(colGeo, redMat);
+                        col.position.set(cX * colOffset, tY + 0.5 * s, cZ * colOffset);
+                        col.castShadow = true;
+                        pagodaGroup.add(col);
+                    }
+                }
+
+                // Decorative Balconies & Railings
+                const balGeo = new THREE.BoxGeometry(1.9 * s, 0.06 * s, 1.9 * s);
+                const bal = new THREE.Mesh(balGeo, redMat);
+                bal.position.y = tY;
+                bal.receiveShadow = true;
+                pagodaGroup.add(bal);
+
+                // Tiny rails surrounding balcony
+                for (let rSide = -1; rSide <= 1; rSide += 2) {
+                    // Outer rails
+                    const rXGeo = new THREE.BoxGeometry(1.88 * s, 0.1 * s, 0.02 * s);
+                    const rX1 = new THREE.Mesh(rXGeo, redMat);
+                    rX1.position.set(0, tY + 0.1 * s, rSide * 0.94 * s);
+                    pagodaGroup.add(rX1);
+
+                    const rZGeo = new THREE.BoxGeometry(0.02 * s, 0.1 * s, 1.88 * s);
+                    const rZ1 = new THREE.Mesh(rZGeo, redMat);
+                    rZ1.position.set(rSide * 0.94 * s, tY + 0.1 * s, 0);
+                    pagodaGroup.add(rZ1);
+                }
+
+                // Sliding doors on level 1 - scaled to fit inside the wall
+                if (t === 0) {
+                    const doorGeo = new THREE.BoxGeometry(0.7, 0.65, 0.05);
+                    const door = new THREE.Mesh(doorGeo, doorMat);
+                    door.position.set(0, tY + 0.325, 0.81);
+                    pagodaGroup.add(door);
+
+                    // Gold handles
+                    const handleGeo = new THREE.SphereGeometry(0.025, 8, 8);
+                    const handle = new THREE.Mesh(handleGeo, goldMat);
+                    handle.position.set(0.04, tY + 0.325, 0.84);
+                    pagodaGroup.add(handle);
+                }
+
+                // Flared tiled roof per tier
+                const roofRadius = 2.4 * s;
+                const roofHeight = 0.7 * s;
+                const roofGeo = createPagodaRoofGeometry(roofRadius, roofHeight, 0.45 * s);
+                const roof = new THREE.Mesh(roofGeo, tileMat);
+                // Position roof slightly offset overlapping walls
+                roof.position.y = tY + 1.05 * s;
+                roof.castShadow = true;
+                roof.receiveShadow = true;
+                pagodaGroup.add(roof);
+
+                // Small golden bell decorations hanging from roof tips (corners)
+                const cornerDist = roofRadius * 0.85;
+                for (let cx = -1; cx <= 1; cx += 2) {
+                    for (let cz = -1; cz <= 1; cz += 2) {
+                        const bellGeo = new THREE.CylinderGeometry(0.015, 0.03, 0.08);
+                        const bell = new THREE.Mesh(bellGeo, goldMat);
+                        bell.position.set(cx * cornerDist, tY + 1.02 * s, cz * cornerDist);
+                        pagodaGroup.add(bell);
+                    }
+                }
+            }
+
+            // Top Cap Finial assembly (Sorin) on Roof 3
+            const sorinY = tierHeights[2] + 1.05 * scales[2] + 0.15;
+            
+            // Central gold spire
+            const spireGeo = new THREE.CylinderGeometry(0.02, 0.05, 1.8);
+            const spire = new THREE.Mesh(spireGeo, goldMat);
+            spire.position.y = sorinY + 0.9;
+            spire.castShadow = true;
+            pagodaGroup.add(spire);
+
+            // Stacked rings (Kuruman) - 5 beautiful gold toruses
+            for (let r = 0; r < 5; r++) {
+                const ringGeo = new THREE.TorusGeometry(0.18 - r * 0.02, 0.04, 8, 16);
+                ringGeo.rotateX(Math.PI / 2);
+                const ring = new THREE.Mesh(ringGeo, goldMat);
+                ring.position.y = sorinY + 0.3 + r * 0.12;
+                ring.castShadow = true;
+                pagodaGroup.add(ring);
+            }
+
+            // Flame cap at top (Suika)
+            const flameGeo = new THREE.ConeGeometry(0.08, 0.25, 8);
+            const flame = new THREE.Mesh(flameGeo, goldMat);
+            flame.position.y = sorinY + 1.85;
+            pagodaGroup.add(flame);
+
+            scene.add(pagodaGroup);
+
+            updateProgress(80, "Planting Cherry Blossom and Bamboo groves...");
+            buildTreesAndBamboo();
+        }
+
+        // 7. Cherry Blossom Trees (Sakura) & Bamboo Groves
+        function buildTreesAndBamboo() {
+            // Wood trunk & branch materials
+            const woodMat = new THREE.MeshStandardMaterial({ color: 0x4a3629, roughness: 0.9 });
+            const sakuraPinkMat = new THREE.MeshStandardMaterial({
+                color: 0xffadc6, // glowing fluffy pink
+                roughness: 0.85,
+                flatShading: true
+            });
+            const bambooGreenMat = new THREE.MeshStandardMaterial({
+                color: 0x2e6129,
+                roughness: 0.6,
+                flatShading: true
+            });
+
+            // A. Cherry Blossom Trees (One left, one right as in the image)
+            const treePositions = [
+                { x: -7.5, z: -2.5, scale: 1.05 }, // Left rear tree
+                { x: 9.5, z: -1.0, scale: 0.95 }   // Right rear tree
+            ];
+
+            treePositions.forEach((pos, idx) => {
+                const treeGroup = new THREE.Group();
+                treeGroup.position.set(pos.x, 0.2, pos.z);
+
+                // Trunk: nested stacked rotated cylinders for natural organic curve
+                let currentY = 0;
+                let currentRadius = 0.25;
+                const segments = 6;
+                let currentDir = new THREE.Vector3(0, 1, 0);
+
+                const trunkGroup = new THREE.Group();
+                for (let i = 0; i < segments; i++) {
+                    const h = 0.8;
+                    const nextRadius = currentRadius * 0.85;
+                    const segGeo = new THREE.CylinderGeometry(nextRadius, currentRadius, h, 8);
+                    const seg = new THREE.Mesh(segGeo, woodMat);
+                    
+                    seg.position.y = currentY + h/2;
+                    seg.castShadow = true;
+                    seg.receiveShadow = true;
+                    
+                    // Slightly lean/tilt
+                    const tiltX = (Math.sin(i * 1.5) * 0.1) + (idx === 0 ? 0.08 : -0.08);
+                    seg.rotation.x = tiltX;
+                    seg.rotation.z = Math.cos(i * 1.5) * 0.1;
+
+                    trunkGroup.add(seg);
+                    currentY += h * 0.95;
+                    currentRadius = nextRadius;
+                }
+                treeGroup.add(trunkGroup);
+
+                // Foliage: Fluffy cloud-like pink sphere clusters
+                const canopy = new THREE.Group();
+                canopy.position.y = currentY + 0.2;
+
+                const clusterPlacements = [
+                    {x: 0, y: 0.5, z: 0, r: 1.7},
+                    {x: -1.0, y: 0.2, z: 0.8, r: 1.2},
+                    {x: 1.0, y: 0.3, z: -0.8, r: 1.25},
+                    {x: 0.8, y: -0.1, z: 1.0, r: 1.1},
+                    {x: -0.9, y: 0.1, z: -1.0, r: 1.15},
+                    {x: 0, y: 1.2, z: 0.2, r: 1.3}
+                ];
+
+                clusterPlacements.forEach(c => {
+                    const sphereGeo = new THREE.SphereGeometry(c.r, 8, 8);
+                    const m = new THREE.Mesh(sphereGeo, sakuraPinkMat);
+                    m.position.set(c.x, c.y, c.z);
+                    m.scale.set(1.1, 0.85, 1.0); // stretch slightly flat/illustrated style
+                    m.castShadow = true;
+                    canopy.add(m);
+                    sakuraCanopies.push(m);
+                });
+
+                treeGroup.add(canopy);
+                treeGroup.scale.setScalar(pos.scale);
+                scene.add(treeGroup);
+            });
+
+            // B. Bamboo Groves (Left and Right clusters)
+            const bambooGrovesData = [
+                // Left foreground cluster
+                {x: -11.5, z: 1.5, count: 8}, {x: -10.5, z: 0.5, count: 6},
+                // Right side cluster
+                {x: 9, z: 3.5, count: 8}, {x: 10, z: 2.2, count: 7}
+            ];
+
+            bambooGrovesData.forEach(grove => {
+                for (let b = 0; b < grove.count; b++) {
+                    const bX = grove.x + (Math.random() - 0.5) * 1.2;
+                    const bZ = grove.z + (Math.random() - 0.5) * 1.2;
+                    const height = 4.0 + Math.random() * 2.0;
+
+                    const singleBamboo = new THREE.Group();
+                    singleBamboo.position.set(bX, 0.2, bZ);
+
+                    // Stacked segments for ring nodes
+                    const segs = 10;
+                    const segHeight = height / segs;
+                    for (let s = 0; s < segs; s++) {
+                        const topR = 0.05 * (1.0 - s * 0.03);
+                        const botR = 0.055 * (1.0 - s * 0.03);
+                        
+                        const segGeo = new THREE.CylinderGeometry(topR, botR, segHeight - 0.02, 6);
+                        const mSeg = new THREE.Mesh(segGeo, bambooGreenMat);
+                        mSeg.position.y = s * segHeight + segHeight/2;
+                        mSeg.castShadow = true;
+                        singleBamboo.add(mSeg);
+
+                        // Node ring (torus bulge)
+                        const ringGeo = new THREE.TorusGeometry(botR * 1.1, 0.015, 4, 8);
+                        ringGeo.rotateX(Math.PI / 2);
+                        const mRing = new THREE.Mesh(ringGeo, bambooGreenMat);
+                        mRing.position.y = s * segHeight;
+                        singleBamboo.add(mRing);
+
+                        // Tiny procedural green leaves pointing out at node joints (high levels only)
+                        if (s > 4 && Math.random() > 0.4) {
+                            const leafGeo = new THREE.ConeGeometry(0.04, 0.35, 3);
+                            leafGeo.rotateX(Math.PI / 2);
+                            const leaf = new THREE.Mesh(leafGeo, bambooGreenMat);
+                            
+                            const leafSide = Math.random() * Math.PI * 2;
+                            leaf.position.set(Math.cos(leafSide) * botR, s * segHeight, Math.sin(leafSide) * botR);
+                            leaf.rotation.y = leafSide;
+                            leaf.rotation.z = 0.4 + Math.random() * 0.5;
+                            
+                            singleBamboo.add(leaf);
+                        }
+                    }
+
+                    scene.add(singleBamboo);
+                    bambooGroves.push({
+                        mesh: singleBamboo,
+                        windPhase: Math.random() * 100,
+                        speed: 0.8 + Math.random() * 0.4
+                    });
+                }
+            });
+
+            updateProgress(90, "Lighting Stone Lanterns...");
+            buildStoneLanterns();
+        }
+
+        // 8. Detailed Glowing Stone Lanterns (Toro)
+        function buildStoneLanterns() {
+            const stoneMat = new THREE.MeshStandardMaterial({ color: 0x989ca0, roughness: 0.8, flatShading: true });
+            const glowMat = new THREE.MeshBasicMaterial({ color: 0xffd479 }); // soft warm lantern window
+
+            const lanternCoords = [
+                {x: -9.5, z: 3.5, scale: 0.8},  // Front left
+                {x: -5.5, z: 2.8, scale: 0.75},  // Path left mid
+                {x: -2.8, z: -1.2, scale: 0.75}, // Path left near steps
+                {x: -1.2, z: -5.5, scale: 0.8}   // Rear path
+            ];
+
+            lanternCoords.forEach((coord, idx) => {
+                const lanGroup = new THREE.Group();
+                lanGroup.position.set(coord.x, 0.18, coord.z);
+
+                // Base block
+                const bGeo = new THREE.BoxGeometry(0.4, 0.12, 0.4);
+                const b = new THREE.Mesh(bGeo, stoneMat);
+                b.castShadow = true;
+                lanGroup.add(b);
+
+                // Post pillar
+                const pGeo = new THREE.CylinderGeometry(0.12, 0.14, 0.5, 6);
+                const p = new THREE.Mesh(pGeo, stoneMat);
+                p.position.y = 0.31;
+                p.castShadow = true;
+                lanGroup.add(p);
+
+                // Platform deck
+                const dGeo = new THREE.BoxGeometry(0.5, 0.08, 0.5);
+                const d = new THREE.Mesh(dGeo, stoneMat);
+                d.position.y = 0.6;
+                d.receiveShadow = true;
+                lanGroup.add(d);
+
+                // Firebox light chamber (recessed stone blocks surrounding glowing inner core)
+                const chamberGeo = new THREE.CylinderGeometry(0.16, 0.16, 0.3, 6);
+                const chamber = new THREE.Mesh(chamberGeo, glowMat);
+                chamber.position.y = 0.79;
+                lanGroup.add(chamber);
+
+                // Four surrounding columns on chamber
+                for (let i = 0; i < 4; i++) {
+                    const cColGeo = new THREE.CylinderGeometry(0.025, 0.025, 0.3);
+                    const cCol = new THREE.Mesh(cColGeo, stoneMat);
+                    const ang = (i * Math.PI) / 2 + Math.PI / 4;
+                    cCol.position.set(Math.cos(ang) * 0.19, 0.79, Math.sin(ang) * 0.19);
+                    cCol.castShadow = true;
+                    lanGroup.add(cCol);
+                }
+
+                // Lantern roof hat (hexagonal roof structure)
+                const hatGeo = new THREE.ConeGeometry(0.38, 0.22, 6);
+                const hat = new THREE.Mesh(hatGeo, stoneMat);
+                hat.position.y = 1.05;
+                hat.castShadow = true;
+                lanGroup.add(hat);
+
+                // Lantern small gold/stone finial top cap
+                const finGeo = new THREE.SphereGeometry(0.06, 6, 6);
+                const fin = new THREE.Mesh(finGeo, stoneMat);
+                fin.position.y = 1.18;
+                lanGroup.add(fin);
+
+                // Dynamic light source emitting soft warm glow outwards
+                const warmLight = new THREE.PointLight(0xffa233, 1.2, 8, 2.0); // decay 2
+                warmLight.position.set(0, 0.79, 0);
+                warmLight.castShadow = true;
+                warmLight.shadow.bias = -0.005;
+                
+                // Add tiny flickering noise offset
+                warmLight.userData = { intensity: 1.2 + Math.random() * 0.15 };
+                
+                lanGroup.add(warmLight);
+                pointLights.push(warmLight);
+
+                lanGroup.scale.setScalar(coord.scale);
+                scene.add(lanGroup);
+                stoneLanterns.push(lanGroup);
+            });
+
+            updateProgress(95, "Assembling stylized travelers...");
+            buildTravelers();
+        }
+
+        // 9. Stylized Low-Poly Human Figures (Travelers)
+        function buildTravelers() {
+            const skinMat = new THREE.MeshStandardMaterial({ color: 0xffdbac, roughness: 0.6 }); // standard peach-tan skin
+            const darkHairMat = new THREE.MeshStandardMaterial({ color: 0x1d1e22, roughness: 0.8 });
+            
+            // Outfits matching illustration
+            const clothes1 = { top: 0xffffff, bot: 0x343a40 }; // Woman (white top, dark skirt)
+            const clothes2 = { top: 0x3d7042, bot: 0x212529 }; // Man on Path (green shirt, dark pants)
+            const clothes3 = { top: 0x304f6e, bot: 0xd6ccc2 }; // Man on Bridge (blue shirt, beige pants)
+
+            function createStylizedPerson(options, hasSkirt = false) {
+                const person = new THREE.Group();
+
+                const topMat = new THREE.MeshStandardMaterial({ color: options.top, roughness: 0.7 });
+                const botMat = new THREE.MeshStandardMaterial({ color: options.bot, roughness: 0.7 });
+
+                // Head
+                const headGeo = new THREE.SphereGeometry(0.14, 8, 8);
+                const head = new THREE.Mesh(headGeo, skinMat);
+                head.position.y = 1.15;
+                head.castShadow = true;
+                person.add(head);
+
+                // Hair (stylized blocky wig)
+                const hairGeo = new THREE.SphereGeometry(0.155, 8, 8);
+                hairGeo.scale(1.05, 1.0, 1.15);
+                const hair = new THREE.Mesh(hairGeo, darkHairMat);
+                hair.position.set(0, 1.2, -0.015);
+                person.add(hair);
+
+                if (hasSkirt) {
+                    // Ponytail or long hair clump
+                    const ponyGeo = new THREE.ConeGeometry(0.06, 0.25, 4);
+                    const pony = new THREE.Mesh(ponyGeo, darkHairMat);
+                    pony.position.set(0, 1.05, -0.13);
+                    pony.rotation.x = -0.3;
+                    person.add(pony);
+                }
+
+                // Torso (cylinder/box)
+                const torsoGeo = new THREE.CylinderGeometry(0.14, 0.16, 0.44, 8);
+                const torso = new THREE.Mesh(torsoGeo, topMat);
+                torso.position.y = 0.85;
+                torso.castShadow = true;
+                torso.receiveShadow = true;
+                person.add(torso);
+
+                // Legs / Skirt
+                if (hasSkirt) {
+                    const skirtGeo = new THREE.ConeGeometry(0.18, 0.38, 8);
+                    const skirt = new THREE.Mesh(skirtGeo, botMat);
+                    skirt.position.y = 0.48;
+                    skirt.castShadow = true;
+                    person.add(skirt);
+
+                    // thin low-poly legs
+                    for (let leg = -1; leg <= 1; leg += 2) {
+                        const legGeo = new THREE.CylinderGeometry(0.035, 0.03, 0.35);
+                        const legM = new THREE.Mesh(legGeo, skinMat);
+                        legM.position.set(leg * 0.07, 0.175, 0);
+                        legM.castShadow = true;
+                        person.add(legM);
+                    }
+                } else {
+                    for (let leg = -1; leg <= 1; leg += 2) {
+                        const legGeo = new THREE.CylinderGeometry(0.045, 0.04, 0.65);
+                        const legM = new THREE.Mesh(legGeo, botMat);
+                        legM.position.set(leg * 0.075, 0.325, 0);
+                        legM.castShadow = true;
+                        person.add(legM);
+                    }
+                }
+
+                // Arms (hanging simple)
+                for (let arm = -1; arm <= 1; arm += 2) {
+                    const armGeo = new THREE.CylinderGeometry(0.04, 0.035, 0.38);
+                    const armM = new THREE.Mesh(armGeo, topMat);
+                    armM.position.set(arm * 0.21, 0.8, 0);
+                    armM.rotation.z = -arm * 0.05;
+                    armM.castShadow = true;
+                    person.add(armM);
+                }
+
+                return person;
+            }
+
+            // Person 1: Woman on stone path
+            const woman = createStylizedPerson(clothes1, true);
+            woman.position.set(-6.5, 0.18, 3.2);
+            woman.rotation.y = Math.PI / 1.3; // facing towards pagoda/pond
+            scene.add(woman);
+            peopleCharacters.push(woman);
+
+            // Person 2: Man on stone path
+            const manPath = createStylizedPerson(clothes2, false);
+            manPath.position.set(-5.3, 0.18, 1.8);
+            manPath.rotation.y = Math.PI / 1.15; // facing pagoda
+            scene.add(manPath);
+            peopleCharacters.push(manPath);
+
+            // Person 3: Man standing on bridge looking down at fish
+            const manBridge = createStylizedPerson(clothes3, false);
+            manBridge.position.set(3.4, 0.58, -0.6);
+            manBridge.rotation.y = Math.PI / 2.3; // looking towards water
+            scene.add(manBridge);
+            peopleCharacters.push(manBridge);
+
+            updateProgress(100, "Completing atmospheric particle setups...");
+            buildParticleSystem();
+        }
+
+        // 10. Multi-season Falling Particle System (Sakura petals, autumn leaves, snow, fireflies)
+        function buildParticleSystem() {
+            if (particleSystem) scene.remove(particleSystem);
+
+            const count = particleDensity;
+            const geo = new THREE.BufferGeometry();
+            const positions = new Float32Array(count * 3);
+            const velocities = [];
+            const scales = new Float32Array(count);
+            const phases = new Float32Array(count);
+
+            for (let i = 0; i < count; i++) {
+                // Spawn randomly in a bounding box centered over garden island
+                positions[i * 3] = (Math.random() - 0.5) * 28;     // X
+                positions[i * 3 + 1] = 0.1 + Math.random() * 12;     // Y
+                positions[i * 3 + 2] = (Math.random() - 0.5) * 28;     // Z
+
+                velocities.push({
+                    x: (Math.random() - 0.5) * 0.4,
+                    y: -(0.5 + Math.random() * 1.0),
+                    z: (Math.random() - 0.5) * 0.4
+                });
+
+                scales[i] = 0.1 + Math.random() * 0.25;
+                phases[i] = Math.random() * 100;
+            }
+
+            geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geo.setAttribute('scale', new THREE.BufferAttribute(scales, 1));
+
+            // Custom procedural material to draw particles offline without needing asset image files!
+            let particleColor = 0xffadc6; // Spring Sakura default
+            if (currentSeason === 'autumn') particleColor = 0xffa040; // orange maple
+            if (currentSeason === 'night') particleColor = 0xb5ff68; // yellow-green firefly
+            if (currentSeason === 'winter') particleColor = 0xffffff; // white snow
+
+            const mat = new THREE.PointsMaterial({
+                color: particleColor,
+                size: 0.14,
+                transparent: true,
+                opacity: currentSeason === 'night' ? 0.95 : 0.8,
+                sizeAttenuation: true,
+                depthWrite: false,
+                blending: currentSeason === 'night' ? THREE.AdditiveBlending : THREE.NormalBlending
+            });
+
+            // For fireflies we keep them smaller and float them upwards instead of fall!
+            if (currentSeason === 'night') {
+                mat.size = 0.08;
+                velocities.forEach(v => {
+                    v.y = 0.1 + Math.random() * 0.2; // slow rising up
+                    v.x = (Math.random() - 0.5) * 0.3;
+                    v.z = (Math.random() - 0.5) * 0.3;
+                });
+            }
+
+            particleSystem = new THREE.Points(geo, mat);
+            scene.add(particleSystem);
+        }
+
+        function updateParticleCount(val) {
+            particleDensity = parseInt(val);
+            document.getElementById('particle-val').textContent = particleDensity > 300 ? 'Heavy' : (particleDensity > 150 ? 'Medium' : 'Light');
+            buildParticleSystem();
+        }
+
+        // --- INTERACTIVE TRIGGERS & SIMULATIONS ---
+
+        // 1. Splash Water / Scare Fish interaction
+        function triggerFishScare() {
+            playSplashSfx();
+            // trigger water ripple 3D rings in center of pond
+            createWaterRipple(4, 2.5);
+
+            // scare all koi fish: trigger rapid turn away
+            koiFishList.forEach(koi => {
+                const fishPos = koi.mesh.position;
+                const distToCenter = Math.hypot(fishPos.x - 4, fishPos.z - 2.5);
+                if (distToCenter < 4.0) {
+                    koi.fleeTimer = 2.5; // active flee speed for 2.5 seconds
+                    // compute outward vector from pond center
+                    koi.fleeDir.set(fishPos.x - 4, 0, fishPos.z - 2.5).normalize();
+                    koi.speed = 2.4; // rapid flight speed
+                }
+            });
+            showFloatingText("Splash! Fish scattered.");
+        }
+
+        // 2. Feed Koi fish
+        let foodParticles = [];
+        function triggerFeedKoi() {
+            playSplashSfx();
+            createWaterRipple(3.2, 2.2);
+
+            // Spawn visual food particles sinking slowly in pond
+            const foodMat = new THREE.MeshBasicMaterial({ color: 0xcd853f }); // tan color fish pellet
+            const foodGeo = new THREE.SphereGeometry(0.05, 4, 4);
+
+            for (let i = 0; i < 4; i++) {
+                const food = new THREE.Mesh(foodGeo, foodMat);
+                // Drop near the bridge center
+                const fX = 3.0 + (Math.random() - 0.5) * 1.5;
+                const fZ = 2.0 + (Math.random() - 0.5) * 1.5;
+                food.position.set(fX, 0.02, fZ);
+                scene.add(food);
+                foodParticles.push(food);
+
+                // Tween sink
+                new TWEEN.Tween(food.position)
+                    .to({ y: -0.38 }, 2000 + Math.random() * 1000)
+                    .easing(TWEEN.Easing.Quadratic.Out)
+                    .start()
+                    .onComplete(() => {
+                        // Slowly fade food away
+                        scene.remove(food);
+                        foodParticles = foodParticles.filter(f => f !== food);
+                    });
+            }
+
+            // Direct nearest koi fish towards the food location!
+            koiFishList.forEach((koi, idx) => {
+                if (idx < 5) { // feed first 5 nearest fish
+                    // make them swim specifically towards bridging zone
+                    const currentPos = koi.mesh.position;
+                    const angleToFood = Math.atan2(2.0 - currentPos.z, 3.0 - currentPos.x);
+                    koi.targetAngle = angleToFood;
+                    koi.speed = 1.3; // enthusiastic swim towards food
+                }
+            });
+            showFloatingText("+3 Koi Food dropped!");
+        }
+
+        // 3. Shake Cherry trees (generating explosion of petals)
+        function triggerShakeTrees() {
+            if (!audioCtx) initAudio();
+            playChimeSfx();
+
+            // Increase particle count temporarily and spawn them right over canopy heights
+            const originalDensity = particleDensity;
+            particleDensity += 200;
+            buildParticleSystem();
+
+            // Reset back after 5 seconds
+            setTimeout(() => {
+                particleDensity = originalDensity;
+                buildParticleSystem();
+            }, 5000);
+
+            // Shaking canopies rotation tween
+            sakuraCanopies.forEach(c => {
+                const origRotX = c.rotation.x;
+                new TWEEN.Tween(c.rotation)
+                    .to({ x: origRotX + 0.15 }, 150)
+                    .yoyo(true).repeat(5)
+                    .easing(TWEEN.Easing.Sinusoidal.InOut)
+                    .start();
+            });
+            showFloatingText("Wind rustled tree. Blossom flurry!");
+        }
+
+        // 4. Toggle Lantern lights
+        function triggerToggleLanterns() {
+            lanternsLit = !lanternsLit;
+            playChimeSfx();
+
+            const btn = document.getElementById('btn-lanterns');
+            if (lanternsLit) {
+                btn.classList.add('active');
+                pointLights.forEach(light => {
+                    new TWEEN.Tween(light).to({ intensity: light.userData.intensity }, 600).start();
+                });
+                showFloatingText("Lanterns Lit.");
+            } else {
+                btn.classList.remove('active');
+                pointLights.forEach(light => {
+                    new TWEEN.Tween(light).to({ intensity: 0 }, 600).start();
+                });
+                showFloatingText("Lanterns Blown Out.");
+            }
+        }
+
+        // 3D Expanding Ripples on water plane
+        function createWaterRipple(x, z) {
+            const rippleGeo = new THREE.RingGeometry(0.01, 0.05, 32);
+            rippleGeo.rotateX(-Math.PI / 2);
+            const rippleMat = new THREE.MeshBasicMaterial({
+                color: 0xccffff,
+                transparent: true,
+                opacity: 0.7,
+                side: THREE.DoubleSide
+            });
+
+            const ripple = new THREE.Mesh(rippleGeo, rippleMat);
+            ripple.position.set(x, 0.03, z);
+            scene.add(ripple);
+            rippleMeshes.push(ripple);
+
+            new TWEEN.Tween(ripple.scale)
+                .to({ x: 45, y: 45, z: 45 }, 2200)
+                .easing(TWEEN.Easing.Quadratic.Out)
+                .start();
+
+            new TWEEN.Tween(rippleMat)
+                .to({ opacity: 0 }, 2200)
+                .easing(TWEEN.Easing.Quadratic.Out)
+                .start()
+                .onComplete(() => {
+                    scene.remove(ripple);
+                    rippleMeshes = rippleMeshes.filter(r => r !== ripple);
+                });
+        }
+
+        // Screen center floating HUD feedback
+        function showFloatingText(msg) {
+            const textNode = document.createElement('div');
+            textNode.className = 'fixed top-1/3 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-black/80 backdrop-blur-md border border-white/10 text-white text-xs px-4 py-2 rounded-full tracking-widest uppercase font-cinzel z-40 pointer-events-none transition-all duration-1000 opacity-100';
+            textNode.textContent = msg;
+            document.body.appendChild(textNode);
+
+            // Float upwards and fade out
+            setTimeout(() => {
+                textNode.style.transform = 'translate(-50%, -100%)';
+                textNode.style.opacity = '0';
+                setTimeout(() => textNode.remove(), 1000);
+            }, 1200);
+        }
+
+        // Raycasting check for clicking interactive items
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+
+        function onDocumentPointerDown(event) {
+            // Prevent raycasting if user clicked over setting panel UI elements
+            if (event.clientX > window.innerWidth - 410 && !isSidebarCollapsed) return;
+            if (event.clientY < 80 && event.clientX < 300) return; // header zone
+
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+
+            // Check if clicked the water plane
+            if (waterPlane) {
+                const intersectWater = raycaster.intersectObject(waterPlane);
+                if (intersectWater.length > 0) {
+                    const hitPt = intersectWater[0].point;
+                    createWaterRipple(hitPt.x, hitPt.z);
+                    playSplashSfx();
+
+                    // Scare nearest fish
+                    koiFishList.forEach(koi => {
+                        const fishPos = koi.mesh.position;
+                        const distToHit = Math.hypot(fishPos.x - hitPt.x, fishPos.z - hitPt.z);
+                        if (distToHit < 3.2) {
+                            koi.fleeTimer = 2.0;
+                            koi.fleeDir.set(fishPos.x - hitPt.x, 0, fishPos.z - hitPt.z).normalize();
+                            koi.speed = 2.2;
+                        }
+                    });
+                    return;
+                }
+            }
+
+            // Check if clicked human figures for cute wave reactions
+            peopleCharacters.forEach((person, idx) => {
+                const intersectPerson = raycaster.intersectObjects(person.children, true);
+                if (intersectPerson.length > 0) {
+                    // trigger jump/hop animation using Tween
+                    new TWEEN.Tween(person.position)
+                        .to({ y: person.position.y + 0.5 }, 200)
+                        .yoyo(true).repeat(1)
+                        .easing(TWEEN.Easing.Quadratic.Out)
+                        .start();
+                    
+                    if (synthEnabled.koto) playRandomScaleNote();
+                    showFloatingText(idx === 0 ? "Woman waves!" : (idx === 1 ? "Man nods peacefully." : "Bridge traveler smiles."));
+                }
+            });
+        }
+
+        // --- THEMES & SEASONS CONTROL ---
+
+        function setSeason(season) {
+            currentSeason = season;
+
+            // Update Active button state
+            const seasons = ['spring', 'autumn', 'night', 'winter'];
+            seasons.forEach(s => {
+                const btn = document.getElementById('season-' + s);
+                if (s === season) btn.classList.add('active');
+                else btn.classList.remove('active');
+            });
+
+            // Transition sky, terrain colors, particles, fog, lighting based on selection
+            const transDuration = 1500;
+
+            const timeSliderContainer = document.getElementById('time-slider-container');
+            if (season === 'night') {
+                timeSliderContainer.classList.add('hidden');
+                // Deep blue/black starry sky transition
+                transitionLights(0.12, 0x1a2130, 0.15, 0x050a12);
+                scene.fog.color.setHex(0x050a12);
+                
+                // Turn on lanterns automatically at night
+                if (!lanternsLit) triggerToggleLanterns();
+            } else {
+                timeSliderContainer.classList.remove('hidden');
+                updateTimeOfDay(timeOfDay); // restore time based light values
+                
+                if (season === 'spring') {
+                    transitionLights(1.4, 0xffecd1, 0.6, 0xfff0e5);
+                    scene.fog.color.setHex(0x13171c);
+                } else if (season === 'autumn') {
+                    transitionLights(1.3, 0xff9a3c, 0.5, 0xffecd1);
+                    scene.fog.color.setHex(0x2b1e17);
+                } else if (season === 'winter') {
+                    transitionLights(0.9, 0xd0e8ff, 0.7, 0xe2ebf0);
+                    scene.fog.color.setHex(0xdce5eb);
+                }
+            }
+
+            // Transition vegetation and terrain material colors dynamically!
+            transitionMaterials(season);
+
+            // Regenerate falling particle types
+            const pLabel = document.getElementById('particle-label');
+            if (season === 'spring') pLabel.textContent = "Falling Petals";
+            else if (season === 'autumn') pLabel.textContent = "Maple Leaves";
+            else if (season === 'night') pLabel.textContent = "Glow Fireflies";
+            else if (season === 'winter') pLabel.textContent = "Snow Drift";
+
+            buildParticleSystem();
+            showFloatingText(`Season: ${season.toUpperCase()}`);
+        }
+
+        function transitionLights(dirIntensity, dirColor, ambIntensity, ambColor) {
+            new TWEEN.Tween(dirLight)
+                .to({ intensity: dirIntensity }, 1000)
+                .start();
+            new TWEEN.Tween(dirLight.color)
+                .to(new THREE.Color(dirColor), 1000)
+                .start();
+            new TWEEN.Tween(ambientLight)
+                .to({ intensity: ambIntensity }, 1000)
+                .start();
+            new TWEEN.Tween(ambientLight.color)
+                .to(new THREE.Color(ambColor), 1000)
+                .start();
+        }
+
+        function transitionMaterials(season) {
+            let grassCol = 0x5a7a42;
+            let canopyCol = 0xffadc6;
+
+            if (season === 'autumn') {
+                grassCol = 0x8a7a42; // yellowish mossy
+                canopyCol = 0xd35400; // fiery orange-red maples
+            } else if (season === 'winter') {
+                grassCol = 0xebf3f5; // clean white snow layer ground!
+                canopyCol = 0xffffff; // snow packed tree caps
+            } else if (season === 'night') {
+                grassCol = 0x1f2e15; // deep cool moonlit grass
+                canopyCol = 0xcb99a5; // darker pastel pink
+            }
+
+            // Apply color tweens to materials
+            groundIslands.forEach(island => {
+                new TWEEN.Tween(island.material[0].color)
+                    .to(new THREE.Color(grassCol), 1200)
+                    .start();
+            });
+
+            sakuraCanopies.forEach(sphere => {
+                new TWEEN.Tween(sphere.material.color)
+                    .to(new THREE.Color(canopyCol), 1200)
+                    .start();
+            });
+        }
+
+        function updateTimeOfDay(val) {
+            timeOfDay = parseFloat(val);
+            
+            // Format hour display
+            const h = Math.floor(timeOfDay);
+            const m = Math.floor((timeOfDay - h) * 60).toString().padStart(2, '0');
+            document.getElementById('time-val').textContent = `${h.toString().padStart(2, '0')}:${m}`;
+
+            if (currentSeason === 'night') return; // let night lighting dominate
+
+            // Position sun based on 24-hour cycle translated to orbit coordinate
+            const angle = ((timeOfDay - 6) / 12) * Math.PI; // sun rises 6, sets 18
+            const r = 25;
+            
+            const sunX = Math.cos(angle) * r;
+            const sunY = Math.sin(angle) * r;
+            
+            dirLight.position.set(sunX, Math.max(sunY, 1.0), 10);
+
+            // Light intensities and colors transition during day
+            let intensity = 1.4;
+            let sunColor = 0xffecd1;
+
+            if (timeOfDay < 8) { // sunrise
+                intensity = 0.8 + (timeOfDay - 6) * 0.3;
+                sunColor = 0xff9a60; // warm sunrise pink-orange
+            } else if (timeOfDay > 16) { // sunset
+                intensity = 1.4 - (timeOfDay - 16) * 0.45;
+                sunColor = 0xff7a30; // fire sunset red
+            }
+
+            dirLight.intensity = intensity;
+            dirLight.color.setHex(sunColor);
+        }
+
+        function updateWind(val) {
+            windIntensity = parseFloat(val);
+            let rating = 'Calm';
+            if (windIntensity > 1.5) rating = 'Gusty';
+            else if (windIntensity > 0.8) rating = 'Gentle';
+            document.getElementById('wind-val').textContent = rating;
+        }
+
+        // --- CAMERA CONTROLS AND TRACKS ---
+
+        function setCameraTrack(track) {
+            currentCameraTrack = track;
+
+            // Active State button selection
+            const tracks = ['cinematic', 'orbit', 'pond', 'pagoda'];
+            tracks.forEach(t => {
+                const btn = document.getElementById('track-' + t);
+                if (t === track) btn.classList.add('active');
+                else btn.classList.remove('active');
+            });
+
+            // Smoothly move camera towards targeted coordinates
+            if (track === 'pond') {
+                smoothMoveCamera(new THREE.Vector3(12, 5, 8), new THREE.Vector3(4, 0.4, 2));
+                controls.enabled = false;
+            } else if (track === 'pagoda') {
+                smoothMoveCamera(new THREE.Vector3(8, 2.5, 4), new THREE.Vector3(-1.8, 3.5, -4.5));
+                controls.enabled = false;
+            } else if (track === 'orbit') {
+                controls.enabled = true;
+                showFloatingText("Manual Controls Activated");
+            } else if (track === 'cinematic') {
+                controls.enabled = true;
+            }
+        }
+
+        function smoothMoveCamera(targetPos, targetLookAt) {
+            // Lock controls damping target during transition
+            new TWEEN.Tween(camera.position)
+                .to(targetPos, 1500)
+                .easing(TWEEN.Easing.Cubic.Out)
+                .start();
+
+            new TWEEN.Tween(controls.target)
+                .to(targetLookAt, 1500)
+                .easing(TWEEN.Easing.Cubic.Out)
+                .start();
+        }
+
+        function updateCameraSpeed(val) {
+            cameraSpeed = parseFloat(val);
+            document.getElementById('cam-speed-val').textContent = cameraSpeed.toFixed(1) + 'x';
+        }
+
+        function toggleDoF() {
+            dofEnabled = !dofEnabled;
+            const btn = document.getElementById('btn-dof');
+            const dot = btn.querySelector('div');
+
+            if (dofEnabled) {
+                btn.classList.add('bg-red-500/20', 'border-red-500/50');
+                btn.classList.remove('bg-slate-800');
+                dot.classList.add('bg-red-500', 'translate-x-4');
+                dot.classList.remove('bg-slate-500');
+                scene.fog.density = 0.015;
+            } else {
+                btn.classList.remove('bg-red-500/20', 'border-red-500/50');
+                btn.classList.add('bg-slate-800');
+                dot.classList.remove('bg-red-500', 'translate-x-4');
+                dot.classList.add('bg-slate-500');
+                scene.fog.density = 0.001; // turn off fog
+            }
+        }
+
+
+        // --- ANIMATION LOOP ---
+
+        let prevTime = 0;
+        function animate(timestamp) {
+            requestAnimationFrame(animate);
+
+            // Handle TWEEN transitions
+            TWEEN.update();
+
+            const time = timestamp * 0.001;
+            const delta = time - prevTime;
+            prevTime = time;
+
+            // A. Cinematic Auto Camera Orbit Sweep
+            if (currentCameraTrack === 'cinematic') {
+                const angle = time * 0.05 * cameraSpeed;
+                const radius = 23 + Math.sin(time * 0.1) * 3;
+                camera.position.x = Math.sin(angle) * radius;
+                camera.position.z = Math.cos(angle) * radius;
+                camera.position.y = 12 + Math.sin(time * 0.15) * 4;
+                
+                // Keep target focused gently swinging around center
+                controls.target.set(
+                    Math.sin(time * 0.2) * 1.5,
+                    1.5 + Math.cos(time * 0.1) * 0.8,
+                    Math.cos(time * 0.2) * 1.5
+                );
+            }
+
+            // B. Bamboo Groves Wind Sway
+            bambooGroves.forEach(b => {
+                // Apply small sinusoidal sway in wind direction
+                const windSway = Math.sin(time * b.speed + b.windPhase) * 0.02 * windIntensity;
+                b.mesh.rotation.z = windSway;
+                b.mesh.rotation.x = windSway * 0.5;
+            });
+
+            // C. Cherry Canopy Wind breathing
+            sakuraCanopies.forEach((c, idx) => {
+                const breathScale = 1.0 + Math.sin(time * 1.2 + idx) * 0.006 * windIntensity;
+                c.scale.set(breathScale * 1.1, breathScale * 0.85, breathScale * 1.0);
+            });
+
+            // D. Stone Lantern Flickering Flame Light
+            if (lanternsLit) {
+                pointLights.forEach(light => {
+                    light.intensity = light.userData.intensity + (Math.random() - 0.5) * 0.1;
+                });
+            }
+
+            // E. Koi Fish Swimming AI
+            koiFishList.forEach(koi => {
+                koi.swimPhase += delta * koi.speed;
+
+                if (koi.fleeTimer > 0) {
+                    koi.fleeTimer -= delta;
+                    
+                    // flee rapid movement
+                    koi.mesh.position.addScaledVector(koi.fleeDir, koi.speed * delta);
+                    
+                    // rotate to face fleeing direction
+                    const angle = Math.atan2(-koi.fleeDir.z, koi.fleeDir.x);
+                    koi.mesh.rotation.y = THREE.MathUtils.lerp(koi.mesh.rotation.y, angle, 0.1);
+
+                    if (koi.fleeTimer <= 0) {
+                        koi.speed = 0.4 + Math.random() * 0.3; // restore normal calm speed
+                    }
+                } else {
+                    // Normal organic swimming orbit path
+                    koi.targetAngle += delta * 0.15 * koi.speed;
+                    
+                    // slowly update position
+                    const destX = 4 + Math.cos(koi.targetAngle) * koi.radius * 1.15;
+                    const destZ = 2.5 + Math.sin(koi.targetAngle) * koi.radius * 0.72;
+
+                    const curPos = koi.mesh.position;
+                    curPos.x = THREE.MathUtils.lerp(curPos.x, destX, 0.05);
+                    curPos.z = THREE.MathUtils.lerp(curPos.z, destZ, 0.05);
+
+                    // face movement direction
+                    const lookAngle = Math.atan2(destZ - curPos.z, destX - curPos.x);
+                    // smooth angle transition
+                    let diff = lookAngle - koi.mesh.rotation.y;
+                    // normalize difference to -PI to PI
+                    diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+                    koi.mesh.rotation.y += diff * 0.05;
+                }
+
+                // Fish Tail swim wiggle
+                koi.tail.rotation.y = Math.sin(koi.swimPhase * 8) * 0.35;
+            });
+
+            // F. Falling Environmental Particles
+            if (particleSystem) {
+                const posArr = particleSystem.geometry.attributes.position.array;
+                const count = posArr.length / 3;
+
+                for (let i = 0; i < count; i++) {
+                    const idx = i * 3;
+                    const phase = i;
+
+                    if (currentSeason === 'night') {
+                        // Rising glowing Fireflies (moving up and oscillating horizontally)
+                        posArr[idx + 1] += 0.15 * delta; // rise up
+                        posArr[idx] += Math.sin(time + phase) * 0.005; // hover sway
+                        posArr[idx + 2] += Math.cos(time + phase) * 0.005;
+
+                        // wrap top boundaries
+                        if (posArr[idx + 1] > 11) {
+                            posArr[idx + 1] = 0.1;
+                            posArr[idx] = (Math.random() - 0.5) * 26;
+                            posArr[idx + 2] = (Math.random() - 0.5) * 26;
+                        }
+                    } else {
+                        // Falling snow/petals/leaves
+                        posArr[idx + 1] -= (0.45 + (i % 3) * 0.25) * windIntensity * delta; // fall speed
+                        posArr[idx] += Math.sin(time + phase) * 0.015 * windIntensity; // leaf drift sway
+                        posArr[idx + 2] += Math.cos(time + phase) * 0.008 * windIntensity;
+
+                        // wrap bottom boundary (ground plane level)
+                        if (posArr[idx + 1] < 0.1) {
+                            posArr[idx + 1] = 10.5;
+                            posArr[idx] = (Math.random() - 0.5) * 26;
+                            posArr[idx + 2] = (Math.random() - 0.5) * 26;
+                        }
+                    }
+                }
+                particleSystem.geometry.attributes.position.needsUpdate = true;
+            }
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // Start initialization sequence
+        window.addEventListener('DOMContentLoaded', () => {
+            initGraphics();
+            requestAnimationFrame(animate);
+        });
+
+    </script>
+</body>
+</html>

@@ -1,0 +1,1258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Japanese Pagoda Garden - 3D Cinematic Experience</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            font-family: 'Georgia', serif;
+        }
+        
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+        
+        #loading {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            transition: opacity 1s ease-out;
+        }
+        
+        #loading.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        
+        #loading h1 {
+            color: #f0e6d3;
+            font-size: 2.5rem;
+            margin-bottom: 20px;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.5);
+            letter-spacing: 3px;
+        }
+        
+        #loading p {
+            color: #c9a66b;
+            font-size: 1rem;
+            letter-spacing: 2px;
+        }
+        
+        .loader {
+            width: 60px;
+            height: 60px;
+            border: 3px solid rgba(201, 166, 107, 0.2);
+            border-top-color: #c9a66b;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 30px;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        #info {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(240, 230, 211, 0.7);
+            font-size: 0.9rem;
+            text-align: center;
+            z-index: 100;
+            pointer-events: none;
+            text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+        }
+        
+        #title {
+            position: fixed;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #f0e6d3;
+            font-size: 1.8rem;
+            z-index: 100;
+            pointer-events: none;
+            text-shadow: 0 2px 15px rgba(0,0,0,0.7);
+            letter-spacing: 4px;
+            opacity: 0;
+            animation: fadeInTitle 2s ease-out 1s forwards;
+        }
+        
+        @keyframes fadeInTitle {
+            to { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <div id="loading">
+        <div class="loader"></div>
+        <h1>庭園</h1>
+        <p>LOADING JAPANESE GARDEN</p>
+    </div>
+    
+    <div id="canvas-container"></div>
+    
+    <div id="title">Japanese Pagoda Garden</div>
+    <div id="info">Click and drag to explore • Scroll to zoom</div>
+
+    <script>
+    // Three.js inline implementation for offline use
+    const THREE = (() => {
+        // Minimal Three.js implementation
+        const _math = {
+            DEG2RAD: Math.PI / 180,
+            RAD2DEG: 180 / Math.PI,
+            clamp: (val, min, max) => Math.max(min, Math.min(max, val)),
+            lerp: (x, y, t) => (1 - t) * x + t * y,
+            smoothstep: (x, min, max) => {
+                if (x <= min) return 0;
+                if (x >= max) return 1;
+                x = (x - min) / (max - min);
+                return x * x * (3 - 2 * x);
+            }
+        };
+        
+        class Vector3 {
+            constructor(x = 0, y = 0, z = 0) {
+                this.x = x; this.y = y; this.z = z;
+            }
+            set(x, y, z) { this.x = x; this.y = y; this.z = z; return this; }
+            copy(v) { this.x = v.x; this.y = v.y; this.z = v.z; return this; }
+            add(v) { return new Vector3(this.x + v.x, this.y + v.y, this.z + v.z); }
+            sub(v) { return new Vector3(this.x - v.x, this.y - v.y, this.z - v.z); }
+            multiplyScalar(s) { return new Vector3(this.x * s, this.y * s, this.z * s); }
+            length() { return Math.sqrt(this.x * this.x + this.y * this.y + this.z * this.z); }
+            normalize() { const l = this.length(); return l > 0 ? this.multiplyScalar(1/l) : this.clone(); }
+            clone() { return new Vector3(this.x, this.y, this.z); }
+            lerp(v, t) { 
+                return new Vector3(
+                    this.x + (v.x - this.x) * t,
+                    this.y + (v.y - this.y) * t,
+                    this.z + (v.z - this.z) * t
+                );
+            }
+        }
+        
+        class Vector2 {
+            constructor(x = 0, y = 0) { this.x = x; this.y = y; }
+            set(x, y) { this.x = x; this.y = y; return this; }
+        }
+        
+        class Color {
+            constructor(r = 1, g = 1, b = 1) { this.r = r; this.g = g; this.b = b; }
+            set(r, g, b) { this.r = r; this.g = g; this.b = b; return this; }
+            clone() { return new Color(this.r, this.g, this.b); }
+            multiplyScalar(s) { return new Color(this.r * s, this.g * s, this.b * s); }
+        }
+        
+        return { Vector3, Vector2, Color, _math };
+    })();
+
+    // Main 3D Scene
+    class PagodaGarden {
+        constructor() {
+            this.canvas = document.createElement('canvas');
+            this.ctx = this.canvas.getContext('2d');
+            document.getElementById('canvas-container').appendChild(this.canvas);
+            
+            this.resize();
+            window.addEventListener('resize', () => this.resize());
+            
+            this.mouse = { x: 0, y: 0, isDragging: false, lastX: 0, lastY: 0 };
+            this.cameraAngle = 0;
+            this.cameraHeight = 300;
+            this.cameraDistance = 600;
+            this.targetCameraAngle = 0;
+            this.time = 0;
+            this.petals = [];
+            this.fish = [];
+            this.particles = [];
+            this.people = [];
+            
+            this.init();
+            this.setupEvents();
+            this.animate();
+        }
+        
+        resize() {
+            this.width = window.innerWidth;
+            this.height = window.innerHeight;
+            this.canvas.width = this.width * window.devicePixelRatio;
+            this.canvas.height = this.height * window.devicePixelRatio;
+            this.canvas.style.width = this.width + 'px';
+            this.canvas.style.height = this.height + 'px';
+            this.ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+            
+            this.groundLevel = this.height * 0.65;
+        }
+        
+        setupEvents() {
+            this.canvas.addEventListener('mousedown', (e) => {
+                this.mouse.isDragging = true;
+                this.mouse.lastX = e.clientX;
+                this.mouse.lastY = e.clientY;
+            });
+            
+            this.canvas.addEventListener('mousemove', (e) => {
+                if (this.mouse.isDragging) {
+                    const deltaX = e.clientX - this.mouse.lastX;
+                    this.targetCameraAngle += deltaX * 0.005;
+                    this.mouse.lastX = e.clientX;
+                }
+                this.mouse.x = e.clientX;
+                this.mouse.y = e.clientY;
+            });
+            
+            this.canvas.addEventListener('mouseup', () => this.mouse.isDragging = false);
+            this.canvas.addEventListener('mouseleave', () => this.mouse.isDragging = false);
+            
+            this.canvas.addEventListener('wheel', (e) => {
+                this.cameraDistance += e.deltaY * 0.5;
+                this.cameraDistance = Math.max(300, Math.min(1000, this.cameraDistance));
+            });
+            
+            // Touch events
+            this.canvas.addEventListener('touchstart', (e) => {
+                if (e.touches.length === 1) {
+                    this.mouse.isDragging = true;
+                    this.mouse.lastX = e.touches[0].clientX;
+                }
+            });
+            
+            this.canvas.addEventListener('touchmove', (e) => {
+                if (e.touches.length === 1 && this.mouse.isDragging) {
+                    const deltaX = e.touches[0].clientX - this.mouse.lastX;
+                    this.targetCameraAngle += deltaX * 0.005;
+                    this.mouse.lastX = e.touches[0].clientX;
+                }
+            });
+            
+            this.canvas.addEventListener('touchend', () => this.mouse.isDragging = false);
+        }
+        
+        init() {
+            // Initialize cherry blossom petals
+            for (let i = 0; i < 80; i++) {
+                this.petals.push({
+                    x: Math.random() * this.width,
+                    y: Math.random() * this.height * 0.6,
+                    size: 3 + Math.random() * 4,
+                    speedX: -0.3 + Math.random() * 0.2,
+                    speedY: 0.5 + Math.random() * 0.8,
+                    rotation: Math.random() * Math.PI * 2,
+                    rotationSpeed: (Math.random() - 0.5) * 0.1,
+                    opacity: 0.6 + Math.random() * 0.4,
+                    wobble: Math.random() * Math.PI * 2
+                });
+            }
+            
+            // Initialize koi fish
+            for (let i = 0; i < 12; i++) {
+                this.fish.push({
+                    angle: Math.random() * Math.PI * 2,
+                    radius: 30 + Math.random() * 40,
+                    speed: 0.01 + Math.random() * 0.02,
+                    color: ['orange', 'white', 'red', 'black'][Math.floor(Math.random() * 4)],
+                    size: 8 + Math.random() * 6
+                });
+            }
+            
+            // Initialize people
+            this.people = [
+                { x: -100, z: 80, rotation: 0.3, color: '#2d5016' },
+                { x: -120, z: 60, rotation: 0.4, color: '#1a365d' },
+                { x: 140, z: 60, rotation: -0.3, color: '#1e3a5f' }
+            ];
+            
+            // Floating particles (magical effect)
+            for (let i = 0; i < 30; i++) {
+                this.particles.push({
+                    x: Math.random() * this.width,
+                    y: Math.random() * this.height,
+                    size: 1 + Math.random() * 2,
+                    speed: 0.2 + Math.random() * 0.3,
+                    opacity: 0.3 + Math.random() * 0.4
+                });
+            }
+        }
+        
+        project3D(x, y, z) {
+            const angle = this.cameraAngle;
+            const cosA = Math.cos(angle);
+            const sinA = Math.sin(angle);
+            
+            // Rotate around Y axis
+            const rx = x * cosA + z * sinA;
+            const rz = -x * sinA + z * cosA;
+            
+            // Isometric-like projection
+            const scale = 800 / (800 + rz);
+            const px = this.width / 2 + rx * scale * 0.8;
+            const py = this.groundLevel - y * scale + rz * 0.2 * scale;
+            
+            return { x: px, y: py, scale, depth: rz };
+        }
+        
+        drawSky() {
+            const gradient = this.ctx.createLinearGradient(0, 0, 0, this.height);
+            gradient.addColorStop(0, '#87CEEB');
+            gradient.addColorStop(0.3, '#B0E0E6');
+            gradient.addColorStop(0.5, '#E6F3FF');
+            gradient.addColorStop(1, '#F5F5DC');
+            
+            this.ctx.fillStyle = gradient;
+            this.ctx.fillRect(0, 0, this.width, this.height);
+            
+            // Sun glow
+            const sunX = this.width * 0.7 + Math.sin(this.time * 0.1) * 50;
+            const sunY = this.height * 0.15;
+            const sunGradient = this.ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, 200);
+            sunGradient.addColorStop(0, 'rgba(255, 250, 205, 0.9)');
+            sunGradient.addColorStop(0.3, 'rgba(255, 223, 186, 0.5)');
+            sunGradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+            
+            this.ctx.fillStyle = sunGradient;
+            this.ctx.fillRect(0, 0, this.width, this.height);
+        }
+        
+        drawGround() {
+            const ground = this.project3D(0, 0, 0);
+            const groundWidth = 450;
+            const groundHeight = 200;
+            
+            // Ground shadow
+            this.ctx.save();
+            this.ctx.beginPath();
+            this.ctx.ellipse(ground.x + 50, ground.y + 15, groundWidth * ground.scale * 0.9, groundHeight * ground.scale * 0.4, 0, 0, Math.PI * 2);
+            this.ctx.fillStyle = 'rgba(0, 50, 0, 0.2)';
+            this.ctx.fill();
+            this.ctx.restore();
+            
+            // Main ground
+            this.ctx.save();
+            this.ctx.beginPath();
+            this.ctx.ellipse(ground.x, ground.y, groundWidth * ground.scale * 0.85, groundHeight * ground.scale * 0.38, 0, 0, Math.PI * 2);
+            
+            const grassGradient = this.ctx.createRadialGradient(ground.x, ground.y, 0, ground.x, ground.y, groundWidth * ground.scale);
+            grassGradient.addColorStop(0, '#7CB342');
+            grassGradient.addColorStop(0.5, '#689F38');
+            grassGradient.addColorStop(1, '#558B2F');
+            this.ctx.fillStyle = grassGradient;
+            this.ctx.fill();
+            
+            // Grass texture
+            for (let i = 0; i < 50; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const dist = Math.random() * groundWidth * 0.7;
+                const px = ground.x + Math.cos(angle) * dist * 0.85 * ground.scale;
+                const py = ground.y + Math.sin(angle) * dist * 0.38 * ground.scale;
+                
+                this.ctx.beginPath();
+                this.ctx.arc(px, py, 2 + Math.random() * 3, 0, Math.PI * 2);
+                this.ctx.fillStyle = `rgba(${100 + Math.random() * 30}, ${180 + Math.random() * 30}, ${50 + Math.random() * 20}, 0.3)`;
+                this.ctx.fill();
+            }
+            this.ctx.restore();
+        }
+        
+        drawPond() {
+            const pondCenter = this.project3D(120, 0, 80);
+            const pondWidth = 120;
+            const pondHeight = 55;
+            
+            // Pond border stones
+            this.ctx.save();
+            for (let i = 0; i < 20; i++) {
+                const angle = (i / 20) * Math.PI * 2;
+                const stoneX = pondCenter.x + Math.cos(angle) * pondWidth * pondCenter.scale;
+                const stoneY = pondCenter.y + Math.sin(angle) * pondHeight * pondCenter.scale * 0.5;
+                
+                this.ctx.beginPath();
+                this.ctx.ellipse(stoneX, stoneY, 8 * pondCenter.scale, 5 * pondCenter.scale, 0, 0, Math.PI * 2);
+                this.ctx.fillStyle = '#808080';
+                this.ctx.fill();
+                this.ctx.strokeStyle = '#606060';
+                this.ctx.lineWidth = 1;
+                this.ctx.stroke();
+            }
+            this.ctx.restore();
+            
+            // Pond water
+            this.ctx.save();
+            this.ctx.beginPath();
+            this.ctx.ellipse(pondCenter.x, pondCenter.y, pondWidth * pondCenter.scale, pondHeight * pondCenter.scale * 0.45, 0, 0, Math.PI * 2);
+            
+            const waterGradient = this.ctx.createRadialGradient(
+                pondCenter.x - 20, pondCenter.y - 10, 0,
+                pondCenter.x, pondCenter.y, pondWidth * pondCenter.scale
+            );
+            waterGradient.addColorStop(0, '#4DD0E1');
+            waterGradient.addColorStop(0.5, '#00ACC1');
+            waterGradient.addColorStop(1, '#00838F');
+            this.ctx.fillStyle = waterGradient;
+            this.ctx.fill();
+            
+            // Water ripples
+            for (let i = 0; i < 5; i++) {
+                const rippleX = pondCenter.x + Math.sin(this.time + i) * 30;
+                const rippleY = pondCenter.y + Math.cos(this.time * 0.7 + i) * 10;
+                const rippleSize = 10 + Math.sin(this.time * 2 + i) * 5;
+                
+                this.ctx.beginPath();
+                this.ctx.ellipse(rippleX, rippleY, rippleSize, rippleSize * 0.4, 0, 0, Math.PI * 2);
+                this.ctx.strokeStyle = `rgba(255, 255, 255, ${0.2 + Math.sin(this.time + i) * 0.1})`;
+                this.ctx.lineWidth = 1;
+                this.ctx.stroke();
+            }
+            
+            // Water highlight
+            this.ctx.beginPath();
+            this.ctx.ellipse(pondCenter.x - 25, pondCenter.y - 15, 20, 8, -0.3, 0, Math.PI * 2);
+            this.ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+            this.ctx.fill();
+            
+            this.ctx.restore();
+            
+            // Draw koi fish
+            this.drawKoiFish(pondCenter, pondWidth, pondHeight);
+        }
+        
+        drawKoiFish(pondCenter, pondWidth, pondHeight) {
+            this.fish.forEach(fish => {
+                fish.angle += fish.speed;
+                
+                const fx = pondCenter.x + Math.cos(fish.angle) * fish.radius * pondCenter.scale;
+                const fy = pondCenter.y + Math.sin(fish.angle) * fish.radius * 0.4 * pondCenter.scale;
+                
+                if (fx > pondCenter.x - pondWidth * pondCenter.scale * 0.9 && 
+                    fx < pondCenter.x + pondWidth * pondCenter.scale * 0.9) {
+                    
+                    this.ctx.save();
+                    this.ctx.translate(fx, fy);
+                    this.ctx.rotate(fish.angle + Math.PI/2);
+                    
+                    // Fish body
+                    const colors = {
+                        orange: '#FF6B35',
+                        white: '#FFFFFF',
+                        red: '#DC143C',
+                        black: '#1a1a1a'
+                    };
+                    
+                    this.ctx.beginPath();
+                    this.ctx.ellipse(0, 0, fish.size * 0.4, fish.size * 0.15, 0, 0, Math.PI * 2);
+                    this.ctx.fillStyle = colors[fish.color];
+                    this.ctx.fill();
+                    
+                    // Fish tail
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(0, 0);
+                    this.ctx.lineTo(-fish.size * 0.3, -fish.size * 0.1);
+                    this.ctx.lineTo(-fish.size * 0.3, fish.size * 0.1);
+                    this.ctx.closePath();
+                    this.ctx.fillStyle = colors[fish.color];
+                    this.ctx.fill();
+                    
+                    // Fish pattern (for orange and white)
+                    if (fish.color === 'orange') {
+                        this.ctx.beginPath();
+                        this.ctx.ellipse(2, 0, 3, 2, 0, 0, Math.PI * 2);
+                        this.ctx.fillStyle = 'rgba(255,255,255,0.5)';
+                        this.ctx.fill();
+                    }
+                    
+                    this.ctx.restore();
+                }
+            });
+        }
+        
+        drawBridge() {
+            const bridgeCenter = this.project3D(140, 0, 60);
+            
+            // Bridge support pillars
+            const pillarPositions = [
+                { x: -45, y: 0, z: 0 },
+                { x: 45, y: 0, z: 0 }
+            ];
+            
+            pillarPositions.forEach(pos => {
+                const pillar = this.project3D(140 + pos.x, 0, 60 + pos.z);
+                this.ctx.save();
+                this.ctx.fillStyle = '#8B4513';
+                this.ctx.fillRect(pillar.x - 3, pillar.y - 20, 6 * pillar.scale, 20);
+                this.ctx.restore();
+            });
+            
+            // Bridge arch
+            this.ctx.save();
+            this.ctx.beginPath();
+            
+            const bridgePoints = [];
+            for (let i = -50; i <= 50; i += 5) {
+                const archY = Math.sin((i + 50) / 100 * Math.PI) * 25;
+                const p = this.project3D(140 + i, archY, 60);
+                bridgePoints.push(p);
+            }
+            
+            // Draw bridge deck
+            this.ctx.beginPath();
+            this.ctx.moveTo(bridgePoints[0].x, bridgePoints[0].y);
+            bridgePoints.forEach((p, i) => {
+                if (i > 0) this.ctx.lineTo(p.x, p.y);
+            });
+            this.ctx.lineTo(bridgePoints[bridgePoints.length-1].x, bridgePoints[bridgePoints.length-1].y + 5);
+            for (let i = bridgePoints.length - 1; i >= 0; i--) {
+                const p = bridgePoints[i];
+                this.ctx.lineTo(p.x, p.y + 5);
+            }
+            this.ctx.closePath();
+            
+            const bridgeGradient = this.ctx.createLinearGradient(bridgePoints[0].x, 0, bridgePoints[bridgePoints.length-1].x, 0);
+            bridgeGradient.addColorStop(0, '#B22222');
+            bridgeGradient.addColorStop(0.5, '#DC143C');
+            bridgeGradient.addColorStop(1, '#B22222');
+            this.ctx.fillStyle = bridgeGradient;
+            this.ctx.fill();
+            this.ctx.strokeStyle = '#8B0000';
+            this.ctx.lineWidth = 2;
+            this.ctx.stroke();
+            
+            // Bridge railings
+            this.ctx.strokeStyle = '#8B0000';
+            this.ctx.lineWidth = 2;
+            for (let i = -45; i <= 45; i += 15) {
+                const archY = Math.sin((i + 50) / 100 * Math.PI) * 25;
+                const postBottom = this.project3D(140 + i, archY, 60);
+                const postTop = this.project3D(140 + i, archY + 15, 60);
+                
+                this.ctx.beginPath();
+                this.ctx.moveTo(postBottom.x, postBottom.y);
+                this.ctx.lineTo(postTop.x, postTop.y);
+                this.ctx.stroke();
+            }
+            
+            // Top railing
+            this.ctx.beginPath();
+            for (let i = -45; i <= 45; i += 2) {
+                const archY = Math.sin((i + 50) / 100 * Math.PI) * 25 + 15;
+                const p = this.project3D(140 + i, archY, 60);
+                if (i === -45) this.ctx.moveTo(p.x, p.y);
+                else this.ctx.lineTo(p.x, p.y);
+            }
+            this.ctx.strokeStyle = '#DC143C';
+            this.ctx.lineWidth = 3;
+            this.ctx.stroke();
+            
+            this.ctx.restore();
+        }
+        
+        drawPagoda() {
+            const baseY = 0;
+            const levels = 5;
+            const levelHeight = 28;
+            const baseWidth = 80;
+            
+            for (let level = 0; level < levels; level++) {
+                const y = baseY + level * levelHeight;
+                const width = baseWidth - level * 10;
+                const shrink = 0.85;
+                
+                // Level structure
+                this.drawPagodaLevel(y, width, level, levelHeight);
+            }
+            
+            // Roof finial (top ornament)
+            const topY = baseY + levels * levelHeight;
+            const finial = this.project3D(0, topY + 20, 0);
+            
+            this.ctx.save();
+            // Gold finial
+            this.ctx.beginPath();
+            this.ctx.moveTo(finial.x, finial.y - 15 * finial.scale);
+            this.ctx.lineTo(finial.x - 4, finial.y);
+            this.ctx.lineTo(finial.x + 4, finial.y);
+            this.ctx.closePath();
+            this.ctx.fillStyle = '#FFD700';
+            this.ctx.fill();
+            this.ctx.strokeStyle = '#DAA520';
+            this.ctx.lineWidth = 1;
+            this.ctx.stroke();
+            
+            // Finial ball
+            this.ctx.beginPath();
+            this.ctx.arc(finial.x, finial.y - 15 * finial.scale, 4, 0, Math.PI * 2);
+            this.ctx.fillStyle = '#FFD700';
+            this.ctx.fill();
+            this.ctx.restore();
+        }
+        
+        drawPagodaLevel(y, width, level, height) {
+            const corners = [
+                { x: -width/2, z: -width/2 },
+                { x: width/2, z: -width/2 },
+                { x: width/2, z: width/2 },
+                { x: -width/2, z: width/2 }
+            ];
+            
+            // Project corners
+            const projectedCorners = corners.map(c => this.project3D(c.x, y, c.z));
+            const topCorners = corners.map(c => this.project3D(c.x, y + height * 0.6, c.z));
+            
+            // Draw walls (visible faces)
+            this.ctx.save();
+            
+            // Front wall
+            this.ctx.beginPath();
+            this.ctx.moveTo(projectedCorners[0].x, projectedCorners[0].y);
+            this.ctx.lineTo(projectedCorners[1].x, projectedCorners[1].y);
+            this.ctx.lineTo(topCorners[1].x, topCorners[1].y);
+            this.ctx.lineTo(topCorners[0].x, topCorners[0].y);
+            this.ctx.closePath();
+            
+            const wallGradient = this.ctx.createLinearGradient(projectedCorners[0].x, 0, projectedCorners[1].x, 0);
+            wallGradient.addColorStop(0, '#F5F5DC');
+            wallGradient.addColorStop(1, '#E8E0D0');
+            this.ctx.fillStyle = wallGradient;
+            this.ctx.fill();
+            
+            // Wall panels
+            for (let i = 0; i < 3; i++) {
+                const t = (i + 0.5) / 3;
+                const panelX = projectedCorners[0].x + (projectedCorners[1].x - projectedCorners[0].x) * t;
+                
+                this.ctx.fillStyle = level % 2 === 0 ? '#8B4513' : '#A0522D';
+                this.ctx.fillRect(panelX - 8, topCorners[0].y + 3, 16, (projectedCorners[0].y - topCorners[0].y) * 0.7);
+            }
+            
+            // Right wall
+            this.ctx.beginPath();
+            this.ctx.moveTo(projectedCorners[1].x, projectedCorners[1].y);
+            this.ctx.lineTo(projectedCorners[2].x, projectedCorners[2].y);
+            this.ctx.lineTo(topCorners[2].x, topCorners[2].y);
+            this.ctx.lineTo(topCorners[1].x, topCorners[1].y);
+            this.ctx.closePath();
+            this.ctx.fillStyle = '#D2B48C';
+            this.ctx.fill();
+            
+            // Red trim
+            this.ctx.strokeStyle = '#B22222';
+            this.ctx.lineWidth = 3;
+            this.ctx.beginPath();
+            this.ctx.moveTo(projectedCorners[0].x, projectedCorners[0].y);
+            this.ctx.lineTo(projectedCorners[1].x, projectedCorners[1].y);
+            this.ctx.lineTo(projectedCorners[2].x, projectedCorners[2].y);
+            this.ctx.stroke();
+            
+            // Roof
+            const roofOverhang = 15;
+            const roofHeight = height * 0.4;
+            
+            const roofCorners = [
+                this.project3D(-width/2 - roofOverhang, y + height * 0.6, -width/2 - roofOverhang),
+                this.project3D(width/2 + roofOverhang, y + height * 0.6, -width/2 - roofOverhang),
+                this.project3D(width/2 + roofOverhang, y + height * 0.6, width/2 + roofOverhang),
+                this.project3D(-width/2 - roofOverhang, y + height * 0.6, width/2 + roofOverhang)
+            ];
+            
+            const roofTop = this.project3D(0, y + height * 0.6 + roofHeight, 0);
+            
+            // Roof layers
+            for (let r = 0; r < 4; r++) {
+                const layerY = y + height * 0.6 + r * 3;
+                const layerOverhang = roofOverhang - r * 3;
+                
+                const layerCorners = [
+                    this.project3D(-width/2 - layerOverhang, layerY, -width/2 - layerOverhang),
+                    this.project3D(width/2 + layerOverhang, layerY, -width/2 - layerOverhang),
+                    this.project3D(width/2 + layerOverhang, layerY, width/2 + layerOverhang),
+                    this.project3D(-width/2 - layerOverhang, layerY, width/2 + layerOverhang)
+                ];
+                
+                // Roof side
+                this.ctx.beginPath();
+                this.ctx.moveTo(layerCorners[0].x, layerCorners[0].y);
+                this.ctx.lineTo(layerCorners[1].x, layerCorners[1].y);
+                this.ctx.lineTo(layerCorners[1].x, layerCorners[1].y - 2);
+                this.ctx.lineTo(layerCorners[0].x, layerCorners[0].y - 2);
+                this.ctx.closePath();
+                this.ctx.fillStyle = `rgb(${40 + r * 5}, ${45 + r * 5}, ${50 + r * 5})`;
+                this.ctx.fill();
+            }
+            
+            // Main roof curve
+            this.ctx.beginPath();
+            this.ctx.moveTo(roofCorners[0].x, roofCorners[0].y);
+            this.ctx.lineTo(roofCorners[1].x, roofCorners[1].y);
+            this.ctx.lineTo(roofTop.x + 20, roofTop.y);
+            this.ctx.lineTo(roofTop.x, roofTop.y + 5);
+            this.ctx.lineTo(roofCorners[0].x - 20, roofCorners[0].y);
+            this.ctx.closePath();
+            
+            const roofGradient = this.ctx.createLinearGradient(0, roofCorners[0].y, 0, roofTop.y);
+            roofGradient.addColorStop(0, '#2F3542');
+            roofGradient.addColorStop(1, '#1a1a2e');
+            this.ctx.fillStyle = roofGradient;
+            this.ctx.fill();
+            
+            // Roof ridges
+            this.ctx.strokeStyle = '#C9A66B';
+            this.ctx.lineWidth = 2;
+            this.ctx.beginPath();
+            this.ctx.moveTo(roofCorners[0].x, roofCorners[0].y);
+            this.ctx.lineTo(roofTop.x, roofTop.y);
+            this.ctx.stroke();
+            
+            this.ctx.restore();
+        }
+        
+        drawStairs() {
+            const stairsStart = this.project3D(-40, 0, 60);
+            const steps = 8;
+            
+            this.ctx.save();
+            for (let i = 0; i < steps; i++) {
+                const stepY = i * 5;
+                const step = this.project3D(-40, stepY, 60 - i * 5);
+                
+                // Step top
+                this.ctx.fillStyle = '#A0A0A0';
+                this.ctx.fillRect(step.x - 15, step.y - 3, 30, 5);
+                
+                // Step front
+                this.ctx.fillStyle = '#808080';
+                this.ctx.fillRect(step.x - 15, step.y + 2, 30, 5);
+                
+                // Step edge
+                this.ctx.strokeStyle = '#696969';
+                this.ctx.lineWidth = 1;
+                this.ctx.strokeRect(step.x - 15, step.y - 3, 30, 5);
+            }
+            
+            // Handrails
+            this.ctx.strokeStyle = '#B22222';
+            this.ctx.lineWidth = 3;
+            
+            this.ctx.beginPath();
+            for (let i = 0; i <= steps; i++) {
+                const stepY = i * 5;
+                const step = this.project3D(-55, stepY + 10, 60 - i * 5);
+                if (i === 0) this.ctx.moveTo(step.x, step.y);
+                else this.ctx.lineTo(step.x, step.y);
+            }
+            this.ctx.stroke();
+            
+            this.ctx.beginPath();
+            for (let i = 0; i <= steps; i++) {
+                const stepY = i * 5;
+                const step = this.project3D(-25, stepY + 10, 60 - i * 5);
+                if (i === 0) this.ctx.moveTo(step.x, step.y);
+                else this.ctx.lineTo(step.x, step.y);
+            }
+            this.ctx.stroke();
+            
+            this.ctx.restore();
+        }
+        
+        drawCherryBlossomTree(x, z, size) {
+            const trunk = this.project3D(x, 0, z);
+            const canopy = this.project3D(x, size * 2, z);
+            
+            // Trunk
+            this.ctx.save();
+            this.ctx.strokeStyle = '#5D4037';
+            this.ctx.lineWidth = 8 * trunk.scale;
+            this.ctx.lineCap = 'round';
+            
+            this.ctx.beginPath();
+            this.ctx.moveTo(trunk.x, trunk.y);
+            this.ctx.quadraticCurveTo(trunk.x - 20, trunk.y - size, canopy.x - 30, canopy.y + 20);
+            this.ctx.stroke();
+            
+            this.ctx.beginPath();
+            this.ctx.moveTo(trunk.x, trunk.y);
+            this.ctx.quadraticCurveTo(trunk.x + 15, trunk.y - size * 0.8, canopy.x + 40, canopy.y + 30);
+            this.ctx.stroke();
+            
+            // Branches
+            this.ctx.lineWidth = 3 * trunk.scale;
+            this.ctx.beginPath();
+            this.ctx.moveTo(canopy.x - 30, canopy.y + 20);
+            this.ctx.lineTo(canopy.x - 60, canopy.y - 10);
+            this.ctx.stroke();
+            
+            this.ctx.beginPath();
+            this.ctx.moveTo(canopy.x + 40, canopy.y + 30);
+            this.ctx.lineTo(canopy.x + 70, canopy.y);
+            this.ctx.stroke();
+            
+            // Cherry blossom canopy
+            const blossomColors = [
+                'rgba(255, 182, 193, 0.9)',
+                'rgba(255, 192, 203, 0.85)',
+                'rgba(255, 218, 233, 0.8)',
+                'rgba(255, 160, 180, 0.75)'
+            ];
+            
+            for (let i = 0; i < 25; i++) {
+                const bx = canopy.x + (Math.random() - 0.5) * 120;
+                const by = canopy.y + (Math.random() - 0.5) * 60;
+                const bSize = (15 + Math.random() * 20) * trunk.scale;
+                
+                this.ctx.beginPath();
+                this.ctx.arc(bx, by, bSize, 0, Math.PI * 2);
+                this.ctx.fillStyle = blossomColors[Math.floor(Math.random() * blossomColors.length)];
+                this.ctx.fill();
+            }
+            
+            // Blossom highlights
+            for (let i = 0; i < 15; i++) {
+                const bx = canopy.x + (Math.random() - 0.5) * 100;
+                const by = canopy.y + (Math.random() - 0.5) * 50;
+                
+                this.ctx.beginPath();
+                this.ctx.arc(bx, by, 3 + Math.random() * 4, 0, Math.PI * 2);
+                this.ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+                this.ctx.fill();
+            }
+            
+            this.ctx.restore();
+        }
+        
+        drawBamboo(x, z, count) {
+            this.ctx.save();
+            
+            for (let i = 0; i < count; i++) {
+                const offsetX = i * 12 - (count * 6);
+                const bamboo = this.project3D(x + offsetX, 0, z);
+                const height = 100 + Math.random() * 50;
+                
+                // Bamboo stalk
+                const gradient = this.ctx.createLinearGradient(bamboo.x, bamboo.y, bamboo.x, bamboo.y - height * bamboo.scale);
+                gradient.addColorStop(0, '#558B2F');
+                gradient.addColorStop(0.5, '#7CB342');
+                gradient.addColorStop(1, '#8BC34A');
+                
+                this.ctx.strokeStyle = gradient;
+                this.ctx.lineWidth = 6 * bamboo.scale;
+                this.ctx.lineCap = 'round';
+                
+                this.ctx.beginPath();
+                this.ctx.moveTo(bamboo.x, bamboo.y);
+                this.ctx.lineTo(bamboo.x + Math.sin(this.time + i) * 3, bamboo.y - height * bamboo.scale);
+                this.ctx.stroke();
+                
+                // Bamboo nodes
+                for (let n = 0; n < 4; n++) {
+                    const nodeY = bamboo.y - n * 25 * bamboo.scale;
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(bamboo.x - 4, nodeY);
+                    this.ctx.lineTo(bamboo.x + 4, nodeY);
+                    this.ctx.strokeStyle = '#33691E';
+                    this.ctx.lineWidth = 2;
+                    this.ctx.stroke();
+                }
+                
+                // Bamboo leaves
+                for (let l = 0; l < 5; l++) {
+                    const leafY = bamboo.y - (height - 30 - l * 10) * bamboo.scale;
+                    const leafX = bamboo.x + (l % 2 === 0 ? 15 : -15) * bamboo.scale;
+                    const leafAngle = (l % 2 === 0 ? 0.5 : -0.5) + Math.sin(this.time * 0.5 + i) * 0.1;
+                    
+                    this.ctx.save();
+                    this.ctx.translate(leafX, leafY);
+                    this.ctx.rotate(leafAngle);
+                    
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(0, 0);
+                    this.ctx.quadraticCurveTo(15 * bamboo.scale, -5, 30 * bamboo.scale, 0);
+                    this.ctx.quadraticCurveTo(15 * bamboo.scale, 5, 0, 0);
+                    this.ctx.fillStyle = '#689F38';
+                    this.ctx.fill();
+                    
+                    this.ctx.restore();
+                }
+            }
+            
+            this.ctx.restore();
+        }
+        
+        drawStoneLantern(x, z) {
+            const lantern = this.project3D(x, 0, z);
+            const scale = lantern.scale;
+            
+            this.ctx.save();
+            
+            // Base
+            this.ctx.fillStyle = '#9E9E9E';
+            this.ctx.fillRect(lantern.x - 12 * scale, lantern.y - 10 * scale, 24 * scale, 15 * scale);
+            
+            // Middle section
+            this.ctx.fillStyle = '#BDBDBD';
+            this.ctx.fillRect(lantern.x - 8 * scale, lantern.y - 35 * scale, 16 * scale, 25 * scale);
+            
+            // Light opening
+            this.ctx.fillStyle = '#FFEB3B';
+            this.ctx.fillRect(lantern.x - 5 * scale, lantern.y - 30 * scale, 10 * scale, 12 * scale);
+            
+            // Light glow
+            const glowGradient = this.ctx.createRadialGradient(
+                lantern.x, lantern.y - 24 * scale, 0,
+                lantern.x, lantern.y - 24 * scale, 20 * scale
+            );
+            glowGradient.addColorStop(0, 'rgba(255, 235, 59, 0.4)');
+            glowGradient.addColorStop(1, 'rgba(255, 235, 59, 0)');
+            this.ctx.fillStyle = glowGradient;
+            this.ctx.fillRect(lantern.x - 25 * scale, lantern.y - 45 * scale, 50 * scale, 50 * scale);
+            
+            // Roof
+            this.ctx.beginPath();
+            this.ctx.moveTo(lantern.x, lantern.y - 55 * scale);
+            this.ctx.lineTo(lantern.x - 15 * scale, lantern.y - 38 * scale);
+            this.ctx.lineTo(lantern.x + 15 * scale, lantern.y - 38 * scale);
+            this.ctx.closePath();
+            this.ctx.fillStyle = '#757575';
+            this.ctx.fill();
+            
+            this.ctx.restore();
+        }
+        
+        drawBush(x, z, size) {
+            const bush = this.project3D(x, 0, z);
+            
+            this.ctx.save();
+            
+            // Bush shadow
+            this.ctx.beginPath();
+            this.ctx.ellipse(bush.x, bush.y + 2, size * bush.scale * 0.8, size * bush.scale * 0.2, 0, 0, Math.PI * 2);
+            this.ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+            this.ctx.fill();
+            
+            // Bush body
+            const bushGradient = this.ctx.createRadialGradient(
+                bush.x - 5, bush.y - size * bush.scale * 0.3, 0,
+                bush.x, bush.y, size * bush.scale
+            );
+            bushGradient.addColorStop(0, '#4CAF50');
+            bushGradient.addColorStop(0.7, '#388E3C');
+            bushGradient.addColorStop(1, '#2E7D32');
+            
+            this.ctx.beginPath();
+            this.ctx.ellipse(bush.x, bush.y - size * bush.scale * 0.3, size * bush.scale * 0.8, size * bush.scale * 0.5, 0, 0, Math.PI * 2);
+            this.ctx.fillStyle = bushGradient;
+            this.ctx.fill();
+            
+            // Bush highlights
+            for (let i = 0; i < 5; i++) {
+                this.ctx.beginPath();
+                this.ctx.arc(
+                    bush.x + (Math.random() - 0.5) * size * bush.scale * 0.5,
+                    bush.y - size * bush.scale * 0.3 + (Math.random() - 0.5) * size * bush.scale * 0.3,
+                    3 + Math.random() * 4,
+                    0, Math.PI * 2
+                );
+                this.ctx.fillStyle = 'rgba(129, 199, 132, 0.5)';
+                this.ctx.fill();
+            }
+            
+            this.ctx.restore();
+        }
+        
+        drawPath() {
+            this.ctx.save();
+            
+            const stones = [
+                { x: -150, z: 120, w: 25, h: 12 },
+                { x: -120, z: 110, w: 20, h: 10 },
+                { x: -90, z: 100, w: 28, h: 14 },
+                { x: -60, z: 90, w: 22, h: 11 },
+                { x: -30, z: 80, w: 30, h: 15 },
+                { x: 0, z: 75, w: 26, h: 13 },
+                { x: 30, z: 80, w: 24, h: 12 },
+                { x: 60, z: 90, w: 28, h: 14 },
+                { x: 90, z: 100, w: 22, h: 11 },
+                { x: -130, z: 130, w: 20, h: 10 },
+                { x: -100, z: 125, w: 24, h: 12 },
+                { x: -70, z: 115, w: 22, h: 11 },
+                { x: -40, z: 105, w: 26, h: 13 },
+            ];
+            
+            stones.forEach(stone => {
+                const pos = this.project3D(stone.x, 0, stone.z);
+                
+                this.ctx.beginPath();
+                this.ctx.ellipse(pos.x, pos.y, stone.w * pos.scale, stone.h * pos.scale * 0.5, 0, 0, Math.PI * 2);
+                
+                const stoneGradient = this.ctx.createRadialGradient(
+                    pos.x - 3, pos.y - 2, 0,
+                    pos.x, pos.y, stone.w * pos.scale
+                );
+                stoneGradient.addColorStop(0, '#D5D5D5');
+                stoneGradient.addColorStop(1, '#A0A0A0');
+                this.ctx.fillStyle = stoneGradient;
+                this.ctx.fill();
+                this.ctx.strokeStyle = '#808080';
+                this.ctx.lineWidth = 1;
+                this.ctx.stroke();
+            });
+            
+            this.ctx.restore();
+        }
+        
+        drawFence() {
+            this.ctx.save();
+            
+            const fencePosts = [];
+            for (let i = 0; i < 8; i++) {
+                const angle = -Math.PI * 0.7 + i * 0.15;
+                const x = Math.cos(angle) * 180 - 80;
+                const z = Math.sin(angle) * 100 + 100;
+                fencePosts.push(this.project3D(x, 0, z));
+            }
+            
+            // Draw posts
+            this.ctx.fillStyle = '#795548';
+            fencePosts.forEach(post => {
+                this.ctx.fillRect(post.x - 3 * post.scale, post.y - 20 * post.scale, 6 * post.scale, 20 * post.scale);
+                this.ctx.beginPath();
+                this.ctx.moveTo(post.x - 4 * post.scale, post.y - 20 * post.scale);
+                this.ctx.lineTo(post.x, post.y - 25 * post.scale);
+                this.ctx.lineTo(post.x + 4 * post.scale, post.y - 20 * post.scale);
+                this.ctx.fillStyle = '#8D6E63';
+                this.ctx.fill();
+            });
+            
+            // Draw rails
+            this.ctx.strokeStyle = '#795548';
+            this.ctx.lineWidth = 3;
+            
+            this.ctx.beginPath();
+            for (let i = 0; i < fencePosts.length; i++) {
+                const railY = fencePosts[i].y - 12 * fencePosts[i].scale;
+                if (i === 0) this.ctx.moveTo(fencePosts[i].x, railY);
+                else this.ctx.lineTo(fencePosts[i].x, railY);
+            }
+            this.ctx.stroke();
+            
+            this.ctx.beginPath();
+            for (let i = 0; i < fencePosts.length; i++) {
+                const railY = fencePosts[i].y - 18 * fencePosts[i].scale;
+                if (i === 0) this.ctx.moveTo(fencePosts[i].x, railY);
+                else this.ctx.lineTo(fencePosts[i].x, railY);
+            }
+            this.ctx.stroke();
+            
+            this.ctx.restore();
+        }
+        
+        drawPeople() {
+            this.people.forEach(person => {
+                const p = this.project3D(person.x, 0, person.z);
+                
+                this.ctx.save();
+                
+                // Shadow
+                this.ctx.beginPath();
+                this.ctx.ellipse(p.x, p.y + 2, 12 * p.scale, 4 * p.scale, 0, 0, Math.PI * 2);
+                this.ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+                this.ctx.fill();
+                
+                // Legs
+                this.ctx.fillStyle = '#333';
+                this.ctx.fillRect(p.x - 5 * p.scale, p.y - 25 * p.scale, 4 * p.scale, 25 * p.scale);
+                this.ctx.fillRect(p.x + 2 * p.scale, p.y - 25 * p.scale, 4 * p.scale, 25 * p.scale);
+                
+                // Body
+                this.ctx.fillStyle = person.color;
+                this.ctx.fillRect(p.x - 8 * p.scale, p.y - 45 * p.scale, 16 * p.scale, 22 * p.scale);
+                
+                // Arms
+                this.ctx.fillStyle = '#F5DEB3';
+                this.ctx.fillRect(p.x - 12 * p.scale, p.y - 43 * p.scale, 5 * p.scale, 15 * p.scale);
+                this.ctx.fillRect(p.x + 8 * p.scale, p.y - 43 * p.scale, 5 * p.scale, 15 * p.scale);
+                
+                // Head
+                this.ctx.beginPath();
+                this.ctx.arc(p.x, p.y - 52 * p.scale, 8 * p.scale, 0, Math.PI * 2);
+                this.ctx.fillStyle = '#F5DEB3';
+                this.ctx.fill();
+                
+                // Hair
+                this.ctx.beginPath();
+                this.ctx.arc(p.x, p.y - 55 * p.scale, 8 * p.scale, Math.PI, Math.PI * 2);
+                this.ctx.fillStyle = '#1a1a1a';
+                this.ctx.fill();
+                
+                this.ctx.restore();
+            });
+        }
+        
+        drawPetals() {
+            this.petals.forEach(petal => {
+                petal.wobble += 0.03;
+                petal.x += petal.speedX + Math.sin(petal.wobble) * 0.5;
+                petal.y += petal.speedY;
+                petal.rotation += petal.rotationSpeed;
+                
+                if (petal.y > this.height) {
+                    petal.y = -10;
+                    petal.x = Math.random() * this.width;
+                }
+                if (petal.x < -10) petal.x = this.width;
+                
+                this.ctx.save();
+                this.ctx.translate(petal.x, petal.y);
+                this.ctx.rotate(petal.rotation);
+                this.ctx.globalAlpha = petal.opacity;
+                
+                // Petal shape
+                this.ctx.beginPath();
+                this.ctx.moveTo(0, 0);
+                this.ctx.quadraticCurveTo(petal.size, -petal.size * 0.5, 0, -petal.size);
+                this.ctx.quadraticCurveTo(-petal.size, -petal.size * 0.5, 0, 0);
+                
+                const petalGradient = this.ctx.createRadialGradient(0, 0, 0, 0, 0, petal.size);
+                petalGradient.addColorStop(0, 'rgba(255, 182, 193, 1)');
+                petalGradient.addColorStop(1, 'rgba(255, 105, 180, 0.8)');
+                this.ctx.fillStyle = petalGradient;
+                this.ctx.fill();
+                
+                this.ctx.restore();
+            });
+        }
+        
+        drawParticles() {
+            this.particles.forEach(particle => {
+                particle.y -= particle.speed;
+                particle.x += Math.sin(this.time + particle.y * 0.01) * 0.3;
+                
+                if (particle.y < -10) {
+                    particle.y = this.height + 10;
+                    particle.x = Math.random() * this.width;
+                }
+                
+                this.ctx.save();
+                this.ctx.globalAlpha = particle.opacity * (0.5 + Math.sin(this.time * 2 + particle.x) * 0.3);
+                
+                this.ctx.beginPath();
+                this.ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
+                this.ctx.fillStyle = '#FFD700';
+                this.ctx.fill();
+                
+                // Glow
+                const glowGradient = this.ctx.createRadialGradient(
+                    particle.x, particle.y, 0,
+                    particle.x, particle.y, particle.size * 3
+                );
+                glowGradient.addColorStop(0, 'rgba(255, 215, 0, 0.3)');
+                glowGradient.addColorStop(1, 'rgba(255, 215, 0, 0)');
+                this.ctx.fillStyle = glowGradient;
+                this.ctx.fillRect(
+                    particle.x - particle.size * 3,
+                    particle.y - particle.size * 3,
+                    particle.size * 6,
+                    particle.size * 6
+                );
+                
+                this.ctx.restore();
+            });
+        }
+        
+        drawDepthOfField() {
+            // Subtle vignette effect
+            const vignetteGradient = this.ctx.createRadialGradient(
+                this.width / 2, this.height / 2, this.height * 0.3,
+                this.width / 2, this.height / 2, this.height * 0.8
+            );
+            vignetteGradient.addColorStop(0, 'rgba(0, 0, 0, 0)');
+            vignetteGradient.addColorStop(1, 'rgba(0, 0, 0, 0.3)');
+            this.ctx.fillStyle = vignetteGradient;
+            this.ctx.fillRect(0, 0, this.width, this.height);
+        }
+        
+        updateCamera() {
+            if (!this.mouse.isDragging) {
+                this.targetCameraAngle += 0.002; // Auto-rotate
+            }
+            
+            this.cameraAngle += (this.targetCameraAngle - this.cameraAngle) * 0.05;
+        }
+        
+        render() {
+            this.ctx.clearRect(0, 0, this.width, this.height);
+            
+            // Draw scene layers
+            this.drawSky();
+            this.drawGround();
+            this.drawPath();
+            this.drawFence();
+            this.drawBush(-120, 100, 25);
+            this.drawBush(-80, 80, 20);
+            this.drawBush(80, 60, 22);
+            this.drawBush(100, 100, 18);
+            this.drawBush(-40, 130, 15);
+            this.drawBush(50, 130, 20);
+            
+            this.drawBamboo(-180, 30, 6);
+            this.drawBamboo(200, 80, 5);
+            
+            this.drawStoneLantern(-100, 70);
+            this.drawStoneLantern(-60, 110);
+            
+            this.drawPond();
+            this.drawBridge();
+            this.drawStairs();
+            this.drawPagoda();
+            
+            this.drawCherryBlossomTree(-150, -20, 80);
+            this.drawCherryBlossomTree(160, 40, 70);
+            
+            this.drawPeople();
+            this.drawPetals();
+            this.drawParticles();
+            this.drawDepthOfField();
+        }
+        
+        animate() {
+            this.time += 0.016;
+            this.updateCamera();
+            this.render();
+            
+            // Hide loading screen after first render
+            if (this.time > 0.5) {
+                document.getElementById('loading').classList.add('hidden');
+            }
+            
+            requestAnimationFrame(() => this.animate());
+        }
+    }
+    
+    // Initialize when DOM is ready
+    window.addEventListener('load', () => {
+        new PagodaGarden();
+    });
+    </script>
+</body>
+</html>

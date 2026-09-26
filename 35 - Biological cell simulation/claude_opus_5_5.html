@@ -1,0 +1,2326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Inside a eukaryotic cell — WebGPU simulation</title>
+<style>
+/* ---------------------------------------------------------------------------
+   Design tokens. The 3D scene is always a dark "fluorescence microscope"
+   backdrop; the panels follow the viewer's light/dark preference.
+   --------------------------------------------------------------------------- */
+:root{
+  --ink:#06131e;
+  --glass:rgba(246,249,250,.9);
+  --glass-strong:rgba(255,255,255,.97);
+  --text:#112633;
+  --muted:#4b6674;
+  --line:rgba(17,38,51,.14);
+  --lamp:#9a5a00;
+  --lamp-rgb:154,90,0;
+  --shadow:0 12px 32px rgba(0,18,32,.28);
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --glass:rgba(8,24,36,.8); --glass-strong:rgba(10,30,44,.96);
+    --text:#dbe8ee; --muted:#8eabb8; --line:rgba(150,205,225,.16);
+    --lamp:#ffcc72; --lamp-rgb:255,204,114; --shadow:0 12px 32px rgba(0,0,0,.4);
+  }
+}
+:root[data-theme="dark"]{
+  --glass:rgba(8,24,36,.8); --glass-strong:rgba(10,30,44,.96);
+  --text:#dbe8ee; --muted:#8eabb8; --line:rgba(150,205,225,.16);
+  --lamp:#ffcc72; --lamp-rgb:255,204,114; --shadow:0 12px 32px rgba(0,0,0,.4);
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+html,body{height:100%;margin:0;overflow:hidden}
+body{background:var(--ink);color:var(--text);font:14px/1.45 var(--sans);-webkit-font-smoothing:antialiased}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--lamp);outline-offset:2px}
+
+#gpu{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+#gpu.dragging{cursor:grabbing}
+
+.panel{background:var(--glass);-webkit-backdrop-filter:blur(14px) saturate(1.2);backdrop-filter:blur(14px) saturate(1.2);
+  border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow)}
+
+/* ---------- header ---------- */
+.bar{position:fixed;top:0;left:0;right:0;z-index:6;display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  padding:calc(12px + env(safe-area-inset-top,0px)) 16px 10px;pointer-events:none}
+.bar>*{pointer-events:auto}
+.brand{margin-right:auto;min-width:0}
+.brand h1{font:600 23px/1.1 var(--serif);margin:0;color:#eef6f8;text-shadow:0 1px 14px rgba(0,0,0,.6)}
+.brand p{margin:3px 0 0;color:#a3bdc8;font-size:13px;text-shadow:0 1px 8px rgba(0,0,0,.6)}
+.modes{display:flex;padding:3px;border-radius:999px}
+.modes button{border:0;background:transparent;padding:7px 14px;border-radius:999px;color:var(--muted);font-weight:600}
+.modes button[aria-selected="true"]{background:var(--lamp);color:var(--ink)}
+.transport{display:flex;align-items:center;gap:6px;padding:4px 6px;border-radius:12px}
+.transport button{border:1px solid var(--line);background:transparent;border-radius:9px;padding:6px 10px;min-width:38px}
+.transport button[aria-pressed="true"]{border-color:var(--lamp);color:var(--lamp)}
+.transport label{display:flex;align-items:center;gap:6px;padding:0 6px;color:var(--muted);font-size:13px}
+.transport input[type=range]{width:96px;accent-color:var(--lamp)}
+.transport output{min-width:34px;color:var(--text);font-variant-numeric:tabular-nums}
+.mobileOnly{display:none}
+
+/* ---------- side panels ---------- */
+#left{position:fixed;left:16px;top:84px;bottom:172px;width:236px;overflow:auto;padding:12px 12px 14px;z-index:4}
+#notes{position:fixed;right:16px;top:84px;bottom:172px;width:340px;overflow:auto;padding:16px 18px 18px;z-index:4}
+.panel h2{font:600 15px/1.2 var(--serif);margin:4px 4px 8px;color:var(--text)}
+.toggles{list-style:none;margin:0 0 12px;padding:0}
+.toggles label{display:flex;align-items:center;gap:9px;padding:4px 6px;border-radius:8px;cursor:pointer;user-select:none}
+.toggles label:hover{background:rgba(var(--lamp-rgb),.08)}
+.toggles input{accent-color:var(--lamp);margin:0}
+.sw{width:11px;height:11px;border-radius:3px;flex:none;box-shadow:0 0 0 1px rgba(0,0,0,.2) inset}
+.toggles .off{opacity:.55}
+.legend{list-style:none;margin:0;padding:0 4px;display:grid;gap:5px}
+.legend li{display:flex;align-items:center;gap:9px;font-size:13px}
+.dot{width:10px;height:10px;border-radius:50%;flex:none;box-shadow:0 0 8px 1px currentColor;background:currentColor}
+.dot.ring{background:transparent;border:2px solid currentColor;width:12px;height:12px}
+
+#notes .stage{border-bottom:1px solid var(--line);padding-bottom:12px;margin-bottom:12px}
+#notes .stage h3{font:600 22px/1.15 var(--serif);margin:2px 0 6px}
+#notes .stage .watch{color:var(--muted);font-size:13px;margin:8px 0 0}
+#notes h3{font:600 19px/1.2 var(--serif);margin:0 0 6px}
+#notes .lead{font:16px/1.5 var(--serif);margin:0 0 10px}
+#notes p{margin:0 0 10px;line-height:1.55}
+#notes .muted{color:var(--muted);font-size:13px}
+#notes details{margin-top:14px;border-top:1px solid var(--line);padding-top:10px}
+#notes summary{cursor:pointer;font-weight:600}
+#notes details ul{padding-left:18px;margin:8px 0 0;color:var(--muted);font-size:13px}
+#notes details li{margin-bottom:5px}
+.linkish{background:none;border:0;padding:0;color:var(--lamp);text-decoration:underline;text-underline-offset:3px}
+
+/* ---------- timeline ---------- */
+#timeline{position:fixed;left:0;right:0;bottom:0;z-index:5;padding:0 16px calc(14px + env(safe-area-inset-bottom,0px))}
+.tlpanel{padding:10px 12px 10px}
+.tlhead{display:flex;align-items:baseline;gap:12px;margin:0 4px 8px;flex-wrap:wrap}
+.tlhead h2{margin:0}
+.tlhead .ev{color:var(--muted);font-size:13px;margin:0;flex:1;min-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.counts{display:flex;gap:14px;color:var(--muted);font-size:13px}
+.counts b{color:var(--text);font-variant-numeric:tabular-nums;font-weight:600}
+.flow{display:flex;gap:10px;align-items:stretch;overflow-x:auto;padding-bottom:2px}
+.steps{list-style:none;margin:0;padding:0;display:flex;gap:4px;flex:1 1 auto}
+.steps li{flex:1 1 0;min-width:96px;position:relative}
+.steps li+li::before{content:"";position:absolute;left:-4px;top:19px;width:4px;height:2px;background:var(--line)}
+.step{--g:0;width:100%;height:100%;text-align:left;border:1px solid var(--line);background:rgba(var(--lamp-rgb),calc(var(--g)*.16));
+  border-radius:10px;padding:6px 8px;display:grid;grid-template-columns:auto 1fr;column-gap:7px;align-items:center;
+  box-shadow:0 0 calc(var(--g)*16px) rgba(var(--lamp-rgb),calc(var(--g)*.5))}
+.step .n{grid-row:span 2;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font:600 13px var(--serif);
+  border:1px solid var(--line);background:rgba(var(--lamp-rgb),calc(var(--g)*.9))}
+.step .t{font-weight:600;font-size:13px;line-height:1.2}
+.step .w{color:var(--muted);font-size:12px;line-height:1.2}
+.side{display:flex;flex-direction:column;gap:4px;flex:0 0 150px;border-left:1px solid var(--line);padding-left:10px}
+.side .step{grid-template-columns:auto 1fr;padding:4px 8px}
+.side .step .n{grid-row:auto;width:10px;height:10px;border-radius:50%}
+.track{position:relative;display:flex;gap:3px;height:58px;touch-action:none;user-select:none}
+.seg{flex-grow:var(--dur);flex-basis:0;border:1px solid var(--line);border-radius:10px;background:transparent;text-align:left;
+  padding:6px 9px;display:flex;flex-direction:column;justify-content:space-between;min-width:0;overflow:hidden}
+.seg .t{font:600 14px/1.1 var(--serif);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.seg .w{color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.seg[aria-current="step"]{border-color:var(--lamp);background:rgba(var(--lamp-rgb),.13)}
+.playhead{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--lamp);border-radius:2px;pointer-events:none;
+  box-shadow:0 0 10px rgba(var(--lamp-rgb),.8)}
+.playhead::after{content:"";position:absolute;top:-3px;left:-4px;width:10px;height:10px;border-radius:50%;background:var(--lamp)}
+
+/* ---------- overlays ---------- */
+#labels{position:fixed;inset:0;pointer-events:none;z-index:3;overflow:hidden}
+.lbl{position:absolute;left:0;top:0;display:flex;align-items:center;gap:6px;white-space:nowrap;will-change:transform}
+.lbl .pin{width:7px;height:7px;border-radius:50%;background:#fff;box-shadow:0 0 6px 2px rgba(255,255,255,.5)}
+.lbl .txt{pointer-events:auto;cursor:pointer;font-size:12.5px;color:#eaf4f7;padding:2px 7px;border-radius:6px;
+  background:rgba(4,16,26,.55);border:1px solid rgba(160,215,235,.22);text-shadow:0 1px 3px #000}
+.lbl .txt:hover{border-color:#ffcc72;color:#fff}
+#tooltip{position:fixed;z-index:8;max-width:270px;padding:9px 11px;border-radius:10px;pointer-events:none;opacity:0;
+  transition:opacity .12s;background:var(--glass-strong);border:1px solid var(--line);box-shadow:var(--shadow);font-size:13px}
+#tooltip b{display:block;font:600 14px/1.2 var(--serif);margin-bottom:3px}
+#tooltip span{color:var(--muted)}
+#banner{position:fixed;left:50%;top:17%;transform:translate(-50%,0);z-index:2;pointer-events:none;text-align:center;
+  font:600 44px/1.05 var(--serif);color:#f3f8fa;text-shadow:0 2px 24px rgba(0,0,0,.7);opacity:0;transition:opacity .6s}
+#banner small{display:block;font:15px/1.4 var(--sans);color:#b8cfd8;margin-top:6px}
+#fade{position:fixed;inset:0;background:var(--ink);opacity:0;pointer-events:none;z-index:2}
+#hint{position:fixed;left:50%;transform:translateX(-50%);bottom:190px;z-index:3;font-size:13px;color:#b8cfd8;
+  text-shadow:0 1px 6px #000;pointer-events:none;transition:opacity 1s;text-align:center;padding:0 16px}
+#nogpu{position:fixed;inset:0;display:none;place-items:center;z-index:20;padding:24px;background:radial-gradient(circle at 50% 40%,#0c2a3c,#06131e 70%)}
+#nogpu .panel{max-width:520px;padding:24px 26px}
+#nogpu h2{font:600 24px/1.2 var(--serif);margin:0 0 10px}
+#nogpu p{margin:0 0 10px;line-height:1.55}
+#nogpu code{font-size:12.5px;color:var(--muted)}
+
+@media (max-width: 900px){
+  #notes{width:300px}
+  #left{width:210px}
+}
+@media (max-width: 760px){
+  .brand h1{font-size:19px}
+  .brand p{display:none}
+  .mobileOnly{display:inline-block}
+  .transport input[type=range]{width:70px}
+  #left,#notes{display:none;left:8px;right:8px;width:auto;top:auto;bottom:188px;max-height:48vh;z-index:7}
+  #left.open,#notes.open{display:block}
+  .side{flex-basis:130px}
+  .steps li{min-width:88px}
+  #hint{display:none}
+  #banner{font-size:32px;top:22%}
+}
+@media (prefers-reduced-motion: reduce){
+  #banner,#tooltip,#hint{transition:none}
+}
+</style>
+</head>
+<body>
+<canvas id="gpu" aria-label="3D model of a eukaryotic cell. Drag to rotate, scroll to zoom."></canvas>
+<div id="labels" aria-hidden="true"></div>
+<div id="fade"></div>
+<div id="banner" aria-live="polite"></div>
+<div id="hint">Drag to orbit, right-drag to pan, scroll or pinch to zoom. Click a structure to read about it; double-click to fly to it.</div>
+
+<header class="bar">
+  <div class="brand">
+    <h1>Inside a eukaryotic cell</h1>
+    <p>A live 3D model of organelles, molecular traffic and cell division</p>
+  </div>
+  <nav class="modes panel" role="tablist" aria-label="Simulation mode">
+    <button role="tab" data-mode="process" aria-selected="true">Cell at work</button>
+    <button role="tab" data-mode="mitosis" aria-selected="false">Cell division</button>
+  </nav>
+  <div class="transport panel">
+    <button id="play" aria-pressed="false" title="Pause or play (Space)">Pause</button>
+    <label title="Simulation speed">Speed <input id="speed" type="range" min="0.25" max="3" step="0.25" value="1"><output id="speedOut">1×</output></label>
+    <button id="orbit" aria-pressed="false" title="Slowly orbit the camera">Orbit</button>
+    <button id="resetCam" title="Reset the camera (R)">Reset view</button>
+    <button class="mobileOnly" id="openLeft" aria-expanded="false">Show</button>
+    <button class="mobileOnly" id="openNotes" aria-expanded="false">Notes</button>
+  </div>
+</header>
+
+<aside id="left" class="panel" aria-label="Visibility and legend">
+  <h2>Structures</h2>
+  <ul class="toggles" id="toggles"></ul>
+  <h2>Particles</h2>
+  <ul class="legend" id="legend"></ul>
+</aside>
+
+<aside id="notes" class="panel" aria-live="polite">
+  <section class="stage" id="stageCard" hidden></section>
+  <section id="info"></section>
+  <details>
+    <summary>How realistic is this model?</summary>
+    <ul>
+      <li>Sizes are not to scale. A real cell is about 20&nbsp;µm across; ribosomes (25&nbsp;nm) and molecules are drawn hundreds of times larger so you can see them.</li>
+      <li>Timing is compressed. Making and secreting one protein takes 20 minutes or more; mitosis takes about an hour. Here each takes seconds.</li>
+      <li>Only a few hundred particles are shown. A real cell holds billions of proteins and millions of ribosomes.</li>
+      <li>Paths are scripted from textbook pathways rather than simulated from physics; motion is diffusion-like jitter layered on those paths.</li>
+      <li>The ER, Golgi and actin cortex are simplified. Actin filaments, intermediate filaments and peroxisomes are not shown.</li>
+      <li>The cell is shown with 3 chromosome pairs (humans have 23) already copied, as in the G2 phase.</li>
+    </ul>
+  </details>
+</aside>
+
+<footer id="timeline">
+  <div class="panel tlpanel">
+    <div id="tlProcess">
+      <div class="tlhead">
+        <h2>Secretory pathway</h2>
+        <p class="ev" id="eventLine">Waiting for the first gene to be transcribed…</p>
+        <div class="counts"><span>Proteins made <b id="cProt">0</b></span><span>Secreted <b id="cSec">0</b></span><span>Taken in <b id="cEndo">0</b></span></div>
+      </div>
+      <div class="flow">
+        <ol class="steps" id="steps"></ol>
+        <div class="side" id="sideSteps"></div>
+      </div>
+    </div>
+    <div id="tlMitosis" hidden>
+      <div class="tlhead">
+        <h2>Cell cycle</h2>
+        <p class="ev" id="stageLine">Click a stage or drag along the track to scrub.</p>
+      </div>
+      <div class="track" id="track"><div class="playhead" id="playhead"></div></div>
+    </div>
+  </div>
+</footer>
+
+<div id="tooltip" role="tooltip"></div>
+
+<div id="nogpu">
+  <div class="panel">
+    <h2>WebGPU isn't available here</h2>
+    <p id="nogpuMsg">This simulation renders with WebGPU, which this browser didn't provide.</p>
+    <p>Open the page in a recent version of Chrome, Edge or Safari, or in Firefox with WebGPU enabled. On Linux, Chrome may need <code>chrome://flags/#enable-unsafe-webgpu</code> turned on. Make sure hardware acceleration is enabled in your browser settings.</p>
+  </div>
+</div>
+<script>
+/* =============================================================================
+   INSIDE A EUKARYOTIC CELL — a WebGPU educational simulation
+   =============================================================================
+
+   HOW THE PROGRAM IS ORGANISED
+   ----------------------------
+   1. Math + scene model (pure JavaScript). Builds a fixed, seeded layout of an
+      animal cell: nucleus at the origin, rough/smooth ER sheets around it,
+      a Golgi stack, mitochondria, lysosomes, ribosomes, a centrosome with a
+      radial microtubule array, and 6 duplicated chromosomes.
+   2. Educational content: short and long annotations for every structure,
+      every step of the secretory pathway, and every stage of mitosis.
+   3. WGSL shaders (strings) for five GPU programs:
+        - compute  : moves ~5,400 background molecules (Brownian motion,
+                     ATP release from mitochondria, confinement to the cell)
+        - shadow   : depth-only pass from the key light
+        - mesh     : instanced, lit organelles with procedural detail and
+                     shadow-map lookups (opaque + transparent variants)
+        - particle : camera-facing glowing sprites (additive blending)
+        - backdrop : full-screen gradient behind the cell
+   4. WebGPU setup: adapter/device, canvas context, 4x MSAA targets, buffers,
+      bind groups and pipelines.
+   5. Simulation: a clock, an "agent" system that moves individual molecules
+      along biologically inspired routes, and a keyframed mitosis model.
+   6. Frame loop: simulate -> write instance/uniform buffers -> encode
+      compute, shadow and main passes -> update HTML labels and timeline.
+
+   COORDINATES AND UNITS
+   ---------------------
+   1 unit ≈ 1 µm for organelles (cell radius 10 ≈ a 20 µm cell). Ribosomes,
+   vesicles and molecules are drawn far larger than real size. Right-handed
+   world space, y up. Matrices are column-major Float32Arrays, depth range
+   0..1 as WebGPU expects.
+   ============================================================================= */
+(() => {
+'use strict';
+
+/* ----------------------------------------------------------------------------
+   Math helpers
+   ---------------------------------------------------------------------------- */
+const TAU = Math.PI * 2;
+const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
+const mix = (a, b, t) => a + (b - a) * t;
+const sm = (x) => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };          // smoothstep 0..1
+const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const mul = (a, s) => [a[0] * s, a[1] * s, a[2] * s];
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const len = (a) => Math.hypot(a[0], a[1], a[2]);
+const norm = (a) => { const l = len(a) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
+const lerp3 = (a, b, t) => [mix(a[0], b[0], t), mix(a[1], b[1], t), mix(a[2], b[2], t)];
+const dist = (a, b) => len(sub(a, b));
+const EX = [1, 0, 0], EY = [0, 1, 0], EZ = [0, 0, 1];
+
+// Seeded PRNG so the cell layout is identical on every load.
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const srand = mulberry32(20260925);
+const rand = (a = 0, b = 1) => a + (b - a) * srand();
+const randi = (n) => Math.floor(srand() * n);
+// Runtime randomness (agents) uses Math.random so it never disturbs the layout.
+const rr = (a = 0, b = 1) => a + (b - a) * Math.random();
+const rri = (n) => Math.floor(Math.random() * n);
+
+function randDirWith(r) { const z = r(-1, 1), t = r(0, TAU), q = Math.sqrt(1 - z * z); return [q * Math.cos(t), q * Math.sin(t), z]; }
+const randDir = () => randDirWith(rand);
+const rDir = () => randDirWith(rr);
+// Orthonormal right-handed basis whose Y axis is `y` (used for cylinders, discs).
+function basisFromY(y) {
+  const ref = Math.abs(y[0]) < 0.9 ? EX : EZ;
+  const x = norm(cross(y, ref));
+  return [x, y, cross(x, y)];
+}
+function randomBasis() { const X = randDir(); const Y = norm(cross(X, randDir())); return [X, Y, cross(X, Y)]; }
+function slerpDir(a, b, t) {
+  const th = Math.acos(clamp(dot(a, b), -1, 1));
+  if (th < 1e-4) return a.slice();
+  const s = Math.sin(th);
+  return norm(add(mul(a, Math.sin((1 - t) * th) / s), mul(b, Math.sin(t * th) / s)));
+}
+function bezier2(a, c, b, t) {
+  const u = 1 - t;
+  return [u * u * a[0] + 2 * u * t * c[0] + t * t * b[0], u * u * a[1] + 2 * u * t * c[1] + t * t * b[1], u * u * a[2] + 2 * u * t * c[2] + t * t * b[2]];
+}
+// A gently curved path between two points (runtime randomness).
+function arc(a, b, bulge, n = 8) {
+  const c = add(lerp3(a, b, 0.5), mul(rDir(), bulge));
+  const out = [];
+  for (let i = 0; i <= n; i++) out.push(bezier2(a, c, b, i / n));
+  return out;
+}
+
+// 4x4 matrices, column-major, clip-space depth 0..1 (WebGPU convention).
+const M4 = {
+  persp(fovy, asp, n, f) {
+    const t = 1 / Math.tan(fovy / 2), o = new Float32Array(16);
+    o[0] = t / asp; o[5] = t; o[10] = f / (n - f); o[11] = -1; o[14] = (n * f) / (n - f); return o;
+  },
+  ortho(l, r, b, t, n, f) {
+    const o = new Float32Array(16);
+    o[0] = 2 / (r - l); o[5] = 2 / (t - b); o[10] = 1 / (n - f);
+    o[12] = -(r + l) / (r - l); o[13] = -(t + b) / (t - b); o[14] = n / (n - f); o[15] = 1; return o;
+  },
+  lookAt(e, c, up) {
+    const z = norm(sub(e, c)), x = norm(cross(up, z)), y = cross(z, x), o = new Float32Array(16);
+    o[0] = x[0]; o[1] = y[0]; o[2] = z[0]; o[4] = x[1]; o[5] = y[1]; o[6] = z[1];
+    o[8] = x[2]; o[9] = y[2]; o[10] = z[2];
+    o[12] = -dot(x, e); o[13] = -dot(y, e); o[14] = -dot(z, e); o[15] = 1; return o;
+  },
+  mul(a, b) {
+    const o = new Float32Array(16);
+    for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) {
+      let s = 0; for (let k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k]; o[c * 4 + r] = s;
+    }
+    return o;
+  },
+  xform(m, p) {
+    const x = p[0], y = p[1], z = p[2];
+    return [m[0] * x + m[4] * y + m[8] * z + m[12], m[1] * x + m[5] * y + m[9] * z + m[13],
+            m[2] * x + m[6] * y + m[10] * z + m[14], m[3] * x + m[7] * y + m[11] * z + m[15]];
+  },
+};
+
+/* ============================================================================
+   BIOLOGICAL MODEL — layout assumptions
+   ----------------------------------------------------------------------------
+   * One animal (no cell wall, no chloroplasts) cell in G2 of interphase:
+     DNA and centrosome are already duplicated, so mitosis can start directly.
+   * The nucleus sits at the centre. The rough ER wraps around it as stacked,
+     curved sheets (it is continuous with the outer nuclear membrane in real
+     cells). Smooth ER sits further out on the opposite side.
+   * The Golgi stack faces the ER with its cis face and the plasma membrane
+     with its trans face; the centrosome sits nearby, as in most animal cells.
+   * Microtubules radiate from the centrosome (minus ends) to the cortex
+     (plus ends); kinesin carries cargo outward and dynein inward.
+   * Chromosome number is reduced to 3 homologous pairs (6 chromosomes).
+   ============================================================================ */
+const R_CELL = 10;          // plasma membrane radius
+const R_NUC = 3.4;          // nuclear envelope radius
+const RD = 8, CD = 8;       // daughter-cell radius and centre offset after division
+const G0 = [6.5, 1.1, 0.4]; // Golgi stack centre
+const G_AXIS = norm(G0);    // cis -> trans direction
+const C0 = [4.4, -2.2, 1.6];// centrosome (duplicated pair A)
+const C1 = add(C0, [0.5, 0.32, -0.28]); // centrosome B
+const N0 = [0.8, 0.9, 0.5]; // nucleolus centre
+const R_NUCLEOLUS = 1.05;
+
+// ---- Colour coding (sRGB 0..1). Shared with the legend and toggles. ----
+const COL = {
+  membrane: [0.45, 0.85, 0.95], nucleus: [0.5, 0.6, 1.0], nucleolus: [0.82, 0.34, 0.56],
+  chromatin: [0.42, 0.46, 0.96], rer: [0.3, 0.6, 0.95], ser: [0.36, 0.82, 0.62],
+  golgiCis: [1.0, 0.74, 0.34], golgiTrans: [1.0, 0.48, 0.52], mito: [0.96, 0.44, 0.26],
+  lyso: [0.62, 0.42, 1.0], ribo: [0.96, 0.9, 0.74], mt: [0.5, 0.95, 0.85],
+  centriole: [0.95, 1.0, 0.86], spindle: [0.6, 1.0, 0.82], pore: [0.78, 0.84, 1.0],
+  mRNA: [1.0, 0.36, 0.82], protein: [0.3, 0.95, 1.0], vesicle: [1.0, 0.8, 0.3],
+  enzyme: [0.68, 0.46, 1.0], signal: [0.62, 1.0, 0.3], atp: [1.0, 0.58, 0.14], cyto: [0.55, 0.68, 0.88],
+};
+
+/* ---- Rough and smooth ER: patches of rippled spherical shell around the nucleus.
+   erLocal(u,v) is the patch surface on a unit sphere (local +x = patch centre).
+   The same function is used for mesh generation, ribosome placement and the
+   lumen paths that newly made proteins follow. */
+const ER_U = 0.55, ER_V = 0.42;
+function erLocal(u, v) {
+  const r = 1 + 0.028 * Math.sin(u * 23 + 1.3) * Math.sin(v * 19) + 0.018 * Math.sin(u * 9 - v * 7);
+  const cv = Math.cos(v);
+  return [cv * Math.cos(u) * r, Math.sin(v) * r, cv * Math.sin(u) * r];
+}
+const nC0 = norm(C0);
+const CAM0 = norm([Math.sin(0.75) * Math.cos(0.3), Math.sin(0.3), Math.cos(0.75) * Math.cos(0.3)]); // default view direction
+const erPatches = [];
+{
+  const radii = [3.95, 4.3, 4.65, 5.0, 5.3, 4.15, 4.8];
+  for (const r of radii) {
+    // Keep the sheets off the side facing the default camera so the nucleus stays visible.
+    let d; do { d = randDir(); } while (dot(d, nC0) > 0.78 || dot(d, G_AXIS) < -0.55 || dot(d, CAM0) > 0.05);
+    const Y = norm(cross(d, randDir()));
+    erPatches.push({ X: d, Y, Z: cross(d, Y), r, rough: true, seed: rand(0, 10) });
+  }
+  for (const r of [6.2, 6.6, 7.0]) {
+    let d; do { d = randDir(); } while (dot(d, G_AXIS) > -0.25 || dot(d, nC0) > 0.3 || dot(d, CAM0) > 0.3);
+    const Y = norm(cross(d, randDir()));
+    erPatches.push({ X: d, Y, Z: cross(d, Y), r, rough: false, seed: rand(0, 10) });
+  }
+}
+// xf = { o: origin, r: radius, g: tangential shrink (1 = full sheet) }
+function erToWorld(pa, xf, l) {
+  const g = xf.g === undefined ? 1 : xf.g;
+  return add(xf.o, mul(add(add(mul(pa.X, l[0]), mul(pa.Y, l[1] * g)), mul(pa.Z, l[2] * g)), xf.r));
+}
+const golgiCis = add(G0, mul(G_AXIS, -0.75));
+const golgiTrans = add(G0, mul(G_AXIS, 0.95));
+// ER exit site: the point of each rough patch nearest the Golgi's cis face.
+for (const pa of erPatches) {
+  let best = 1e9;
+  for (let i = 0; i <= 20; i++) for (let j = 0; j <= 20; j++) {
+    const u = -ER_U * 0.9 + (1.8 * ER_U * i) / 20, v = -ER_V * 0.9 + (1.8 * ER_V * j) / 20;
+    const w = erToWorld(pa, { o: [0, 0, 0], r: pa.r }, erLocal(u, v));
+    const dd = dist(w, golgiCis);
+    if (dd < best) { best = dd; pa.ue = u; pa.ve = v; }
+  }
+}
+// Ribosomes bound to the cytosolic face of the rough ER.
+const boundRibos = [];
+erPatches.forEach((pa, pi) => {
+  if (!pa.rough) return;
+  for (let k = 0; k < 46; k++) {
+    const u = rand(-ER_U * 0.92, ER_U * 0.92), v = rand(-ER_V * 0.92, ER_V * 0.92);
+    boundRibos.push({ patch: pi, u, v, l: mul(erLocal(u, v), 1.02), act: 0 });
+  }
+});
+function nearPatch(p, margin) {
+  for (const pa of erPatches) {
+    const ang = Math.acos(clamp(dot(norm(p), pa.X), -1, 1));
+    if (ang < 0.62 && Math.abs(len(p) - pa.r) < margin) return true;
+  }
+  return false;
+}
+
+// ---- Golgi cisternae (cis -> trans) ----
+const golgi = [];
+{
+  const B = basisFromY(G_AXIS), sizes = [1.45, 1.7, 1.85, 1.8, 1.65, 1.4];
+  for (let i = 0; i < 6; i++) {
+    golgi.push({ c: add(G0, mul(G_AXIS, (i - 2.5) * 0.3)), B, s: sizes[i], col: lerp3(COL.golgiCis, COL.golgiTrans, i / 5) });
+  }
+}
+// Golgi-derived vesicles that appear when the Golgi fragments in mitosis.
+const golgiVes = [];
+for (let i = 0; i < 48; i++) {
+  let q; do { q = mul(randDir(), rand(4.6, 8.4)); } while (Math.abs(q[0]) < 1.0);
+  golgiVes.push({ off: mul(randDir(), rand(0.3, 1.4)), disp: q });
+}
+
+// ---- Mitochondria, lysosomes, free ribosomes ----
+const mitos = [];
+while (mitos.length < 13) {
+  const p = mul(randDir(), rand(5.2, 7.8));
+  if (dist(p, G0) < 3.0 || dist(p, C0) < 1.8 || nearPatch(p, 1.0)) continue;
+  if (mitos.some((m) => dist(m.p, p) < 2.2)) continue;
+  mitos.push({ p, B: randomBasis(), lx: rand(1.1, 1.6), r: rand(0.46, 0.56), seed: rand(0, 10), act: 0 });
+}
+const lysos = [];
+while (lysos.length < 9) {
+  const p = mul(randDir(), rand(4.8, 8.4));
+  if (dist(p, G0) < 2.4 || dist(p, C0) < 1.2 || nearPatch(p, 0.7)) continue;
+  if (mitos.some((m) => dist(m.p, p) < 1.9) || lysos.some((l) => dist(l.p, p) < 1.4)) continue;
+  lysos.push({ p, r: rand(0.36, 0.58), seed: rand(0, 10), act: 0 });
+}
+const freeRibos = [];
+while (freeRibos.length < 170) {
+  const p = mul(randDir(), rand(4.3, 9.1));
+  if (dist(p, G0) < 2.2 || mitos.some((m) => dist(m.p, p) < 0.9)) continue;
+  freeRibos.push({ p, act: 0 });
+}
+
+// ---- Nuclear pores (Fibonacci sphere) ----
+const pores = [];
+{
+  const n = 90, ga = Math.PI * (3 - Math.sqrt(5));
+  for (let i = 0; i < n; i++) {
+    const y = 1 - (2 * (i + 0.5)) / n, r = Math.sqrt(1 - y * y), th = ga * i;
+    pores.push([Math.cos(th) * r, y, Math.sin(th) * r]);
+  }
+}
+
+// ---- Microtubules: quadratic Bézier curves from the centrosome to the cortex,
+// bent so they go around the nucleus. Stored as polylines (11 points each)
+// that motor-driven cargo can follow. ----
+const MT_PTS = 11;
+const microtubules = [];
+while (microtubules.length < 42) {
+  const end = mul(randDir(), 9.2);
+  let ctrl = add(lerp3(C0, end, 0.5), mul(randDir(), 0.9));
+  let ok = false;
+  for (let it = 0; it < 14 && !ok; it++) {
+    ok = true;
+    for (let i = 1; i < 10; i++) if (len(bezier2(C0, ctrl, end, i / 10)) < R_NUC + 0.7) { ok = false; break; }
+    if (!ok) ctrl = add(ctrl, mul(len(ctrl) > 0.1 ? norm(ctrl) : EY, 1.1));
+  }
+  if (!ok) continue;
+  const pts = [];
+  for (let i = 0; i < MT_PTS; i++) {
+    let q = bezier2(C0, ctrl, end, i / (MT_PTS - 1));
+    if (len(q) > 9.3) q = mul(norm(q), 9.3);
+    pts.push(q);
+  }
+  microtubules.push({ pts, seed: rand(0, 10) });
+}
+
+// ---- Chromosomes: 3 homologous pairs, each duplicated into 2 sister chromatids.
+// Each chromatid is a chain of beads. In interphase the chain follows a random
+// walk inside a "chromosome territory" (loose chromatin); in mitosis the same
+// beads pack tightly along the chromatid axis (condensed chromosome). ----
+const NCH = 6, BEADS = 24;
+const PAIR_COL = [[1.0, 0.42, 0.5], [0.38, 0.78, 1.0], [1.0, 0.8, 0.32]];
+const chroms = [];
+for (let c = 0; c < NCH; c++) {
+  const pair = c >> 1;
+  const L = [2.2, 2.2, 1.7, 1.7, 1.2, 1.2][c];
+  const cf = [0.5, 0.5, 0.33, 0.33, 0.17, 0.17][c]; // centromere position (metacentric -> acrocentric)
+  const terr = mul(randDir(), rand(0.9, 1.6));
+  const walk = [], jit = [];
+  let p = add(terr, mul(randDir(), 0.4));
+  for (let i = 0; i < BEADS; i++) {
+    walk.push(p); jit.push(mul(randDir(), 0.05));
+    p = add(p, mul(randDir(), 0.26));
+    p = add(p, mul(sub(terr, p), 0.1));
+    if (len(p) > 2.8) p = mul(norm(p), 2.8);
+    if (dist(p, N0) < R_NUCLEOLUS + 0.2) p = add(N0, mul(norm(sub(p, N0)), R_NUCLEOLUS + 0.2));
+  }
+  const axA = randDir();
+  chroms.push({
+    L, cf, terr, walk, jit, axA, axB: norm(cross(axA, randDir())),
+    col: c & 1 ? lerp3(PAIR_COL[pair], [1, 1, 1], 0.3) : PAIR_COL[pair],
+    th: (c * TAU) / NCH + 0.25, ic: Math.round(cf * (BEADS - 1)),
+  });
+}
+// Spindle helper directions (astral fibres and polar-fibre spread).
+const astralDirs = { 1: [], [-1]: [] };
+for (const k of [1, -1]) {
+  while (astralDirs[k].length < 12) { const d = randDir(); if (d[0] * k > 0.2) astralDirs[k].push(d); }
+}
+
+/* ============================================================================
+   EDUCATIONAL CONTENT
+   ============================================================================ */
+const INFO = {
+  membrane: { name: 'Plasma membrane', short: 'The lipid bilayer that encloses the cell and decides what gets in and out.',
+    long: 'A double layer of phospholipids about 5 nm thick, studded with proteins. Receptors bind signals from outside, transporters and channels move ions and nutrients, and vesicles fuse with it to release cargo (exocytosis) or pinch inward to bring material in (endocytosis). It is drawn see-through here so you can look inside.' },
+  nucleus: { name: 'Nucleus', short: 'Holds the DNA; genes are transcribed into RNA here.',
+    long: 'Enclosed by the nuclear envelope, a double membrane pierced by nuclear pore complexes that control traffic in and out. Inside, DNA is packed with proteins as chromatin. Messenger RNA made here leaves through the pores to be translated in the cytoplasm. The envelope breaks up at the start of mitosis and reforms around each set of chromosomes afterwards.' },
+  pores: { name: 'Nuclear pores', short: 'Gated channels through the nuclear envelope.',
+    long: 'Each pore complex is built from roughly 30 kinds of protein called nucleoporins. Small molecules pass freely; mRNA and large proteins need transport receptors that recognise specific signals. Watch magenta mRNA leave through them.' },
+  nucleolus: { name: 'Nucleolus', short: 'The ribosome factory inside the nucleus.',
+    long: 'A dense region with no membrane, formed around the genes for ribosomal RNA. rRNA is transcribed and assembled with ribosomal proteins into ribosome subunits, which are exported to the cytoplasm. It disassembles in prophase and reappears in telophase.' },
+  chromatin: { name: 'Chromatin and chromosomes', short: 'DNA wound around histone proteins; condenses into chromosomes for division.',
+    long: 'In interphase the DNA is loose chromatin (indigo), each chromosome occupying its own territory so genes can be read. This cell has already copied its DNA, so every chromosome is two identical sister chromatids joined at the centromere. In prophase they condense thousands of times into compact X shapes. Colours mark three homologous pairs, one member from each parent.' },
+  rer: { name: 'Rough endoplasmic reticulum', short: 'Ribosome-studded membrane sheets that make secreted and membrane proteins.',
+    long: 'Ribosomes making a protein with an ER signal sequence dock here and thread the growing chain into the ER lumen, where it folds, forms disulfide bonds and receives sugar chains. Correctly folded proteins leave from ER exit sites in COPII-coated vesicles bound for the Golgi.' },
+  ser: { name: 'Smooth endoplasmic reticulum', short: 'Ribosome-free ER that makes lipids and stores calcium.',
+    long: 'Makes phospholipids and steroid hormones, stores calcium ions used as signals, and in liver cells breaks down drugs and toxins. In real cells it is mostly a network of fine tubules continuous with the rough ER.' },
+  golgi: { name: 'Golgi apparatus', short: 'Modifies, sorts and packages proteins from the ER.',
+    long: 'A stack of flattened cisternae. Cargo enters at the cis face (gold, facing the ER) and is modified as it moves toward the trans face (rose): sugar chains are trimmed and added and proteins get sorting tags. At the trans-Golgi network it is packed into vesicles headed for the plasma membrane or lysosomes. In mitosis the Golgi breaks into small vesicles and is shared between the daughter cells.' },
+  mito: { name: 'Mitochondrion', short: 'Makes most of the cell’s ATP by aerobic respiration.',
+    long: 'Enclosed by two membranes; the inner one folds into cristae (the dark stripes) that hold the electron transport chain and ATP synthase. Oxidising fuel pumps protons across the inner membrane, and their flow back through ATP synthase makes ATP, shown as orange particles streaming out. Mitochondria keep their own small circular genome.' },
+  lyso: { name: 'Lysosome', short: 'Acidic compartment that digests worn-out parts and ingested material.',
+    long: 'Holds around 60 digestive enzymes that work best at pH 4.5–5. The enzymes are made on the rough ER, tagged in the Golgi with mannose-6-phosphate and delivered in violet vesicles. Endocytosed material and old organelles fuse with lysosomes to be broken down and recycled. Lysosomes flash when cargo arrives.' },
+  ribo: { name: 'Ribosomes', short: 'Machines that translate mRNA into protein.',
+    long: 'Two subunits of RNA and protein, about 25 nm across (drawn much larger here). Free ribosomes make proteins that stay in the cytosol or go to mitochondria and the nucleus; ribosomes bound to the rough ER make proteins for secretion, membranes and lysosomes. They flash when they start translating.' },
+  mt: { name: 'Microtubules', short: 'Hollow tubulin tracks that organise the cytoplasm and carry cargo.',
+    long: 'Polymers 25 nm wide radiating from the centrosome. Minus ends sit at the centrosome and plus ends grow toward the membrane. Kinesin motors walk cargo outward, dynein walks it inward: watch vesicles ride these tracks to and from the membrane. In mitosis the whole array is rebuilt into the spindle.' },
+  centrosome: { name: 'Centrosome', short: 'The main microtubule-organising centre, built around centrioles.',
+    long: 'Two barrel-shaped centrioles at right angles, surrounded by pericentriolar material (the soft glow) that starts new microtubules. It is copied once per cycle; both copies are shown because this cell is in G2. In prophase the two centrosomes move apart and become the spindle poles.' },
+  spindle: { name: 'Mitotic spindle', short: 'The microtubule machine that separates the chromosomes.',
+    long: 'Kinetochore fibres attach to each chromosome at its centromere; polar fibres overlap in the middle and push the poles apart; astral fibres anchor the poles to the cell cortex. Shortening kinetochore fibres pull the sister chromatids apart in anaphase.' },
+  plate: { name: 'Metaphase plate', short: 'The plane midway between the poles where chromosomes line up.',
+    long: 'Not a physical structure: the equator of the spindle. Chromosomes gather here in metaphase because they are pulled equally toward both poles.' },
+  furrow: { name: 'Cleavage furrow', short: 'A contracting ring of actin and myosin that pinches the cell in two.',
+    long: 'Forms at the equator, positioned by signals from the spindle midzone. It tightens like a drawstring until only a thin bridge, the midbody, connects the daughters; that bridge is then cut (abscission).' },
+};
+
+// Secretory pathway steps (a real sequence, so they are numbered) + side processes.
+const STEPS = [
+  { key: 'transcription', name: 'Transcription', where: 'Nucleus', focus: [[0, 0, 0], 15],
+    text: 'RNA polymerase copies a gene into messenger RNA (magenta) inside the nucleus. The mRNA is capped, spliced and given a poly-A tail before it can leave.' },
+  { key: 'export', name: 'mRNA export', where: 'Nuclear pore', focus: [[2.4, 1.2, 1.2], 11],
+    text: 'The finished mRNA is guided through a nuclear pore complex into the cytoplasm.' },
+  { key: 'translation', name: 'Translation', where: 'Ribosome', focus: null,
+    text: 'A ribosome reads the mRNA three bases at a time and links amino acids into a protein chain (cyan). Proteins that carry an ER signal sequence are made by ribosomes on the rough ER.' },
+  { key: 'er', name: 'ER folding', where: 'Rough ER', focus: null,
+    text: 'The new chain is threaded into the ER lumen, where chaperones help it fold and enzymes add sugar chains. It moves through the ER toward an exit site.' },
+  { key: 'toGolgi', name: 'ER to Golgi', where: 'COPII vesicle', focus: [add(golgiCis, mul(G_AXIS, -0.8)), 9],
+    text: 'Folded proteins leave the ER in COPII-coated transport vesicles (gold) that fuse with the cis face of the Golgi.' },
+  { key: 'golgi', name: 'Golgi processing', where: 'Golgi stack', focus: [G0, 8],
+    text: 'Cargo moves from cis to trans cisternae while enzymes modify its sugar chains, then it is sorted into vesicles at the trans-Golgi network.' },
+  { key: 'secretion', name: 'Secretion', where: 'Plasma membrane', focus: [mul(G_AXIS, 9), 12],
+    text: 'Kinesin motors carry secretory vesicles along microtubules to the membrane. The vesicle fuses and releases its contents (green) outside the cell: exocytosis.' },
+];
+const SIDE = [
+  { key: 'lysoDelivery', name: 'Lysosome delivery', col: COL.enzyme, focus: null,
+    text: 'About a third of the Golgi’s output here is lysosomal enzymes. Tagged with mannose-6-phosphate, they travel in violet vesicles and fuse with lysosomes.' },
+  { key: 'endocytosis', name: 'Endocytosis', col: COL.signal, focus: null,
+    text: 'A receptor on the membrane captures a signalling molecule, the membrane buds inward into a vesicle, and dynein carries it along a microtubule to a lysosome for digestion.' },
+  { key: 'atp', name: 'ATP synthesis', col: COL.atp, focus: null,
+    text: 'Mitochondria oxidise fuel and use the proton gradient across their inner membrane to make ATP (orange), which diffuses out to power the rest of the cell.' },
+];
+const EVENT_TEXT = {
+  transcription: 'A gene was transcribed into mRNA.',
+  export: 'mRNA left the nucleus through a nuclear pore.',
+  translation: 'A ribosome started translating an mRNA.',
+  er: 'A new protein entered the ER lumen to fold.',
+  toGolgi: 'A transport vesicle carried folded protein to the Golgi.',
+  golgi: 'Cargo is moving through the Golgi from cis to trans.',
+  secretion: 'A secretory vesicle fused with the membrane and released its cargo.',
+  lysoDelivery: 'An enzyme vesicle delivered hydrolases to a lysosome.',
+  endocytosis: 'The membrane took in a signalling molecule by endocytosis.',
+  atp: 'Mitochondria released a burst of ATP.',
+};
+
+// Mitosis stages (durations in simulation seconds at 1x speed).
+const STAGES = [
+  { key: 'interphase', name: 'Interphase', sub: 'G2: DNA already copied', dur: 7,
+    text: 'The cell grows and does its everyday work. DNA was copied during S phase, so each chromosome is now two sister chromatids, still loose as chromatin so genes can be read. The centrosome has also duplicated.',
+    watch: 'Loose indigo chromatin inside the nucleus; two centrosomes side by side.' },
+  { key: 'prophase', name: 'Prophase', sub: 'and prometaphase', dur: 9,
+    text: 'Chromatin condenses into visible X-shaped chromosomes. The nucleolus fades, the interphase microtubules disassemble, and the two centrosomes move to opposite sides while a spindle grows between them. In prometaphase the nuclear envelope breaks into fragments and spindle fibres capture chromosomes at their kinetochores.',
+    watch: 'Chromatin coiling up, centrosomes sliding apart, the envelope breaking into pieces.' },
+  { key: 'metaphase', name: 'Metaphase', sub: 'chromosomes line up', dur: 6,
+    text: 'Chromosomes are tugged back and forth until they line up on the metaphase plate, each pair of sister kinetochores attached to fibres from opposite poles. The spindle assembly checkpoint holds the cell here until every chromosome is attached correctly.',
+    watch: 'A ring of chromosomes at the equator, fibres reaching them from both poles.' },
+  { key: 'anaphase', name: 'Anaphase', sub: 'sisters separate', dur: 6,
+    text: 'The enzyme separase cuts the cohesin rings holding sisters together. Kinetochore fibres shorten and drag each chromatid, centromere first, to its pole (anaphase A) while polar fibres slide apart and push the poles further away (anaphase B).',
+    watch: 'V-shaped chromatids moving to the poles; the cell starts to lengthen.' },
+  { key: 'telophase', name: 'Telophase', sub: 'two nuclei form', dur: 7,
+    text: 'Chromatids reach the poles and begin to unwind. A new nuclear envelope assembles around each set, nucleoli reappear and the spindle disassembles. The cleavage furrow begins at the cell’s equator.',
+    watch: 'Two new nuclei forming; the membrane pinching in at the middle.' },
+  { key: 'cytokinesis', name: 'Cytokinesis', sub: 'the cytoplasm divides', dur: 7,
+    text: 'A contractile ring of actin and myosin tightens around the equator until only a thin bridge, the midbody, remains, and is then cut. Two daughter cells result, each with an identical set of chromosomes and a share of the organelles.',
+    watch: 'Two daughter cells, each with its own nucleus, mitochondria and Golgi.' },
+];
+const STAGE_START = [];
+let MITO_TOTAL = 0;
+for (const s of STAGES) { STAGE_START.push(MITO_TOTAL); MITO_TOTAL += s.dur; }
+
+// Visibility toggles.
+const TOGGLES = [
+  ['membrane', 'Plasma membrane', COL.membrane], ['nucleus', 'Nucleus and pores', COL.nucleus],
+  ['nucleolus', 'Nucleolus', COL.nucleolus], ['chromatin', 'Chromatin and chromosomes', COL.chromatin],
+  ['rer', 'Rough ER', COL.rer], ['ser', 'Smooth ER', COL.ser], ['golgi', 'Golgi apparatus', COL.golgiCis],
+  ['mito', 'Mitochondria', COL.mito], ['lyso', 'Lysosomes', COL.lyso], ['ribo', 'Free ribosomes', COL.ribo],
+  ['mt', 'Microtubules', COL.mt], ['centrosome', 'Centrosomes', COL.centriole], ['spindle', 'Spindle fibers', COL.spindle],
+  ['agents', 'Moving molecules', COL.protein], ['ambient', 'Background molecules', COL.cyto],
+  ['labels', 'Labels', [0.92, 0.95, 0.97]], ['shadows', 'Shadows', [0.3, 0.35, 0.4]],
+];
+const show = Object.fromEntries(TOGGLES.map(([k]) => [k, true]));
+const LEGEND = [
+  ['mRNA', COL.mRNA, false, 'Messenger RNA copied from a gene, on its way to a ribosome'],
+  ['Newly made protein', COL.protein, false, 'A protein chain fresh from a ribosome'],
+  ['Transport vesicle', COL.vesicle, true, 'Membrane bubble carrying cargo between organelles'],
+  ['Lysosomal enzyme', COL.enzyme, true, 'Digestive enzymes packaged for lysosomes (and free enzymes)'],
+  ['Signalling molecule', COL.signal, false, 'Secreted or incoming messenger molecules outside the cell'],
+  ['ATP', COL.atp, false, 'The cell’s energy currency, made by mitochondria'],
+  ['Cytosolic molecules', COL.cyto, false, 'Background metabolites and proteins drifting by diffusion'],
+];
+
+/* ============================================================================
+   WGSL SHADERS
+   ----------------------------------------------------------------------------
+   All programs share one uniform block (group 0, binding 0). Layout (bytes):
+     0   viewProj        mat4   camera view-projection
+     64  lightViewProj   mat4   key light orthographic view-projection (shadows)
+     128 camPos          vec4   xyz camera position, w = simulation time
+     144 lightDir        vec4   xyz direction toward the key light, w = shadows on/off
+     160 cell            vec4   x = division progress d (0..1), y = cell radius,
+                                z = daughter centre offset, w = daughter radius
+     176 camRight        vec4   camera right vector (billboards)
+     192 camUp           vec4   camera up vector (billboards)
+     208 misc            vec4   x = nucleus present, y = sim dt, z = mitochondria
+                                count, w = sim time
+     224 fogColor        vec4   display-space fog colour
+     240 mitos[16]       vec4   mitochondria centres (ATP sources for compute)
+   ============================================================================ */
+const N_CYTO = 3000, N_ATP = 900, N_SIG = 420, N_NUC = 800;
+const N_PART = N_CYTO + N_ATP + N_SIG + N_NUC;
+
+const WGSL_COMMON = /* wgsl */`
+struct Uniforms {
+  viewProj : mat4x4f,
+  lightViewProj : mat4x4f,
+  camPos : vec4f,
+  lightDir : vec4f,
+  cell : vec4f,
+  camRight : vec4f,
+  camUp : vec4f,
+  misc : vec4f,
+  fogColor : vec4f,
+  mitos : array<vec4f, 16>,
+};
+@group(0) @binding(0) var<uniform> U : Uniforms;
+
+fn hash3(p : vec3f) -> f32 {
+  let q = fract(p * 0.3183099 + vec3f(0.11, 0.17, 0.13)) * 17.0;
+  return fract(q.x * q.y * q.z * (q.x + q.y + q.z));
+}
+// Value noise, used for membrane texture, nucleolus granules and envelope breakdown.
+fn vnoise(p : vec3f) -> f32 {
+  let i = floor(p);
+  let f = fract(p);
+  let u = f * f * (vec3f(3.0) - 2.0 * f);
+  let a = mix(hash3(i), hash3(i + vec3f(1.0, 0.0, 0.0)), u.x);
+  let b = mix(hash3(i + vec3f(0.0, 1.0, 0.0)), hash3(i + vec3f(1.0, 1.0, 0.0)), u.x);
+  let c = mix(hash3(i + vec3f(0.0, 0.0, 1.0)), hash3(i + vec3f(1.0, 0.0, 1.0)), u.x);
+  let d = mix(hash3(i + vec3f(0.0, 1.0, 1.0)), hash3(i + vec3f(1.0, 1.0, 1.0)), u.x);
+  return mix(mix(a, b, u.y), mix(c, d, u.y), u.z);
+}
+fn tonemap(c : vec3f) -> vec3f {
+  let m = c / (vec3f(1.0) + c * 0.55);
+  return pow(clamp(m, vec3f(0.0), vec3f(1.0)), vec3f(1.0 / 2.2));
+}
+`;
+
+/* ---- Instanced mesh shader -------------------------------------------------
+   Every organelle is an instance of one of a few base meshes (sphere, cylinder,
+   Golgi cisterna, ER patch). Per-instance data: a 4x4 model matrix (rotation x
+   non-uniform scale x translation), an sRGB colour, and params:
+     params.x = material id, .y = emissive strength, .z = alpha, .w = seed/extra
+   Material ids: 0 generic, 1 mitochondrion, 2 rough ER, 3 Golgi, 4 lysosome,
+   5 ribosome, 6 chromatin, 7 microtubule/spindle, 8 centriole, 9 nucleolus,
+   10 plasma membrane, 11 nuclear envelope, 12 nuclear pore, 13 smooth ER.
+   Normals: for M = R*S, inverse-transpose = R*S^-1, so the normal is
+   M3 * (n / s^2) where s^2 is the squared length of each matrix column.
+   The plasma membrane (material 10) ignores its matrix: its vertices are
+   displaced analytically to animate the cleavage furrow (see divideMap). */
+const WGSL_MESH = WGSL_COMMON + /* wgsl */`
+@group(0) @binding(1) var shadowTex : texture_depth_2d;
+@group(0) @binding(2) var shadowSamp : sampler_comparison;
+
+struct VIn {
+  @location(0) pos : vec3f,
+  @location(1) nrm : vec3f,
+  @location(2) m0 : vec4f,
+  @location(3) m1 : vec4f,
+  @location(4) m2 : vec4f,
+  @location(5) m3 : vec4f,
+  @location(6) color : vec4f,
+  @location(7) params : vec4f,
+};
+struct VOut {
+  @builtin(position) clip : vec4f,
+  @location(0) wpos : vec3f,
+  @location(1) wnrm : vec3f,
+  @location(2) color : vec4f,
+  @location(3) @interpolate(flat) params : vec4f,
+  @location(4) opos : vec3f,
+};
+
+// Cell division: blends the sphere into two touching daughter spheres. Each
+// hemisphere is re-parameterised so it wraps almost all the way around its own
+// daughter sphere, leaving a thin neck (the midbody bridge) at the equator.
+fn divideMap(n : vec3f) -> vec3f {
+  let d = U.cell.x;
+  let R = U.cell.y;
+  if (d <= 0.0001) { return n * R; }
+  let C = U.cell.z;
+  let rd = U.cell.w;
+  let s = select(-1.0, 1.0, n.x >= 0.0);
+  let phi = acos(clamp(abs(n.x), 0.0, 1.0));
+  let l = length(n.yz);
+  let dir2 = select(vec2f(1.0, 0.0), n.yz / max(l, 1e-6), l > 1e-6);
+  let phi2 = phi * (3.14159265 - 0.10) / 1.57079633;
+  let tgt = vec3f(s * (C + rd * cos(phi2)), rd * sin(phi2) * dir2.x, rd * sin(phi2) * dir2.y);
+  return mix(n * R, tgt, d);
+}
+fn membranePos(n : vec3f) -> vec3f {
+  let t = U.camPos.w;
+  let w = sin(n.x * 5.0 + t * 0.7) * sin(n.y * 4.0 - t * 0.5) * sin(n.z * 6.0 + t * 0.4);
+  return divideMap(n) + n * (w * 0.12);
+}
+// Normal of the deformed membrane by finite differences along two tangents.
+fn membraneNormal(n : vec3f) -> vec3f {
+  let a = select(vec3f(0.0, 1.0, 0.0), vec3f(1.0, 0.0, 0.0), abs(n.y) > 0.9);
+  let t1 = normalize(cross(n, a));
+  let t2 = cross(n, t1);
+  let e = 0.01;
+  let p0 = membranePos(n);
+  let p1 = membranePos(normalize(n + t1 * e));
+  let p2 = membranePos(normalize(n + t2 * e));
+  return normalize(cross(p1 - p0, p2 - p0));
+}
+
+@vertex fn vs_mesh(in : VIn) -> VOut {
+  var o : VOut;
+  let mat = i32(in.params.x + 0.5);
+  var wp : vec3f;
+  var wn : vec3f;
+  if (mat == 10) {
+    let n = normalize(in.pos);
+    wp = membranePos(n);
+    wn = membraneNormal(n);
+  } else {
+    let M = mat4x4f(in.m0, in.m1, in.m2, in.m3);
+    wp = (M * vec4f(in.pos, 1.0)).xyz;
+    let s2 = vec3f(dot(in.m0.xyz, in.m0.xyz), dot(in.m1.xyz, in.m1.xyz), dot(in.m2.xyz, in.m2.xyz));
+    let M3 = mat3x3f(in.m0.xyz, in.m1.xyz, in.m2.xyz);
+    wn = normalize(M3 * (in.nrm / s2));
+  }
+  o.clip = U.viewProj * vec4f(wp, 1.0);
+  o.wpos = wp;
+  o.wnrm = wn;
+  o.color = in.color;
+  o.params = in.params;
+  o.opos = in.pos;
+  return o;
+}
+
+// 3x3 PCF lookup into the key light's shadow map.
+fn shadowFactor(wpos : vec3f, n : vec3f) -> f32 {
+  let lp = U.lightViewProj * vec4f(wpos + n * 0.06, 1.0);
+  let ndc = lp.xyz / lp.w;
+  let uv = vec2f(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+  let rz = ndc.z - 0.0015;
+  let texel = 1.0 / 2048.0;
+  var sum = 0.0;
+  for (var i = -1; i <= 1; i++) {
+    for (var j = -1; j <= 1; j++) {
+      sum += textureSampleCompareLevel(shadowTex, shadowSamp, uv + vec2f(f32(i), f32(j)) * texel * 1.5, rz);
+    }
+  }
+  let inside = uv.x > 0.0 && uv.x < 1.0 && uv.y > 0.0 && uv.y < 1.0 && ndc.z < 1.0;
+  return select(1.0, sum / 9.0, inside);
+}
+
+@fragment fn fs_opaque(in : VOut, @builtin(front_facing) ff : bool) -> @location(0) vec4f {
+  var N = normalize(in.wnrm);
+  if (!ff) { N = -N; }
+  let mat = i32(in.params.x + 0.5);
+  var base = pow(in.color.rgb, vec3f(2.2));
+  var emis = in.params.y;
+  let seed = in.params.w;
+  let op = in.opos;
+  let t = U.camPos.w;
+
+  if (mat == 1) {
+    // Mitochondrion: cristae folds as dark wavy bands + a slow "energy" pulse.
+    let f = sin(op.x * 17.0 + sin(op.y * 6.0 + seed) * 2.2 + seed * 3.0);
+    let fold = smoothstep(0.45, 1.0, f);
+    base = mix(base, base * vec3f(0.42, 0.3, 0.3), fold * 0.85);
+    let pulse = 0.5 + 0.5 * sin(t * 2.2 + seed * 6.0 - op.x * 4.0);
+    emis += pulse * 0.22 * (1.0 - fold);
+  } else if (mat == 2 || mat == 13) {
+    let n = vnoise(op * 9.0 + vec3f(seed));
+    base *= 0.8 + 0.4 * n;
+  } else if (mat == 3) {
+    let r = length(op.xz);
+    base *= 0.9 + 0.1 * sin(r * 16.0);
+  } else if (mat == 4) {
+    let n = vnoise(op * 5.0 + vec3f(seed * 3.0));
+    base = mix(base, base * 1.7, n * 0.5);
+  } else if (mat == 9) {
+    let n = vnoise(op * 7.0) * 0.6 + vnoise(op * 17.0) * 0.4;
+    base *= 0.55 + 0.9 * n;
+  } else if (mat == 7) {
+    emis += 0.1;
+  }
+
+  let V = normalize(U.camPos.xyz - in.wpos);
+  let L = normalize(U.lightDir.xyz);
+  let sh = mix(1.0, shadowFactor(in.wpos, N), U.lightDir.w);
+  let ndl = dot(N, L);
+  let diff = max(ndl, 0.0);
+  let wrapL = max((ndl + 0.6) / 1.6, 0.0);          // soft wrap light: cheap subsurface look
+  let H = normalize(L + V);
+  let spec = pow(max(dot(N, H), 0.0), 56.0) * 0.5;
+  let rim = pow(1.0 - max(dot(N, V), 0.0), 3.0);
+  let fill = max(dot(N, normalize(vec3f(-0.4, -0.6, -0.5))), 0.0);
+  let keyC = vec3f(1.0, 0.96, 0.9);
+  var col = base * (0.1 + wrapL * 0.22 + diff * 0.85 * sh * keyC + fill * vec3f(0.12, 0.2, 0.32))
+          + spec * sh * keyC + rim * base * 0.5 + rim * vec3f(0.03, 0.08, 0.13) + base * emis;
+  var outc = tonemap(col);
+  // Depth cue: distant geometry fades toward the cytoplasm backdrop.
+  let dist = length(U.camPos.xyz - in.wpos);
+  let fogF = (1.0 - exp(-max(dist - 20.0, 0.0) * 0.045)) * 0.55;
+  outc = mix(outc, U.fogColor.rgb, fogF);
+  return vec4f(outc, 1.0);
+}
+
+// Semi-transparent membranes (plasma membrane, nuclear envelope). Drawn twice:
+// back faces first, then front faces, with depth writes off.
+@fragment fn fs_trans(in : VOut, @builtin(front_facing) ff : bool) -> @location(0) vec4f {
+  let mat = i32(in.params.x + 0.5);
+  var N = normalize(in.wnrm);
+  if (!ff) { N = -N; }
+  let V = normalize(U.camPos.xyz - in.wpos);
+  let ndv = abs(dot(N, V));
+  let fres = pow(1.0 - ndv, 2.2);
+  let t = U.camPos.w;
+  let L = normalize(U.lightDir.xyz);
+  let spec = pow(max(dot(N, normalize(L + V)), 0.0), 70.0);
+  var base = pow(in.color.rgb, vec3f(2.2));
+  var a = in.params.z;
+  var glow = 0.0;
+  if (mat == 11) {
+    // Nuclear envelope; params.w = breakdown (0 intact .. 1 gone). Noise-driven
+    // holes grow until the envelope disappears, mimicking vesiculation.
+    let n = vnoise(in.opos * 4.5);
+    let br = in.params.w;
+    if (n < br * 1.08 - 0.02) { discard; }
+    glow = (1.0 - smoothstep(0.0, 0.1, n - (br * 1.08 - 0.02))) * step(0.001, br);
+    let pore = smoothstep(0.78, 0.9, vnoise(in.opos * 16.0));
+    base = base * (0.85 + pore * 0.6);
+    a = a * (0.22 + fres * 0.75) + glow * 0.5;
+  } else {
+    // Plasma membrane: drifting lipid-raft texture + fresnel edge.
+    let n = vnoise(in.wpos * 1.6 + vec3f(0.0, t * 0.12, t * 0.05));
+    let n2 = vnoise(in.wpos * 7.0);
+    base = base * (0.7 + 0.6 * n);
+    a = a * (0.035 + fres * 0.62) + n2 * 0.02;
+  }
+  let col = base * (0.35 + 0.65 * max(dot(N, L), 0.0)) + vec3f(spec * 0.5) + base * fres * 1.1 + vec3f(glow * 0.6);
+  return vec4f(tonemap(col), clamp(a, 0.0, 1.0));
+}
+`;
+
+// Depth-only pass from the key light (organelles cast shadows onto each other).
+const WGSL_SHADOW = WGSL_COMMON + /* wgsl */`
+struct SIn {
+  @location(0) pos : vec3f,
+  @location(1) nrm : vec3f,
+  @location(2) m0 : vec4f,
+  @location(3) m1 : vec4f,
+  @location(4) m2 : vec4f,
+  @location(5) m3 : vec4f,
+  @location(6) color : vec4f,
+  @location(7) params : vec4f,
+};
+@vertex fn vs_shadow(in : SIn) -> @builtin(position) vec4f {
+  let M = mat4x4f(in.m0, in.m1, in.m2, in.m3);
+  return U.lightViewProj * (M * vec4f(in.pos, 1.0));
+}
+`;
+
+/* ---- Particle sprites --------------------------------------------------------
+   One camera-facing quad per particle, generated from vertex_index (no vertex
+   buffer for the quad). The per-instance buffer is either the compute-shader
+   particle storage buffer or the CPU-written agent buffer: both use a 48-byte
+   stride with pos.xyz/size at offset 0 and colour/alpha at offset 32.
+   Additive blending makes overlapping particles glow; depth test on, depth
+   write off, so organelles still hide particles behind them. Sprites larger
+   than 0.14 are drawn as membrane-bound vesicles (bright rim, dim core). */
+const WGSL_PARTICLE = WGSL_COMMON + /* wgsl */`
+struct PIn {
+  @builtin(vertex_index) vi : u32,
+  @location(0) pos : vec4f,
+  @location(1) col : vec4f,
+};
+struct POut {
+  @builtin(position) clip : vec4f,
+  @location(0) uv : vec2f,
+  @location(1) col : vec4f,
+  @location(2) @interpolate(flat) style : f32,
+};
+const HALO : f32 = 2.4;
+@vertex fn vs_p(in : PIn) -> POut {
+  var q = array<vec2f, 6>(vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0),
+                          vec2f(-1.0, -1.0), vec2f(1.0, 1.0), vec2f(-1.0, 1.0));
+  let c = q[in.vi];
+  let size = in.pos.w;
+  var o : POut;
+  let wp = in.pos.xyz + (U.camRight.xyz * c.x + U.camUp.xyz * c.y) * size * HALO;
+  o.clip = U.viewProj * vec4f(wp, 1.0);
+  if (size <= 0.0 || in.col.a <= 0.002) { o.clip = vec4f(0.0, 0.0, -2.0, 1.0); }
+  o.uv = c * HALO;
+  o.col = in.col;
+  o.style = select(0.0, 1.0, size > 0.14);
+  return o;
+}
+@fragment fn fs_p(in : POut) -> @location(0) vec4f {
+  let d = length(in.uv);
+  if (d > HALO) { discard; }
+  let core = 1.0 - smoothstep(0.7, 1.0, d);
+  let glow = exp(-d * d * 0.9) * 0.5;
+  var body = core;
+  if (in.style > 0.5) {
+    let shell = smoothstep(0.6, 0.88, d) * (1.0 - smoothstep(0.9, 1.04, d));
+    body = core * 0.3 + shell * 1.2;
+  }
+  let c = in.col.rgb * (body + glow) * in.col.a;
+  return vec4f(c, 0.0);
+}
+`;
+
+// Full-screen backdrop (single oversized triangle).
+const WGSL_BG = WGSL_COMMON + /* wgsl */`
+struct BOut { @builtin(position) pos : vec4f, @location(0) uv : vec2f };
+@vertex fn vs_bg(@builtin(vertex_index) vi : u32) -> BOut {
+  var p = array<vec2f, 3>(vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0));
+  var o : BOut;
+  o.pos = vec4f(p[vi], 0.0, 1.0);
+  o.uv = p[vi];
+  return o;
+}
+@fragment fn fs_bg(in : BOut) -> @location(0) vec4f {
+  let r = length(in.uv * vec2f(1.0, 0.85));
+  var c = mix(vec3f(0.04, 0.115, 0.17), vec3f(0.008, 0.025, 0.045), smoothstep(0.0, 1.45, r));
+  let n = vnoise(vec3f(in.uv * 2.5, U.camPos.w * 0.04));
+  c += vec3f(0.0, 0.018, 0.026) * n;
+  return vec4f(c, 1.0);
+}
+`;
+
+/* ---- Compute: background molecules ------------------------------------------
+   PARTICLE MOVEMENT SYSTEM (GPU part). Four populations live in one storage
+   buffer, identified by index range:
+     [0, N_CYTO)         cytosolic molecules: Brownian motion inside the cell,
+                         excluded from the nucleus while the envelope exists.
+     [.., +N_ATP)        ATP: born at a random mitochondrion with an outward
+                         kick, diffuses, fades out and is re-born (recycled).
+     [.., +N_SIG)        extracellular signalling molecules: diffuse in a shell
+                         just outside the plasma membrane.
+     [.., +N_NUC)        nucleoplasm molecules: confined to the nucleus, hidden
+                         when the envelope breaks down.
+   Brownian motion is approximated by relaxing velocity toward a random vector
+   each step (an Ornstein–Uhlenbeck-like process), which looks like diffusion
+   but is not calibrated to real diffusion coefficients.
+   During division the cell is approximated as two overlapping spheres plus a
+   narrowing furrow, matching the membrane deformation closely enough. */
+const WGSL_COMPUTE = WGSL_COMMON + /* wgsl */`
+struct Particle { pos : vec4f, vel : vec4f, col : vec4f };
+@group(0) @binding(1) var<storage, read_write> P : array<Particle>;
+const N_CYTO : u32 = ${N_CYTO}u;
+const N_ATP : u32 = ${N_ATP}u;
+const N_SIG : u32 = ${N_SIG}u;
+const N_TOTAL : u32 = ${N_PART}u;
+const NUC_R : f32 = ${R_NUC.toFixed(2)};
+
+fn pcg(v : u32) -> u32 {
+  let st = v * 747796405u + 2891336453u;
+  let w = ((st >> ((st >> 28u) + 4u)) ^ st) * 277803737u;
+  return (w >> 22u) ^ w;
+}
+fn rnd(s : ptr<function, u32>) -> f32 {
+  *s = pcg(*s);
+  return f32(*s) * (1.0 / 4294967296.0);
+}
+fn rnd3(s : ptr<function, u32>) -> vec3f {
+  let x = rnd(s);
+  let y = rnd(s);
+  let z = rnd(s);
+  return vec3f(x, y, z) * 2.0 - vec3f(1.0);
+}
+fn sideCenter(p : vec3f) -> vec3f {
+  let cx = U.cell.z * U.cell.x;
+  return vec3f(select(-cx, cx, p.x >= 0.0), 0.0, 0.0);
+}
+fn lobeRadius() -> f32 { return mix(U.cell.y, U.cell.w, U.cell.x); }
+fn furrow(x : f32) -> f32 {
+  let d = U.cell.x;
+  return mix(U.cell.y, U.cell.w * 0.12, d) + abs(x) * 1.0 * d;
+}
+fn keepInside(p : vec3f, margin : f32) -> vec3f {
+  var q = p;
+  let c = sideCenter(q);
+  let rr = lobeRadius() - margin;
+  let dv = q - c;
+  let dl = length(dv);
+  if (dl > rr) { q = c + dv * (rr / dl); }
+  let lim = max(furrow(q.x) - margin, 0.0);
+  let ryz = length(q.yz);
+  if (ryz > lim && ryz > 0.0001) {
+    let k = lim / ryz;
+    q = vec3f(q.x, q.y * k, q.z * k);
+  }
+  return q;
+}
+fn keepOutside(p : vec3f, margin : f32, s : ptr<function, u32>) -> vec3f {
+  let c = sideCenter(p);
+  let rr = lobeRadius() + margin;
+  let dv = p - c;
+  let dl = max(length(dv), 0.0001);
+  var q = p;
+  if (dl < rr) { q = c + dv * (rr / dl); }
+  if (dl > rr + 6.0) { q = c + dv / dl * (rr + 0.5 + rnd(s) * 5.0); }
+  return q;
+}
+fn avoidNucleus(p : vec3f) -> vec3f {
+  if (U.misc.x < 0.5) { return p; }
+  let l = length(p);
+  if (l < NUC_R + 0.2) { return p * ((NUC_R + 0.2) / max(l, 0.001)); }
+  return p;
+}
+
+@compute @workgroup_size(64)
+fn cs_main(@builtin(global_invocation_id) gid : vec3u) {
+  let i = gid.x;
+  if (i >= N_TOTAL) { return; }
+  let pt = P[i];
+  var p = pt.pos.xyz;
+  var v = pt.vel.xyz;
+  var life = pt.vel.w;
+  let dt = U.misc.y;
+  var seed = pcg(i * 7919u + u32(U.misc.w * 60.0) * 104729u + 17u);
+  let k = 1.0 - exp(-dt * 2.5);
+  var col = vec3f(0.55, 0.68, 0.88);
+  var a = 0.28;
+  if (i < N_CYTO) {
+    v = mix(v, rnd3(&seed) * 0.9, k);
+    p = avoidNucleus(keepInside(p + v * dt, 0.25));
+  } else if (i < N_CYTO + N_ATP) {
+    life = life - dt;
+    let mc = u32(U.misc.z + 0.5);
+    if (life <= 0.0 && mc > 0u) {
+      let m = min(u32(rnd(&seed) * f32(mc)), mc - 1u);
+      let r = rnd3(&seed);
+      p = U.mitos[m].xyz + r * 0.55;
+      v = normalize(r + vec3f(0.0001, 0.0, 0.0)) * 1.8;
+      life = 1.8 + rnd(&seed) * 2.4;
+    }
+    v = mix(v, rnd3(&seed) * 1.1, k * 0.6);
+    p = avoidNucleus(keepInside(p + v * dt, 0.25));
+    col = vec3f(1.0, 0.58, 0.14);
+    a = clamp(life * 1.3, 0.0, 1.0) * select(0.0, 0.95, mc > 0u);
+  } else if (i < N_CYTO + N_ATP + N_SIG) {
+    v = mix(v, rnd3(&seed) * 0.7, k);
+    p = keepOutside(p + v * dt, 0.45, &seed);
+    col = vec3f(0.62, 1.0, 0.3);
+    a = 0.38;
+  } else {
+    v = mix(v, rnd3(&seed) * 0.6, k);
+    p = p + v * dt;
+    let l = length(p);
+    if (l > NUC_R - 0.25) { p = p * ((NUC_R - 0.25) / l); }
+    col = vec3f(0.72, 0.66, 1.0);
+    a = 0.4 * U.misc.x;
+  }
+  P[i].pos = vec4f(p, pt.pos.w);
+  P[i].vel = vec4f(v, life);
+  P[i].col = vec4f(col, a);
+}
+`;
+
+/* ============================================================================
+   UI CONSTRUCTION
+   ============================================================================ */
+const $ = (id) => document.getElementById(id);
+const css = (c) => `rgb(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)})`;
+const canvas = $('gpu');
+
+let mode = 'process';        // 'process' (cell at work) | 'mitosis' (cell division)
+let playing = true, speed = 1, simTime = 0, mitoT = 0, cycles = 0, autoRotate = false;
+let selected = null, lastStage = -2, bannerTimer = 0, interacted = false;
+const stats = { prot: 0, sec: 0, endo: 0 };
+const pulseAt = {};
+let pendingEvent = null, lastEventShown = -1e9;
+
+{ // toggles
+  const ul = $('toggles');
+  for (const [key, label, col] of TOGGLES) {
+    const li = document.createElement('li');
+    li.innerHTML = `<label title="${INFO[key] ? INFO[key].short.replace(/"/g, '&quot;') : ''}"><input type="checkbox" checked data-k="${key}"><span class="sw" style="background:${css(col)}"></span><span>${label}</span></label>`;
+    ul.appendChild(li);
+  }
+  ul.addEventListener('change', (e) => { const k = e.target.dataset && e.target.dataset.k; if (k) show[k] = e.target.checked; });
+  const lg = $('legend');
+  for (const [name, col, ring, tip] of LEGEND) {
+    const li = document.createElement('li');
+    li.title = tip;
+    li.innerHTML = `<span class="dot${ring ? ' ring' : ''}" style="color:${css(col)}"></span><span>${name}</span>`;
+    lg.appendChild(li);
+  }
+}
+const stepEls = {};
+STEPS.forEach((s, i) => {
+  const li = document.createElement('li');
+  const b = document.createElement('button');
+  b.className = 'step';
+  b.innerHTML = `<span class="n">${i + 1}</span><span class="t">${s.name}</span><span class="w">${s.where}</span>`;
+  b.addEventListener('click', () => selectStep(s));
+  li.appendChild(b); $('steps').appendChild(li); stepEls[s.key] = b;
+});
+SIDE.forEach((s) => {
+  const b = document.createElement('button');
+  b.className = 'step';
+  b.innerHTML = `<span class="n" style="background:${css(s.col)}"></span><span class="t">${s.name}</span>`;
+  b.addEventListener('click', () => selectStep(s));
+  $('sideSteps').appendChild(b); stepEls[s.key] = b;
+});
+const track = $('track'), playhead = $('playhead');
+let scrubbed = false;
+const segEls = STAGES.map((s, i) => {
+  const b = document.createElement('button');
+  b.className = 'seg';
+  b.style.setProperty('--dur', s.dur);
+  b.innerHTML = `<span class="t">${s.name}</span><span class="w">${s.sub}</span>`;
+  b.addEventListener('click', () => { if (!scrubbed) jumpStage(i); scrubbed = false; });
+  track.insertBefore(b, playhead);
+  return b;
+});
+{ // scrubbing along the mitosis track
+  let down = null;
+  const toT = (e) => { const r = track.getBoundingClientRect(); return clamp((e.clientX - r.left) / r.width, 0, 0.9999) * MITO_TOTAL; };
+  track.addEventListener('pointerdown', (e) => { down = e.clientX; scrubbed = false; track.setPointerCapture(e.pointerId); });
+  track.addEventListener('pointermove', (e) => {
+    if (down === null) return;
+    if (Math.abs(e.clientX - down) > 4) scrubbed = true;
+    if (scrubbed) mitoT = toT(e);
+  });
+  const up = () => { down = null; };
+  track.addEventListener('pointerup', up); track.addEventListener('pointercancel', up);
+}
+function jumpStage(i) { mitoT = STAGE_START[i] + 0.001; }
+
+const OVERVIEW = {
+  process: `<h3>A cell at work</h3><p class="lead">This is an animal cell between divisions, with a see-through membrane so you can watch the machinery inside.</p>
+<p>The numbered steps below follow one protein from gene to export: a gene is transcribed, the mRNA leaves the nucleus, a ribosome on the rough ER builds the protein, and the Golgi packages it for secretion. Meanwhile mitochondria make ATP and the membrane takes in signals by endocytosis.</p>
+<p class="muted">Click any structure, label or step to read about it. Double-click a structure to fly to it.</p>`,
+  mitosis: `<h3>How one cell becomes two</h3><p class="lead">Mitosis gives each daughter cell an exact copy of every chromosome; cytokinesis then splits the cytoplasm.</p>
+<p>The card above follows the current stage. Click a stage on the track below to jump to it, or drag along the track to scrub. The arrow keys step between stages.</p>
+<p class="muted">Tip: hide the membrane and mitochondria to see the spindle clearly.</p>`,
+};
+function renderInfo(html) {
+  $('info').innerHTML = html;
+  const b = $('backOv'); if (b) b.addEventListener('click', showOverview);
+}
+function showOverview() { selected = null; renderInfo(OVERVIEW[mode]); }
+function showOrganelle(key) {
+  const d = INFO[key]; if (!d) return;
+  selected = key;
+  renderInfo(`<h3>${d.name}</h3><p class="lead">${d.short}</p><p>${d.long}</p><button class="linkish" id="backOv">Back to overview</button>`);
+  openSheet('notes', true);
+}
+function selectStep(s) {
+  renderInfo(`<h3>${s.name}</h3><p class="lead">${s.text}</p><button class="linkish" id="backOv">Back to overview</button>`);
+  const f = s.focus || stepFocus(s.key);
+  if (f) flyTo(f[0], f[1]);
+  openSheet('notes', true);
+}
+function stepFocus(key) {
+  if (key === 'translation' || key === 'er') {
+    const pa = erPatches[0];
+    return [erToWorld(pa, { o: [0, 0, 0], r: pa.r }, erLocal(0, 0)), 10];
+  }
+  if (key === 'lysoDelivery') return [lysos[0].p, 8];
+  if (key === 'endocytosis') return [mul(norm(microtubules[0].pts[MT_PTS - 1]), 8.5), 12];
+  if (key === 'atp') return [mitos[0].p, 8];
+  return null;
+}
+function renderStageCard(i) {
+  const s = STAGES[i];
+  $('stageCard').innerHTML = `<h3>${s.name}</h3><p class="muted">${s.sub[0].toUpperCase() + s.sub.slice(1)}</p><p>${s.text}</p><p class="watch">Watch for: ${s.watch}</p>`;
+  $('stageLine').textContent = `Stage ${i + 1} of ${STAGES.length}. ${s.watch}`;
+  segEls.forEach((el, j) => (j === i ? el.setAttribute('aria-current', 'step') : el.removeAttribute('aria-current')));
+}
+function openSheet(which, onlyIfMobile) {
+  if (onlyIfMobile && !window.matchMedia('(max-width: 760px)').matches) return;
+  const el = $(which), other = $(which === 'left' ? 'notes' : 'left');
+  el.classList.add('open'); other.classList.remove('open');
+  $('openLeft').setAttribute('aria-expanded', String(which === 'left'));
+  $('openNotes').setAttribute('aria-expanded', String(which === 'notes'));
+}
+function toggleSheet(which) {
+  const el = $(which);
+  if (el.classList.contains('open')) { el.classList.remove('open'); $(which === 'left' ? 'openLeft' : 'openNotes').setAttribute('aria-expanded', 'false'); }
+  else openSheet(which, false);
+}
+$('openLeft').addEventListener('click', () => toggleSheet('left'));
+$('openNotes').addEventListener('click', () => toggleSheet('notes'));
+
+function setMode(m) {
+  mode = m;
+  document.querySelectorAll('.modes button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.mode === m)));
+  $('tlProcess').hidden = m !== 'process';
+  $('tlMitosis').hidden = m !== 'mitosis';
+  $('stageCard').hidden = m !== 'mitosis';
+  agents.length = 0; mitoT = 0; cycles = 0; lastStage = -2;
+  resetCamera();
+  showOverview();
+}
+document.querySelectorAll('.modes button').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
+function setPlaying(p) {
+  playing = p;
+  $('play').textContent = p ? 'Pause' : 'Play';
+  $('play').setAttribute('aria-pressed', String(!p));
+}
+$('play').addEventListener('click', () => setPlaying(!playing));
+$('speed').addEventListener('input', (e) => { speed = parseFloat(e.target.value); $('speedOut').textContent = speed + '×'; });
+$('orbit').addEventListener('click', () => { autoRotate = !autoRotate; $('orbit').setAttribute('aria-pressed', String(autoRotate)); });
+$('resetCam').addEventListener('click', resetCamera);
+window.addEventListener('keydown', (e) => {
+  const tag = e.target && e.target.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+  if (e.code === 'Space' && tag !== 'BUTTON') { e.preventDefault(); setPlaying(!playing); }
+  else if (e.key === 'r' || e.key === 'R') resetCamera();
+  else if (e.key === 'm' || e.key === 'M') setMode(mode === 'process' ? 'mitosis' : 'process');
+  else if (e.key === 'l' || e.key === 'L') { show.labels = !show.labels; const cb = document.querySelector('input[data-k="labels"]'); if (cb) cb.checked = show.labels; }
+  else if (mode === 'mitosis' && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) {
+    const [i] = stageAt(mitoT);
+    jumpStage((i + (e.key === 'ArrowRight' ? 1 : STAGES.length - 1)) % STAGES.length);
+  }
+});
+
+/* ============================================================================
+   CAMERA: orbit around a target (yaw/pitch/distance), smoothed toward goals.
+   ============================================================================ */
+const cam = { yaw: 0.75, pitch: 0.3, dist: 31, target: [0.5, 0, 0], gYaw: 0.75, gPitch: 0.3, gDist: 31, gTarget: [0.5, 0, 0], fov: (42 * Math.PI) / 180 };
+let eye = [0, 0, 30], camR = EX, camU = EY, camF = [0, 0, -1], viewProj = new Float32Array(16);
+// Mitosis is viewed side-on to the division (x) axis; process mode from a 3/4 view.
+function resetCamera() {
+  cam.gYaw = mode === 'mitosis' ? 0.12 : 0.75; cam.gPitch = mode === 'mitosis' ? 0.22 : 0.3;
+  flyTo([mode === 'mitosis' ? 0 : 0.5, 0, 0], mode === 'mitosis' ? 36 : 31);
+}
+function flyTo(target, d) { cam.gTarget = target.slice(); cam.gDist = d; }
+function updateCamera(rdt) {
+  if (autoRotate && !drag) cam.gYaw += rdt * 0.08;
+  const k = 1 - Math.exp(-rdt * 7);
+  cam.yaw = mix(cam.yaw, cam.gYaw, k); cam.pitch = mix(cam.pitch, cam.gPitch, k);
+  cam.dist = mix(cam.dist, cam.gDist, k); cam.target = lerp3(cam.target, cam.gTarget, k);
+  const cp = Math.cos(cam.pitch);
+  eye = add(cam.target, mul([cp * Math.sin(cam.yaw), Math.sin(cam.pitch), cp * Math.cos(cam.yaw)], cam.dist));
+}
+// Pointer input: left-drag orbit, right/shift-drag pan, wheel zoom, pinch zoom.
+const pointers = new Map();
+let drag = null, pinch0 = 0, hoverXY = null, downXY = null;
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+canvas.addEventListener('pointerdown', (e) => {
+  canvas.setPointerCapture(e.pointerId);
+  pointers.set(e.pointerId, [e.clientX, e.clientY]);
+  downXY = [e.clientX, e.clientY];
+  drag = { pan: e.button === 2 || e.shiftKey, x: e.clientX, y: e.clientY };
+  if (pointers.size === 2) { const [a, b] = [...pointers.values()]; pinch0 = Math.hypot(a[0] - b[0], a[1] - b[1]); }
+  canvas.classList.add('dragging'); hideTooltip(); markInteracted();
+});
+canvas.addEventListener('pointermove', (e) => {
+  if (!drag) { hoverXY = [e.clientX, e.clientY]; return; }
+  const prev = pointers.get(e.pointerId); if (!prev) return;
+  pointers.set(e.pointerId, [e.clientX, e.clientY]);
+  if (pointers.size === 2) {
+    const [a, b] = [...pointers.values()];
+    const d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+    if (pinch0 > 0) cam.gDist = clamp(cam.gDist * (pinch0 / d), 6, 75);
+    pinch0 = d; return;
+  }
+  const dx = e.clientX - prev[0], dy = e.clientY - prev[1];
+  if (drag.pan) {
+    const s = cam.dist * 0.0013;
+    cam.gTarget = add(cam.gTarget, add(mul(camR, -dx * s), mul(camU, dy * s)));
+  } else {
+    cam.gYaw -= dx * 0.0065;
+    cam.gPitch = clamp(cam.gPitch + dy * 0.0065, -1.45, 1.45);
+  }
+});
+function endPointer(e) {
+  pointers.delete(e.pointerId);
+  if (pointers.size === 0) {
+    const moved = downXY ? Math.hypot(e.clientX - downXY[0], e.clientY - downXY[1]) : 99;
+    if (moved < 5 && e.type === 'pointerup') { const hit = pickAt(e.clientX, e.clientY); if (hit) showOrganelle(hit.key); }
+    drag = null; canvas.classList.remove('dragging');
+  }
+  pinch0 = 0;
+}
+canvas.addEventListener('pointerup', endPointer);
+canvas.addEventListener('pointercancel', endPointer);
+canvas.addEventListener('pointerleave', () => { hoverXY = null; hideTooltip(); });
+canvas.addEventListener('dblclick', (e) => {
+  const hit = pickAt(e.clientX, e.clientY);
+  if (hit && hit.key !== 'membrane') flyTo(hit.c, clamp(hit.r * 5 + 5, 6, 20));
+});
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  cam.gDist = clamp(cam.gDist * Math.exp(e.deltaY * 0.0012), 6, 75); markInteracted();
+}, { passive: false });
+function markInteracted() { if (!interacted) { interacted = true; $('hint').style.opacity = '0'; } }
+
+/* ============================================================================
+   SIMULATION PART 1 — MITOSIS MODEL
+   ----------------------------------------------------------------------------
+   The division is keyframed, not physically simulated. A clock `mitoT` runs
+   through six stages; params() turns (stage, progress) into a set of smooth
+   0..1 controls (division d, envelope breakdown, spindle growth, ...).
+   Chromatid beads are placed by interpolating between per-stage layouts:
+     0 interphase chromatin (random walk) -> 1 condensed X at its territory ->
+     2 aligned on the metaphase plate -> 3 V-shapes at the poles ->
+     4 half-decondensed at the new nuclei -> 5 loose chromatin in daughters.
+   Cytoplasmic organelles are carried into the daughters with mapT(), which
+   matches the membrane deformation in the vertex shader.
+   ============================================================================ */
+function stageAt(t) {
+  let i = STAGES.length - 1;
+  while (i > 0 && t < STAGE_START[i]) i--;
+  return [i, clamp((t - STAGE_START[i]) / STAGES[i].dur, 0, 1)];
+}
+function params() {
+  const M = { stage: -1, p: 0, d: 0, nucBreak: 0, nucOn: true, dnuc: false, dnucBreak: 1, dnucScale: 1,
+    nucleolus: 1, dNucleolus: 0, mtLen: 1, kfib: 0, pfib: 0, astral: 0, midNarrow: 0, centroMove: 0,
+    poleX: 6.4, golgiFrag: 0, erShift: 0, nucPresence: 1, xdn: 4.2 };
+  if (mode !== 'mitosis') return M;
+  const [i, p] = stageAt(mitoT);
+  M.stage = i; M.p = p;
+  if (i >= 2) { M.nucleolus = 0; M.mtLen = 0; M.centroMove = 1; M.nucBreak = 1; M.erShift = 1; M.golgiFrag = 1; M.kfib = 1; M.pfib = 1; M.astral = 1; }
+  if (i === 1) {
+    M.nucleolus = 1 - sm(p / 0.5); M.mtLen = 1 - sm(p / 0.4); M.centroMove = sm((p - 0.1) / 0.65);
+    M.pfib = M.astral = sm((p - 0.2) / 0.6); M.kfib = sm((p - 0.6) / 0.35); M.nucBreak = sm((p - 0.5) / 0.4);
+    M.golgiFrag = sm((p - 0.1) / 0.6); M.erShift = sm(p / 0.8);
+  } else if (i === 3) {
+    M.d = 0.12 * sm(p); M.poleX = 6.4 + 0.8 * sm(p);
+  } else if (i === 4) {
+    M.d = 0.12 + 0.43 * sm(p); M.kfib = 1 - sm(p / 0.6); M.astral = 1 - sm(p / 0.7); M.midNarrow = sm(p / 0.8);
+    M.dnuc = true; M.dnucBreak = 1 - sm((p - 0.15) / 0.7); M.dnucScale = 0.85 + 0.15 * sm(p);
+    M.dNucleolus = 0.55 * sm((p - 0.45) / 0.55); M.golgiFrag = 1 - 0.4 * sm(p);
+  } else if (i === 5) {
+    M.d = 0.55 + 0.45 * sm(p); M.kfib = 0; M.pfib = 1 - sm((p - 0.4) / 0.6); M.astral = 0; M.midNarrow = 1;
+    M.dnuc = true; M.dnucBreak = 0; M.dnucScale = 1; M.dNucleolus = 0.55 + 0.2 * sm(p); M.golgiFrag = 0.6 - 0.3 * sm(p);
+  }
+  M.nucOn = i <= 1 && M.nucBreak < 0.999;
+  M.nucPresence = i <= 1 ? 1 - M.nucBreak : 0;
+  if (i >= 4) M.poleX = 7.2 + ((M.d - 0.12) / 0.88) * (CD + 4.4 - 7.2);
+  M.xdn = M.d <= 0.12 ? 4.2 : mix(4.2, CD, (M.d - 0.12) / 0.88);
+  return M;
+}
+// Carries a point of the undivided cell into its daughter cell.
+function mapT(p, M) {
+  if (M.d <= 0) return p;
+  const f = mix(1, RD / R_CELL, M.d), s = p[0] >= 0 ? 1 : -1;
+  return [s * CD * M.d + p[0] * f, p[1] * f, p[2] * f];
+}
+// JS copy of the shader's membrane deformation (for labels and picking).
+function divideMapJS(n, d) {
+  if (d <= 1e-4) return mul(n, R_CELL);
+  const s = n[0] >= 0 ? 1 : -1, phi = Math.acos(clamp(Math.abs(n[0]), 0, 1)), l = Math.hypot(n[1], n[2]);
+  const d2 = l > 1e-6 ? [n[1] / l, n[2] / l] : [1, 0], p2 = (phi * (Math.PI - 0.1)) / (Math.PI / 2);
+  return lerp3(mul(n, R_CELL), [s * (CD + RD * Math.cos(p2)), RD * Math.sin(p2) * d2[0], RD * Math.sin(p2) * d2[1]], d);
+}
+// In mitosis the ER is pushed toward the periphery and away from the spindle
+// (shown as sheets moving outward and shrinking).
+function patchXf(pa, M) {
+  let o = [0, 0, 0], r = pa.r * (1 + 0.35 * M.erShift);
+  const g = 1 - 0.6 * M.erShift;
+  if (M.d > 0) { const s = pa.X[0] >= 0 ? 1 : -1; o = [s * CD * M.d, 0, 0]; r *= mix(1, RD / R_CELL, M.d); }
+  return { o, r, g };
+}
+function centroPos(k, M) {
+  const start = k > 0 ? C1 : C0;
+  if (M.stage <= 0) return start;
+  const end = [k * M.poleX, 0, 0];
+  if (M.stage === 1) {
+    const m = M.centroMove;
+    const dir = slerpDir(norm(start), norm(end), m);
+    return mul(dir, Math.max(mix(len(start), M.poleX, m) + Math.sin(m * Math.PI) * 0.9, R_NUC + 1.2));
+  }
+  return end;
+}
+// Chromatid layouts. k = +1 / -1 picks the sister (and the pole it goes to).
+const LAY_R = [0.1, 0.2, 0.21, 0.2, 0.14, 0.1];     // bead radius per layout
+const LAY_C = [0, 1, 1, 1, 0.6, 0.25];               // chromatin colour -> pair colour
+function chromLayout(L, ch, k, i, M) {
+  const s = (i / (BEADS - 1) - ch.cf) * ch.L;
+  const off = 0.16 + (0.12 * Math.abs(s)) / ch.L;       // sisters splay apart toward arm tips: X shape
+  const w = ch.walk[i];
+  const a = [0, Math.cos(ch.th), Math.sin(ch.th)];
+  switch (L) {
+    case 0: return add(w, mul(ch.jit[i], k));
+    case 1: return add(add(mul(ch.terr, 0.9), mul(ch.axA, s)), mul(ch.axB, k * off));
+    case 2: return add(add(mul(a, 1.55), mul(a, s)), [k * off, 0, 0]);
+    case 3: return add(add([k * 4.6, 0.75 * a[1], 0.75 * a[2]], [-k * Math.abs(s) * 0.85, 0, 0]), mul(a, s * 0.35));
+    case 4: return lerp3(chromLayout(3, ch, k, i, M), chromLayout(5, ch, k, i, M), 0.55);
+    default: return [k * (M.xdn + w[0] * 0.62), w[1] * 0.62, w[2] * 0.62];
+  }
+}
+const STAGE_EASE = [() => 1, (p) => sm(p / 0.65), (p) => sm(p / 0.7), (p) => sm(p / 0.9), sm, sm];
+
+/* ============================================================================
+   SIMULATION PART 2 — PARTICLE "AGENTS" (CPU)
+   ----------------------------------------------------------------------------
+   Individual molecules that matter for the story are agents. Each agent
+   follows a polyline path at a set speed with a small jitter (to suggest
+   thermal motion); when it reaches the end of a path its onArrive callback
+   fires, which usually hands it a new path and maybe a new identity:
+     mRNA -> (nuclear pore) -> ribosome -> protein -> ER lumen -> COPII vesicle
+     -> Golgi cis..trans -> secretory vesicle -> microtubule (kinesin) ->
+     membrane fusion + signalling molecules, or -> enzyme vesicle -> lysosome.
+     Endocytosis: signal -> membrane -> endosome -> microtubule (dynein) -> lysosome.
+   Timers spawn new transcription and endocytosis events. Agents are drawn
+   by the same particle pipeline as the GPU-simulated background molecules.
+   ============================================================================ */
+const KIND = {
+  mRNA: { col: COL.mRNA, size: 0.085 }, protein: { col: COL.protein, size: 0.075 },
+  vesicle: { col: COL.vesicle, size: 0.2 }, cargo: { col: COL.vesicle, size: 0.12 },
+  enzymeVes: { col: COL.enzyme, size: 0.18 }, enzyme: { col: COL.enzyme, size: 0.065 },
+  signal: { col: COL.signal, size: 0.075 }, endo: { col: [0.85, 1.0, 0.5], size: 0.19 },
+};
+const agents = [];
+const timers = { tx: 0.3, endo: 2.0, atp: 0.5 };
+function mkPath(pts) {
+  const cum = [0];
+  for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + dist(pts[i - 1], pts[i]));
+  return { pts, cum, total: cum[cum.length - 1] };
+}
+function samplePath(P, d) {
+  if (d <= 0) return P.pts[0];
+  if (d >= P.total) return P.pts[P.pts.length - 1];
+  let i = 1; while (P.cum[i] < d) i++;
+  const t = (d - P.cum[i - 1]) / (P.cum[i] - P.cum[i - 1] || 1);
+  return lerp3(P.pts[i - 1], P.pts[i], t);
+}
+function spawn(kind, pts, speed, onArrive) {
+  const a = { kind, col: KIND[kind].col, size: KIND[kind].size, path: mkPath(pts), d: 0, speed, onArrive,
+    pos: pts[0].slice(), seed: rr(0, 100), age: 0, trail: [], alpha: 1, fade: false };
+  agents.push(a); return a;
+}
+function go(a, pts, speed, onArrive) { a.path = mkPath(pts); a.d = 0; a.speed = speed; a.onArrive = onArrive; }
+function become(a, kind) { a.kind = kind; a.col = KIND[kind].col; a.size = KIND[kind].size; a.trail.length = 0; }
+function flash(p, col, size) { agents.push({ kind: 'flash', pos: p.slice(), col, life: 0.9, max: 0.9, size }); }
+function nearest(list, p) { let b = list[0], bd = 1e9; for (const o of list) { const d = dist(o.p, p); if (d < bd) { bd = d; b = o; } } return b; }
+function pulse(key, quiet) { pulseAt[key] = simTime; if (!quiet && EVENT_TEXT[key]) pendingEvent = EVENT_TEXT[key]; }
+function wander(start, n) {
+  const pts = [start]; let p = start;
+  for (let i = 0; i < n; i++) {
+    p = add(p, mul(rDir(), 1.2));
+    if (len(p) > 9) p = mul(norm(p), 9);
+    if (len(p) < R_NUC + 0.5) p = mul(norm(p), R_NUC + 0.5);
+    pts.push(p);
+  }
+  return pts;
+}
+
+function transcribe() {
+  const ch = chroms[rri(NCH)], g = ch.walk[rri(BEADS)];
+  const rer = Math.random() < 0.72;
+  let target, idx;
+  if (rer) {
+    idx = rri(boundRibos.length);
+    const rb = boundRibos[idx], pa = erPatches[rb.patch];
+    target = erToWorld(pa, { o: [0, 0, 0], r: pa.r }, rb.l);
+  } else { idx = rri(freeRibos.length); target = freeRibos[idx].p; }
+  // Export through a pore on the side facing the destination ribosome.
+  const tn = norm(target);
+  let best = -9, pore = pores[0];
+  for (const q of pores) { const s = dot(q, tn) + rr(0, 0.15); if (s > best) { best = s; pore = q; } }
+  const inner = mul(pore, R_NUC - 0.4), porePt = mul(pore, R_NUC), outer = mul(pore, R_NUC + 0.45);
+  pulse('transcription');
+  spawn('mRNA', [...arc(g, inner, 0.5, 6), porePt], 1.2, (a) => {
+    pulse('export');
+    go(a, [porePt, outer, ...arc(outer, target, 0.8, 8).slice(1)], 1.7, (b) => translate(b, rer, idx));
+  });
+}
+function translate(a, rer, idx) {
+  pulse('translation'); stats.prot++;
+  if (rer) {
+    const rb = boundRibos[idx], pa = erPatches[rb.patch], xf = { o: [0, 0, 0], r: pa.r };
+    rb.act = 1;
+    // The nascent chain enters the lumen and drifts through the sheet to the exit site.
+    const pts = [];
+    for (let j = 0; j <= 8; j++) { const t = j / 8; pts.push(erToWorld(pa, xf, mul(erLocal(mix(rb.u, pa.ue, t), mix(rb.v, pa.ve, t)), 0.995))); }
+    spawn('protein', pts, 0.9, (b) => {
+      pulse('toGolgi');
+      become(b, 'vesicle');
+      const dst = add(golgiCis, add(mul(rDir(), 0.5), mul(G_AXIS, -0.25)));
+      go(b, arc(b.pos, dst, 0.6, 8), 1.3, golgiTransit);
+    });
+    pulse('er', true);
+  } else {
+    const fr = freeRibos[idx]; fr.act = 1;
+    if (Math.random() < 0.5) {
+      const m = nearest(mitos, fr.p);
+      spawn('protein', arc(fr.p, add(m.p, mul(rDir(), 0.55)), 0.5, 8), 0.9, () => { m.act = 1; });
+    } else {
+      spawn('enzyme', wander(fr.p, 4), 0.55, null).fade = true;
+    }
+  }
+}
+function golgiTransit(a) {
+  pulse('golgi');
+  become(a, 'cargo');
+  const pts = [a.pos];
+  for (const g of golgi) {
+    const r = rr(0, 0.55), th = rr(0, TAU);
+    const [X, Y, Z] = g.B;
+    pts.push(add(add(add(g.c, mul(X, r * g.s * Math.cos(th))), mul(Z, r * g.s * Math.sin(th))), mul(Y, 0.28 * r * r)));
+  }
+  pts.push(add(golgiTrans, mul(rDir(), 0.4)));
+  go(a, pts, 0.7, fromTGN);
+}
+function fromTGN(a) {
+  if (Math.random() < 0.68) {
+    become(a, 'vesicle');
+    let mt = microtubules[0], bs = -9;
+    for (const m of microtubules) { const s = dot(norm(m.pts[MT_PTS - 1]), G_AXIS) + rr(0, 0.7); if (s > bs) { bs = s; mt = m; } }
+    let j = 0, bd = 1e9;
+    mt.pts.forEach((q, i) => { const d = dist(q, a.pos); if (d < bd) { bd = d; j = i; } });
+    const end = mt.pts[MT_PTS - 1], mem = mul(norm(end), 9.8);
+    go(a, [a.pos, ...mt.pts.slice(Math.min(j + 1, MT_PTS - 1)), mem], 1.6, () => {
+      pulse('secretion'); stats.sec++; flash(mem, COL.vesicle, 1.0);
+      for (let s = 0; s < 4; s++) spawn('signal', [mem, add(mul(norm(end), 11.5 + rr(0, 2)), mul(rDir(), 1.5))], rr(0.8, 1.3), null).fade = true;
+    });
+  } else {
+    become(a, 'enzymeVes');
+    const l = lysos[rri(lysos.length)];
+    go(a, arc(a.pos, l.p, 1.2, 10), 1.2, () => { l.act = 1; pulse('lysoDelivery'); flash(l.p, COL.enzyme, 0.7); });
+  }
+}
+function endocytose() {
+  const m = microtubules[rri(microtubules.length)], n = norm(m.pts[MT_PTS - 1]);
+  const mem = mul(n, 9.8), out = add(mul(n, 12.5 + rr(0, 1.5)), mul(rDir(), 1.2));
+  spawn('signal', [out, mem], 1.0, (a) => {
+    pulse('endocytosis'); stats.endo++; flash(mem, COL.signal, 0.8);
+    become(a, 'endo');
+    go(a, [mem, ...m.pts.slice(4).reverse()], 1.3, (b) => {
+      const l = nearest(lysos, b.pos);
+      go(b, arc(b.pos, l.p, 0.6, 6), 1.1, () => { l.act = 1; flash(l.p, COL.lyso, 0.6); });
+    });
+  });
+}
+function updateAgents(dt) {
+  if (dt <= 0) return;
+  if (mode === 'process') {
+    if ((timers.tx -= dt) <= 0) { timers.tx = rr(0.8, 1.4); transcribe(); }
+    if ((timers.endo -= dt) <= 0) { timers.endo = rr(2.8, 4.2); endocytose(); }
+    if ((timers.atp -= dt) <= 0) { timers.atp = 0.9; pulse('atp', true); mitos[rri(mitos.length)].act = 1; }
+  }
+  const decay = Math.exp(-dt * 1.6);
+  for (const o of boundRibos) o.act *= decay;
+  for (const o of freeRibos) o.act *= decay;
+  for (const o of mitos) o.act *= decay;
+  for (const o of lysos) o.act *= decay;
+  for (let i = agents.length - 1; i >= 0; i--) {
+    const a = agents[i];
+    if (a.kind === 'flash') { a.life -= dt; if (a.life <= 0) agents.splice(i, 1); continue; }
+    a.age += dt; a.d += a.speed * dt;
+    if (a.d >= a.path.total) {
+      const P = a.path, cb = a.onArrive;
+      a.onArrive = null;
+      if (cb) cb(a);
+      if (a.path === P) { agents.splice(i, 1); continue; }
+    }
+    const b = samplePath(a.path, a.d), w = 0.035;
+    a.pos = [b[0] + w * Math.sin(a.age * 6.1 + a.seed), b[1] + w * Math.sin(a.age * 5.3 + a.seed * 1.7), b[2] + w * Math.sin(a.age * 7.3 + a.seed * 2.3)];
+    if (a.fade) a.alpha = 1 - a.d / (a.path.total || 1);
+    if (a.kind === 'mRNA') {
+      const last = a.trail[0];
+      if (!last || dist(last, a.pos) > 0.07) { a.trail.unshift(a.pos.slice()); if (a.trail.length > 6) a.trail.pop(); }
+    }
+  }
+  if (agents.length > 700) agents.splice(0, agents.length - 700);
+}
+
+/* ============================================================================
+   PICKING, TOOLTIP AND LABELS (CPU side, from bounding spheres)
+   ============================================================================ */
+let picks = [];            // [key, centre, radius] rebuilt every frame
+let anchors = {};          // label anchor points rebuilt every frame
+const LABEL_TXT = { membrane: 'Plasma membrane', nucleus: 'Nucleus', nucleolus: 'Nucleolus', chromatin: 'Chromatin',
+  rer: 'Rough ER', ser: 'Smooth ER', golgi: 'Golgi apparatus', mito: 'Mitochondrion', lyso: 'Lysosome', ribo: 'Ribosomes',
+  mt: 'Microtubules', centrosome: 'Centrosome', spindle: 'Spindle fibers', plate: 'Metaphase plate', furrow: 'Cleavage furrow', pores: 'Nuclear pore' };
+const labelEls = {};
+function pickAt(cx, cy) {
+  const W = canvas.clientWidth || 1, H = canvas.clientHeight || 1;
+  const nx = (cx / W) * 2 - 1, ny = 1 - (cy / H) * 2, th = Math.tan(cam.fov / 2);
+  const dir = norm(add(add(camF, mul(camR, nx * th * (W / H))), mul(camU, ny * th)));
+  let best = null, bt = 1e9, mem = null;
+  for (const [key, c, r] of picks) {
+    const oc = sub(eye, c), b = dot(oc, dir), h = b * b - (dot(oc, oc) - r * r);
+    if (h < 0) continue;
+    const sq = Math.sqrt(h);
+    let t = -b - sq; if (t <= 0) t = -b + sq; if (t <= 0) continue;
+    if (key === 'membrane') { if (mem === null) mem = t; continue; }
+    if (key === 'nucleus') t += R_NUC * 0.9;   // let things inside the nucleus win
+    if (t < bt) { bt = t; best = { key, c, r }; }
+  }
+  return best || (mem !== null ? { key: 'membrane', c: [0, 0, 0], r: R_CELL } : null);
+}
+const tip = $('tooltip');
+function hideTooltip() { tip.style.opacity = '0'; }
+function updateTooltip() {
+  if (!hoverXY || drag) return;
+  const hit = pickAt(hoverXY[0], hoverXY[1]);
+  if (!hit) { hideTooltip(); canvas.style.cursor = ''; return; }
+  const d = INFO[hit.key];
+  tip.innerHTML = `<b>${d.name}</b><span>${d.short}</span>`;
+  const x = Math.min(hoverXY[0] + 16, window.innerWidth - 285), y = Math.min(hoverXY[1] + 16, window.innerHeight - 90);
+  tip.style.left = x + 'px'; tip.style.top = y + 'px'; tip.style.opacity = '1';
+  canvas.style.cursor = 'pointer';
+}
+function project(p) {
+  const c = M4.xform(viewProj, p);
+  if (c[3] <= 0.05) return null;
+  const x = c[0] / c[3], y = c[1] / c[3];
+  if (x < -1.1 || x > 1.1 || y < -1.1 || y > 1.1) return null;
+  return [(x * 0.5 + 0.5) * canvas.clientWidth, (0.5 - y * 0.5) * canvas.clientHeight, c[3]];
+}
+function updateLabels(M) {
+  const host = $('labels');
+  for (const key of Object.keys(LABEL_TXT)) {
+    let el = labelEls[key];
+    const a = show.labels ? anchors[key] : null;
+    const pr = a ? project(a) : null;
+    if (!pr) { if (el) el.style.display = 'none'; continue; }
+    if (!el) {
+      el = labelEls[key] = document.createElement('div');
+      el.className = 'lbl';
+      el.innerHTML = '<span class="pin"></span><span class="txt"></span>';
+      el.querySelector('.txt').addEventListener('click', () => showOrganelle(key));
+      host.appendChild(el);
+    }
+    const txt = key === 'chromatin' && M.stage >= 1 && M.stage <= 4 ? 'Chromosomes' : key === 'nucleus' && M.stage >= 4 ? 'New nucleus' : LABEL_TXT[key];
+    const t = el.querySelector('.txt');
+    if (t.textContent !== txt) t.textContent = txt;
+    el.style.display = 'flex';
+    el.style.transform = `translate(${(pr[0] - 3.5).toFixed(1)}px, ${(pr[1] - 10).toFixed(1)}px)`;
+    el.style.opacity = clamp(1.25 - (pr[2] - 18) / 40, 0.4, 1).toFixed(2);
+  }
+}
+
+/* ============================================================================
+   GEOMETRY GENERATION (CPU, uploaded once)
+   Vertex format: position (3 floats) + normal (3 floats) = 24 bytes.
+   ============================================================================ */
+function sphereData(seg, ring) {
+  const P = [], I = [];
+  for (let r = 0; r <= ring; r++) {
+    const th = (r / ring) * Math.PI, st = Math.sin(th), ct = Math.cos(th);
+    for (let s = 0; s <= seg; s++) { const ph = (s / seg) * TAU; P.push(st * Math.cos(ph), ct, st * Math.sin(ph)); }
+  }
+  for (let r = 0; r < ring; r++) for (let s = 0; s < seg; s++) {
+    const a = r * (seg + 1) + s, b = a + seg + 1;
+    I.push(a, a + 1, b, a + 1, b + 1, b);        // counter-clockwise seen from outside
+  }
+  return { P, N: P.slice(), I };
+}
+function cylinderData(seg) {
+  const P = [], N = [], I = [];
+  for (let y = 0; y <= 1; y++) for (let s = 0; s <= seg; s++) {
+    const a = (s / seg) * TAU, c = Math.cos(a), sn = Math.sin(a);
+    P.push(c, y, sn); N.push(c, 0, sn);
+  }
+  for (let s = 0; s < seg; s++) { const a = s, b = s + seg + 1; I.push(a, b, a + 1, a + 1, b, b + 1); }
+  return { P, N, I };
+}
+function computeNormals(P, I) {
+  const N = new Float32Array(P.length);
+  for (let t = 0; t < I.length; t += 3) {
+    const a = I[t] * 3, b = I[t + 1] * 3, c = I[t + 2] * 3;
+    const n = cross([P[b] - P[a], P[b + 1] - P[a + 1], P[b + 2] - P[a + 2]], [P[c] - P[a], P[c + 1] - P[a + 1], P[c + 2] - P[a + 2]]);
+    for (const v of [a, b, c]) { N[v] += n[0]; N[v + 1] += n[1]; N[v + 2] += n[2]; }
+  }
+  for (let i = 0; i < N.length; i += 3) { const l = Math.hypot(N[i], N[i + 1], N[i + 2]) || 1; N[i] /= l; N[i + 1] /= l; N[i + 2] /= l; }
+  return N;
+}
+// Golgi cisterna: a flattened sphere bent into a shallow bowl (rims toward trans).
+function cisternaData() {
+  const s = sphereData(36, 18), P = s.P.slice();
+  for (let i = 0; i < P.length; i += 3) { const x = P[i], z = P[i + 2]; P[i + 1] = P[i + 1] * 0.1 + 0.28 * (x * x + z * z); }
+  return { P, N: computeNormals(P, s.I), I: s.I };
+}
+function erData(nu, nv) {
+  const P = [], I = [];
+  for (let j = 0; j <= nv; j++) for (let i = 0; i <= nu; i++) {
+    P.push(...erLocal(-ER_U + (2 * ER_U * i) / nu, -ER_V + (2 * ER_V * j) / nv));
+  }
+  for (let j = 0; j < nv; j++) for (let i = 0; i < nu; i++) {
+    const a = j * (nu + 1) + i, b = a + nu + 1;
+    I.push(a, a + 1, b, a + 1, b + 1, b);
+  }
+  return { P, N: computeNormals(P, I), I };
+}
+
+/* ============================================================================
+   WEBGPU SETUP
+   ----------------------------------------------------------------------------
+   1. navigator.gpu -> adapter -> device; the canvas gets a 'webgpu' context
+      configured with the preferred swap-chain format.
+   2. The main pass renders into a 4x multisampled colour texture that resolves
+      into the swap-chain texture, with a matching 4x depth texture.
+   3. A 2048² depth32float shadow map is rendered from an orthographic key light.
+   4. Bind group layouts:
+        A: uniforms                              (shadow, particles, backdrop)
+        B: uniforms + shadow map + compare sampler (organelle meshes)
+        C: uniforms + particle storage buffer      (compute)
+   RENDERING PIPELINE, per frame:
+        compute pass : update background molecules in the storage buffer
+        shadow pass  : depth of all opaque organelles from the light
+        main pass    : backdrop -> opaque organelles -> membrane back faces ->
+                       glowing particles (additive) -> membrane front faces
+   ============================================================================ */
+function fail(msg) {
+  $('nogpuMsg').textContent = msg;
+  $('nogpu').style.display = 'grid';
+  for (const id of ['left', 'notes', 'timeline', 'hint']) $(id).style.display = 'none';
+  document.querySelector('.transport').style.display = 'none';
+  document.querySelector('.modes').style.display = 'none';
+}
+
+async function main() {
+  if (!navigator.gpu) throw new Error('This browser does not expose WebGPU (navigator.gpu is missing).');
+  const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+  if (!adapter) throw new Error('No WebGPU adapter was found. The GPU or its driver may be blocked by the browser.');
+  const device = await adapter.requestDevice();
+  device.lost.then((info) => { if (info.reason !== 'destroyed') fail('The GPU device was lost: ' + info.message); });
+  if (device.addEventListener) device.addEventListener('uncapturederror', (e) => console.error('WebGPU:', e.error && e.error.message));
+  const ctx = canvas.getContext('webgpu');
+  const format = navigator.gpu.getPreferredCanvasFormat();
+  ctx.configure({ device, format, alphaMode: 'opaque' });
+  const GBU = GPUBufferUsage, GTU = GPUTextureUsage, GSS = GPUShaderStage;
+  const SAMPLES = 4, SHADOW_SIZE = 2048;
+
+  // ---- render targets (recreated on resize) ----
+  let msaaView = null, depthView = null, msaaTex = null, depthTex = null;
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2), maxD = device.limits.maxTextureDimension2D;
+    const w = clamp(Math.floor(canvas.clientWidth * dpr), 1, maxD), h = clamp(Math.floor(canvas.clientHeight * dpr), 1, maxD);
+    if (w === canvas.width && h === canvas.height && msaaTex) return;
+    canvas.width = w; canvas.height = h;
+    if (msaaTex) { msaaTex.destroy(); depthTex.destroy(); }
+    msaaTex = device.createTexture({ size: [w, h], sampleCount: SAMPLES, format, usage: GTU.RENDER_ATTACHMENT });
+    depthTex = device.createTexture({ size: [w, h], sampleCount: SAMPLES, format: 'depth24plus', usage: GTU.RENDER_ATTACHMENT });
+    msaaView = msaaTex.createView(); depthView = depthTex.createView();
+  }
+  const shadowTex = device.createTexture({ size: [SHADOW_SIZE, SHADOW_SIZE], format: 'depth32float', usage: GTU.RENDER_ATTACHMENT | GTU.TEXTURE_BINDING });
+  const shadowView = shadowTex.createView();
+  const shadowSampler = device.createSampler({ compare: 'less-equal', magFilter: 'linear', minFilter: 'linear' });
+
+  // ---- geometry ----
+  function makeGeo({ P, N, I }) {
+    const n = P.length / 3, v = new Float32Array(n * 6);
+    for (let i = 0; i < n; i++) { v.set([P[i * 3], P[i * 3 + 1], P[i * 3 + 2], N[i * 3], N[i * 3 + 1], N[i * 3 + 2]], i * 6); }
+    const vbuf = device.createBuffer({ size: v.byteLength, usage: GBU.VERTEX | GBU.COPY_DST });
+    device.queue.writeBuffer(vbuf, 0, v);
+    const idx = new Uint32Array(I);
+    const ibuf = device.createBuffer({ size: idx.byteLength, usage: GBU.INDEX | GBU.COPY_DST });
+    device.queue.writeBuffer(ibuf, 0, idx);
+    return { vbuf, ibuf, count: idx.length };
+  }
+  const geo = {
+    sphHi: makeGeo(sphereData(72, 48)), sphMid: makeGeo(sphereData(22, 14)), sphLo: makeGeo(sphereData(10, 7)),
+    cyl: makeGeo(cylinderData(10)), cis: makeGeo(cisternaData()), er: makeGeo(erData(40, 30)),
+  };
+
+  // ---- instance batches: CPU writes 24 floats per instance every frame ----
+  class Batch {
+    constructor(g, cap) {
+      this.g = g; this.cap = cap; this.n = 0; this.f = new Float32Array(cap * 24);
+      this.buf = device.createBuffer({ size: cap * 96, usage: GBU.VERTEX | GBU.COPY_DST });
+    }
+    add(p, X, Y, Z, sx, sy, sz, col, mat, em, al, seed) {
+      if (this.n >= this.cap) return;
+      const f = this.f, o = this.n++ * 24;
+      f[o] = X[0] * sx; f[o + 1] = X[1] * sx; f[o + 2] = X[2] * sx; f[o + 3] = 0;
+      f[o + 4] = Y[0] * sy; f[o + 5] = Y[1] * sy; f[o + 6] = Y[2] * sy; f[o + 7] = 0;
+      f[o + 8] = Z[0] * sz; f[o + 9] = Z[1] * sz; f[o + 10] = Z[2] * sz; f[o + 11] = 0;
+      f[o + 12] = p[0]; f[o + 13] = p[1]; f[o + 14] = p[2]; f[o + 15] = 1;
+      f[o + 16] = col[0]; f[o + 17] = col[1]; f[o + 18] = col[2]; f[o + 19] = 1;
+      f[o + 20] = mat; f[o + 21] = em; f[o + 22] = al; f[o + 23] = seed;
+    }
+    sphere(p, r, col, mat, em = 0, seed = 0) { if (r > 1e-3) this.add(p, EX, EY, EZ, r, r, r, col, mat, em, 1, seed); }
+    cyl(a, b, r, col, mat, em = 0, seed = 0) {
+      const d = sub(b, a), l = len(d);
+      if (l < 1e-3 || r < 1e-4) return;
+      const [X, Y, Z] = basisFromY(mul(d, 1 / l));
+      this.add(a, X, Y, Z, r, l, r, col, mat, em, 1, seed);
+    }
+    upload() { if (this.n) device.queue.writeBuffer(this.buf, 0, this.f, 0, this.n * 24); }
+    draw(pass, count = this.n, first = 0) {
+      if (!count) return;
+      pass.setVertexBuffer(0, this.g.vbuf); pass.setVertexBuffer(1, this.buf);
+      pass.setIndexBuffer(this.g.ibuf, 'uint32');
+      pass.drawIndexed(this.g.count, count, 0, 0, first);
+    }
+  }
+  const B = {
+    er: new Batch(geo.er, 16), cis: new Batch(geo.cis, 16), mid: new Batch(geo.sphMid, 800),
+    lo: new Batch(geo.sphLo, 1400), cyl: new Batch(geo.cyl, 1100),
+  };
+  const opaque = [B.er, B.cis, B.mid, B.lo, B.cyl];
+  const trans = new Batch(geo.sphHi, 4);
+
+  // ---- uniforms, particles, agents ----
+  const uData = new Float32Array(124);
+  const uBuf = device.createBuffer({ size: uData.byteLength, usage: GBU.UNIFORM | GBU.COPY_DST });
+  const pInit = new Float32Array(N_PART * 12);
+  for (let i = 0; i < N_PART; i++) {
+    let p, size, life = 0;
+    if (i < N_CYTO) { p = mul(randDir(), rand(3.8, 9.5)); size = rand(0.03, 0.055); }
+    else if (i < N_CYTO + N_ATP) { p = add(mitos[i % mitos.length].p, mul(randDir(), 0.5)); size = 0.055; life = rand(0, 3); }
+    else if (i < N_CYTO + N_ATP + N_SIG) { p = mul(randDir(), rand(10.6, 15)); size = 0.06; }
+    else { p = mul(randDir(), rand(0, 3.0)); size = 0.04; }
+    pInit.set([p[0], p[1], p[2], size, 0, 0, 0, life, 0, 0, 0, 0], i * 12);
+  }
+  const partBuf = device.createBuffer({ size: pInit.byteLength, usage: GBU.STORAGE | GBU.VERTEX | GBU.COPY_DST });
+  device.queue.writeBuffer(partBuf, 0, pInit);
+  const AG_CAP = 2400;
+  const agData = new Float32Array(AG_CAP * 12);
+  const agBuf = device.createBuffer({ size: agData.byteLength, usage: GBU.VERTEX | GBU.COPY_DST });
+  let agN = 0;
+  function pushP(p, size, col, a) {
+    if (agN >= AG_CAP) return;
+    const o = agN++ * 12;
+    agData[o] = p[0]; agData[o + 1] = p[1]; agData[o + 2] = p[2]; agData[o + 3] = size;
+    agData[o + 8] = col[0]; agData[o + 9] = col[1]; agData[o + 10] = col[2]; agData[o + 11] = a;
+  }
+
+  // ---- bind group layouts, bind groups ----
+  const ALL = GSS.VERTEX | GSS.FRAGMENT | GSS.COMPUTE;
+  const bglA = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: ALL, buffer: { type: 'uniform' } }] });
+  const bglB = device.createBindGroupLayout({ entries: [
+    { binding: 0, visibility: ALL, buffer: { type: 'uniform' } },
+    { binding: 1, visibility: GSS.FRAGMENT, texture: { sampleType: 'depth' } },
+    { binding: 2, visibility: GSS.FRAGMENT, sampler: { type: 'comparison' } }] });
+  const bglC = device.createBindGroupLayout({ entries: [
+    { binding: 0, visibility: ALL, buffer: { type: 'uniform' } },
+    { binding: 1, visibility: GSS.COMPUTE, buffer: { type: 'storage' } }] });
+  const bgA = device.createBindGroup({ layout: bglA, entries: [{ binding: 0, resource: { buffer: uBuf } }] });
+  const bgB = device.createBindGroup({ layout: bglB, entries: [
+    { binding: 0, resource: { buffer: uBuf } }, { binding: 1, resource: shadowView }, { binding: 2, resource: shadowSampler }] });
+  const bgC = device.createBindGroup({ layout: bglC, entries: [
+    { binding: 0, resource: { buffer: uBuf } }, { binding: 1, resource: { buffer: partBuf } }] });
+  const plA = device.createPipelineLayout({ bindGroupLayouts: [bglA] });
+  const plB = device.createPipelineLayout({ bindGroupLayouts: [bglB] });
+  const plC = device.createPipelineLayout({ bindGroupLayouts: [bglC] });
+
+  // ---- shader modules (compile errors are reported to the console) ----
+  function mod(code, label) {
+    const m = device.createShaderModule({ code, label });
+    if (m.getCompilationInfo) m.getCompilationInfo().then((info) => {
+      for (const msg of info.messages) if (msg.type === 'error') console.error(`${label}:${msg.lineNum}:${msg.linePos} ${msg.message}`);
+    });
+    return m;
+  }
+  const meshMod = mod(WGSL_MESH, 'mesh'), shadowMod = mod(WGSL_SHADOW, 'shadow'), partMod = mod(WGSL_PARTICLE, 'particle');
+  const bgMod = mod(WGSL_BG, 'backdrop'), compMod = mod(WGSL_COMPUTE, 'compute');
+
+  // ---- pipelines ----
+  const meshBuffers = [
+    { arrayStride: 24, stepMode: 'vertex', attributes: [
+      { shaderLocation: 0, offset: 0, format: 'float32x3' }, { shaderLocation: 1, offset: 12, format: 'float32x3' }] },
+    { arrayStride: 96, stepMode: 'instance', attributes: [0, 1, 2, 3, 4, 5].map((i) => ({ shaderLocation: 2 + i, offset: i * 16, format: 'float32x4' })) },
+  ];
+  const ms = { count: SAMPLES };
+  const alphaBlend = { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' }, alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' } };
+  const addBlend = { color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' }, alpha: { srcFactor: 'zero', dstFactor: 'one', operation: 'add' } };
+  const opaquePipe = device.createRenderPipeline({ layout: plB,
+    vertex: { module: meshMod, entryPoint: 'vs_mesh', buffers: meshBuffers },
+    fragment: { module: meshMod, entryPoint: 'fs_opaque', targets: [{ format }] },
+    primitive: { topology: 'triangle-list', cullMode: 'none' },
+    depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' }, multisample: ms });
+  const transPipe = (cullMode) => device.createRenderPipeline({ layout: plB,
+    vertex: { module: meshMod, entryPoint: 'vs_mesh', buffers: meshBuffers },
+    fragment: { module: meshMod, entryPoint: 'fs_trans', targets: [{ format, blend: alphaBlend }] },
+    primitive: { topology: 'triangle-list', cullMode },
+    depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less' }, multisample: ms });
+  const transBack = transPipe('front'), transFront = transPipe('back');
+  const shadowPipe = device.createRenderPipeline({ layout: plA,
+    vertex: { module: shadowMod, entryPoint: 'vs_shadow', buffers: meshBuffers },
+    primitive: { topology: 'triangle-list', cullMode: 'none' },
+    depthStencil: { format: 'depth32float', depthWriteEnabled: true, depthCompare: 'less' } });
+  const partPipe = device.createRenderPipeline({ layout: plA,
+    vertex: { module: partMod, entryPoint: 'vs_p', buffers: [{ arrayStride: 48, stepMode: 'instance', attributes: [
+      { shaderLocation: 0, offset: 0, format: 'float32x4' }, { shaderLocation: 1, offset: 32, format: 'float32x4' }] }] },
+    fragment: { module: partMod, entryPoint: 'fs_p', targets: [{ format, blend: addBlend }] },
+    primitive: { topology: 'triangle-list' },
+    depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less' }, multisample: ms });
+  const bgPipe = device.createRenderPipeline({ layout: plA,
+    vertex: { module: bgMod, entryPoint: 'vs_bg' },
+    fragment: { module: bgMod, entryPoint: 'fs_bg', targets: [{ format }] },
+    primitive: { topology: 'triangle-list' },
+    depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'always' }, multisample: ms });
+  const compPipe = device.createComputePipeline({ layout: plC, compute: { module: compMod, entryPoint: 'cs_main' } });
+
+  // Key light (fixed) and its orthographic shadow camera.
+  const lightDir = norm([0.5, 0.8, 0.35]);
+  const lightVP = M4.mul(M4.ortho(-17, 17, -17, 17, 1, 80), M4.lookAt(mul(lightDir, 40), [0, 0, 0], EY));
+  const FOG = [0.03, 0.085, 0.13];
+
+  /* ==========================================================================
+     PER-FRAME SCENE BUILD: turns the simulation state into instance data.
+     ========================================================================== */
+  const beadP = chroms.map(() => [[], []]);   // [chromosome][sister 0:+1 / 1:-1][bead]
+  function buildScene(M, t) {
+    for (const b of opaque) b.n = 0;
+    trans.n = 0; agN = 0;
+    picks = []; anchors = {};
+    const f = mix(1, RD / R_CELL, M.d);
+
+    // Plasma membrane (instance 0 of the transparent batch when shown)
+    const memOn = show.membrane;
+    if (memOn) {
+      trans.add([0, 0, 0], EX, EY, EZ, 1, 1, 1, COL.membrane, 10, 0, 0.85, 0);
+      anchors.membrane = divideMapJS(norm([-0.35, 0.8, 0.5]), M.d);
+      if (M.d < 0.3) picks.push(['membrane', [0, 0, 0], R_CELL]);
+      else for (const k of [1, -1]) picks.push(['membrane', [k * mix(0, CD, M.d), 0, 0], mix(R_CELL, RD, M.d)]);
+      if (M.d > 0.2) { anchors.furrow = divideMapJS(norm([0.001, 1, 0.25]), M.d); picks.push(['furrow', anchors.furrow, 1.2]); }
+    }
+    // Nuclear envelope(s)
+    let nNuc = 0;
+    if (show.nucleus) {
+      if (M.nucOn) {
+        trans.add([0, 0, 0], EX, EY, EZ, R_NUC, R_NUC, R_NUC, COL.nucleus, 11, 0, 1, M.nucBreak); nNuc++;
+        if (M.nucBreak < 0.6) { anchors.nucleus = mul(norm([-0.55, 0.75, 0.4]), R_NUC); picks.push(['nucleus', [0, 0, 0], R_NUC]); }
+        if (M.nucBreak < 0.35) {
+          const ps = 1 - M.nucBreak / 0.35;
+          for (const n of pores) { const [X, Y, Z] = basisFromY(n); B.lo.add(mul(n, R_NUC), X, Y, Z, 0.17 * ps, 0.07 * ps, 0.17 * ps, COL.pore, 12, 0.35, 1, 0); }
+          anchors.pores = mul(pores[70], R_NUC); picks.push(['pores', anchors.pores, 0.35]);
+        }
+      }
+      if (M.dnuc) {
+        const r = R_NUC * 0.78 * M.dnucScale;
+        for (const k of [1, -1]) { trans.add([k * M.xdn, 0, 0], EX, EY, EZ, r, r, r, COL.nucleus, 11, 0, 1, M.dnucBreak); nNuc++; }
+        if (M.dnucBreak < 0.6) { anchors.nucleus = [M.xdn, r * 0.9, 0.4]; for (const k of [1, -1]) picks.push(['nucleus', [k * M.xdn, 0, 0], r]); }
+      }
+    }
+    // Nucleolus
+    if (show.nucleolus) {
+      if (M.nucleolus > 0.01) { B.mid.sphere(N0, R_NUCLEOLUS * M.nucleolus, COL.nucleolus, 9, 0.08); if (M.nucleolus > 0.4) { anchors.nucleolus = N0; picks.push(['nucleolus', N0, R_NUCLEOLUS]); } }
+      if (M.dNucleolus > 0.01) for (const k of [1, -1]) B.mid.sphere([k * (M.xdn + 0.35), 0.3, 0.25], R_NUCLEOLUS * M.dNucleolus, COL.nucleolus, 9, 0.08);
+    }
+    // Chromatin / chromosomes
+    const stg = Math.max(0, M.stage), q = STAGE_EASE[stg](M.p);
+    chroms.forEach((ch, c) => {
+      for (let s = 0; s < 2; s++) {
+        const k = s === 0 ? 1 : -1, arr = beadP[c][s];
+        let cx = 0, cy = 0, cz = 0;
+        for (let i = 0; i < BEADS; i++) {
+          let p, r, cm;
+          if (stg === 0) {
+            const w = 0.03;
+            p = add(chromLayout(0, ch, k, i, M), [w * Math.sin(t * 0.8 + i * 0.7 + c), w * Math.sin(t * 0.6 + i * 0.5 + c * 2), w * Math.sin(t * 0.7 + i * 0.9)]);
+            r = LAY_R[0]; cm = LAY_C[0];
+          } else {
+            p = lerp3(chromLayout(stg - 1, ch, k, i, M), chromLayout(stg, ch, k, i, M), q);
+            r = mix(LAY_R[stg - 1], LAY_R[stg], q); cm = mix(LAY_C[stg - 1], LAY_C[stg], q);
+          }
+          arr[i] = p; cx += p[0]; cy += p[1]; cz += p[2];
+          if (show.chromatin) {
+            let col = lerp3(COL.chromatin, ch.col, cm);
+            if (i % 6 === 3) col = mul(col, 0.72);                  // G-band-like stripes
+            if (i === ch.ic) col = mul(col, 0.55);                 // centromere (primary constriction)
+            B.mid.sphere(p, r, col, 6, 0.12 + cm * 0.1, c);
+          }
+        }
+        if (show.chromatin && (stg > 0 || s === 0)) picks.push(['chromatin', [cx / BEADS, cy / BEADS, cz / BEADS], stg > 0 ? 0.9 : 1.1]);
+      }
+    });
+    if (show.chromatin) anchors.chromatin = stg === 0 ? chroms[1].walk[12] : beadP[1][0][12];
+
+    // Endoplasmic reticulum + bound ribosomes
+    erPatches.forEach((pa, pi) => {
+      if (pa.rough ? !show.rer : !show.ser) return;
+      const xf = patchXf(pa, M);
+      B.er.add(xf.o, pa.X, pa.Y, pa.Z, xf.r, xf.r * xf.g, xf.r * xf.g, pa.rough ? COL.rer : COL.ser, pa.rough ? 2 : 13, 0.05, 1, pa.seed);
+      for (const [u, v] of [[0, 0], [0.3, 0.2], [-0.3, -0.2], [0.3, -0.2], [-0.3, 0.2]]) picks.push([pa.rough ? 'rer' : 'ser', erToWorld(pa, xf, erLocal(u, v)), 0.9 * xf.r / 5]);
+      if (pi === 0) anchors.rer = erToWorld(pa, xf, erLocal(0, 0.25));
+      if (!pa.rough && !anchors.ser) anchors.ser = erToWorld(pa, xf, erLocal(0, 0.2));
+    });
+    if (show.rer) {
+      for (const rb of boundRibos) {
+        const pa = erPatches[rb.patch];
+        B.lo.sphere(erToWorld(pa, patchXf(pa, M), rb.l), 0.075, COL.ribo, 5, 0.15 + rb.act * 2.5);
+      }
+      const rb = boundRibos[30], pa = erPatches[rb.patch];
+      anchors.ribo = erToWorld(pa, patchXf(pa, M), rb.l);
+    }
+    if (show.ribo) {
+      for (const fr of freeRibos) B.lo.sphere(mapT(fr.p, M), 0.075 * f, COL.ribo, 5, 0.15 + fr.act * 2.5);
+      if (!anchors.ribo) anchors.ribo = mapT(freeRibos[0].p, M);
+    }
+    // Golgi (fragments into vesicles during mitosis, reassembles in both daughters)
+    if (show.golgi) {
+      const frag = M.golgiFrag, sc = 1 - frag;
+      if (sc > 0.02) {
+        const copies = M.stage >= 4 ? [1, -1] : [0];
+        for (const k of copies) {
+          for (const g of golgi) {
+            let c = g.c, Bs = g.B;
+            if (k !== 0) {
+              c = mapT([k * Math.abs(c[0]), c[1], c[2]], M);
+              Bs = basisFromY([k * Math.abs(G_AXIS[0]), G_AXIS[1], G_AXIS[2]]);
+            }
+            B.cis.add(c, Bs[0], Bs[1], Bs[2], g.s * sc * f, sc * f, g.s * sc * f, g.col, 3, 0.06, 1, 0);
+          }
+        }
+        if (M.stage < 4 && sc > 0.5) { anchors.golgi = add(G0, [0, 1.3, 0]); picks.push(['golgi', G0, 1.9]); }
+      }
+      if (frag > 0.01) {
+        for (const v of golgiVes) {
+          const side = v.disp[0] >= 0 ? 1 : -1;
+          let base = add(G0, mul(v.off, 0.35));
+          if (M.stage >= 4) base = [side * Math.abs(base[0]), base[1], base[2]];
+          B.lo.sphere(mapT(lerp3(base, v.disp, frag), M), 0.13 * Math.min(1, frag * 3), COL.golgiCis, 3, 0.25);
+        }
+      }
+    }
+    // Mitochondria (also fed to the compute shader as ATP sources)
+    let mc = 0;
+    if (show.mito) {
+      mitos.forEach((m, i) => {
+        const p = mapT(add(m.p, [0.08 * Math.sin(t * 0.3 + m.seed), 0.08 * Math.sin(t * 0.25 + m.seed * 2), 0]), M);
+        B.mid.add(p, m.B[0], m.B[1], m.B[2], m.lx * f, m.r * f, m.r * f, COL.mito, 1, 0.08 + m.act * 1.0, 1, m.seed);
+        picks.push(['mito', p, m.lx * f * 0.85]);
+        if (i === 0) anchors.mito = p;
+        if (mc < 16) { uData.set([p[0], p[1], p[2], 0], 60 + mc * 4); mc++; }
+      });
+    }
+    if (show.lyso) {
+      lysos.forEach((l, i) => {
+        const p = mapT(l.p, M);
+        B.mid.sphere(p, l.r * f, COL.lyso, 4, 0.12 + l.act * 1.5, l.seed);
+        picks.push(['lyso', p, l.r * f + 0.15]);
+        if (i === 0) anchors.lyso = p;
+      });
+    }
+    // Interphase microtubules (depolymerise in prophase)
+    if (show.mt && M.mtLen > 0.01) {
+      const segs = (MT_PTS - 1) * M.mtLen;
+      microtubules.forEach((m, mi) => {
+        for (let j = 0; j < MT_PTS - 1; j++) {
+          if (j >= segs) break;
+          const a = m.pts[j], b = j + 1 > segs ? lerp3(m.pts[j], m.pts[j + 1], segs - j) : m.pts[j + 1];
+          B.cyl.cyl(a, b, 0.035, COL.mt, 7, 0.3 + 0.25 * Math.sin(t * 2 - j * 0.7 + m.seed), m.seed);
+          if (j % 3 === 1) picks.push(['mt', a, 0.25]);
+        }
+        if (mi === 3 && M.mtLen > 0.6) anchors.mt = m.pts[7];
+      });
+    }
+    // Centrosomes (pairs of perpendicular centrioles + pericentriolar glow)
+    const cen = { 1: centroPos(1, M), [-1]: centroPos(-1, M) };
+    if (show.centrosome) {
+      for (const k of [1, -1]) {
+        const c = cen[k];
+        B.cyl.cyl(add(c, [-0.27, 0, 0]), add(c, [0.27, 0, 0]), 0.11, COL.centriole, 8, 0.3);
+        B.cyl.cyl(add(c, [0.15, -0.27, 0.2]), add(c, [0.15, 0.27, 0.2]), 0.11, COL.centriole, 8, 0.3);
+        pushP(c, 0.42, [0.7, 1.0, 0.85], 0.32);
+        picks.push(['centrosome', c, 0.6]);
+      }
+      anchors.centrosome = cen[1];
+    }
+    // Mitotic spindle
+    if (show.spindle && mode === 'mitosis') {
+      for (const k of [1, -1]) {
+        const pole = cen[k], other = cen[-k], s = k === 1 ? 0 : 1;
+        if (M.kfib > 0.01) chroms.forEach((ch) => {
+          const K = beadP[chroms.indexOf(ch)][s][ch.ic];
+          B.cyl.cyl(pole, lerp3(pole, K, M.kfib), 0.028, COL.spindle, 7, 0.9);
+        });
+        if (M.pfib > 0.01) for (let j = 0; j < 8; j++) {
+          const ang = (j / 8) * TAU + k * 0.2, rad = 1.4 * (1 - M.midNarrow * 0.88);
+          const start = lerp3(pole, [k * 2.2, 0, 0], M.midNarrow);
+          const tipP = add(lerp3(pole, other, 0.56), [0, rad * Math.cos(ang), rad * Math.sin(ang)]);
+          const tip2 = M.midNarrow > 0 ? lerp3(tipP, [-k * 0.9, 0.2 * Math.cos(ang), 0.2 * Math.sin(ang)], M.midNarrow) : tipP;
+          B.cyl.cyl(start, lerp3(start, tip2, M.pfib), 0.024, COL.spindle, 7, 0.6);
+        }
+        if (M.astral > 0.01) for (const d of astralDirs[k]) B.cyl.cyl(pole, add(pole, mul(d, 2.6 * M.astral)), 0.022, COL.spindle, 7, 0.55);
+      }
+      if (M.kfib > 0.5) {
+        anchors.spindle = lerp3(cen[1], beadP[2][0][chroms[2].ic], 0.5);
+        chroms.forEach((ch, c) => picks.push(['spindle', lerp3(cen[1], beadP[c][0][ch.ic], 0.5), 0.3]));
+      }
+    }
+    if (M.stage === 2 || (M.stage === 3 && M.p < 0.3)) { anchors.plate = [0, 3.3, 0]; picks.push(['plate', [0, 0, 0], 0.4]); }
+
+    // Agents -> particle buffer
+    if (show.agents) {
+      for (const a of agents) {
+        if (a.kind === 'flash') {
+          const u = 1 - a.life / a.max;
+          pushP(a.pos, mix(0.2, a.size, Math.sqrt(u)), a.col, (1 - u) * 0.9);
+          continue;
+        }
+        pushP(a.pos, a.size, a.col, a.alpha);
+        if (a.kind === 'mRNA') a.trail.forEach((p, i) => pushP(p, a.size * (0.9 - i * 0.1), a.col, 0.75 - i * 0.11));
+      }
+    }
+    return { memOn, nNuc, mc };
+  }
+
+  /* ==========================================================================
+     SIMULATION LOOP
+     rdt = real frame time (clamped); dt = rdt * speed while playing, else 0.
+     The same dt drives agents, the mitosis clock and (via uniforms) the
+     compute shader, so pause and speed affect everything consistently.
+     ========================================================================== */
+  let last = performance.now();
+  function frame(now) {
+    const rdt = Math.min(0.05, Math.max(0, (now - last) / 1000)); last = now;
+    const dt = playing ? rdt * speed : 0;
+    simTime += dt;
+    if (mode === 'mitosis') { mitoT += dt; if (mitoT >= MITO_TOTAL) { mitoT -= MITO_TOTAL; cycles++; } }
+    resize();
+    updateCamera(rdt);
+    updateAgents(dt);
+    const M = params();
+
+    // camera matrices
+    const W = canvas.clientWidth || 1, H = canvas.clientHeight || 1;
+    const view = M4.lookAt(eye, cam.target, EY);
+    viewProj = M4.mul(M4.persp(cam.fov, W / H, 0.1, 200), view);
+    camR = [view[0], view[4], view[8]]; camU = [view[1], view[5], view[9]]; camF = [-view[2], -view[6], -view[10]];
+
+    const S = buildScene(M, simTime);
+    uData.set(viewProj, 0); uData.set(lightVP, 16);
+    uData.set([eye[0], eye[1], eye[2], simTime], 32);
+    uData.set([lightDir[0], lightDir[1], lightDir[2], show.shadows ? 1 : 0], 36);
+    uData.set([M.d, R_CELL, CD, RD], 40);
+    uData.set([camR[0], camR[1], camR[2], 0], 44);
+    uData.set([camU[0], camU[1], camU[2], 0], 48);
+    uData.set([M.nucPresence, dt, S.mc, simTime], 52);
+    uData.set([FOG[0], FOG[1], FOG[2], 1], 56);
+    device.queue.writeBuffer(uBuf, 0, uData);
+    for (const b of opaque) b.upload();
+    trans.upload();
+    if (agN) device.queue.writeBuffer(agBuf, 0, agData, 0, agN * 12);
+
+    const enc = device.createCommandEncoder();
+    // 1) compute: background molecules
+    const cp = enc.beginComputePass();
+    cp.setPipeline(compPipe); cp.setBindGroup(0, bgC);
+    cp.dispatchWorkgroups(Math.ceil(N_PART / 64)); cp.end();
+    // 2) shadow map
+    const sp = enc.beginRenderPass({ colorAttachments: [], depthStencilAttachment: { view: shadowView, depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'store' } });
+    if (show.shadows) { sp.setPipeline(shadowPipe); sp.setBindGroup(0, bgA); for (const b of opaque) b.draw(sp); }
+    sp.end();
+    // 3) main pass
+    const rp = enc.beginRenderPass({
+      colorAttachments: [{ view: msaaView, resolveTarget: ctx.getCurrentTexture().createView(), clearValue: { r: 0, g: 0, b: 0, a: 1 }, loadOp: 'clear', storeOp: 'discard' }],
+      depthStencilAttachment: { view: depthView, depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'discard' },
+    });
+    rp.setPipeline(bgPipe); rp.setBindGroup(0, bgA); rp.draw(3);
+    rp.setPipeline(opaquePipe); rp.setBindGroup(0, bgB);
+    for (const b of opaque) b.draw(rp);
+    const mOff = S.memOn ? 1 : 0;
+    rp.setPipeline(transBack); rp.setBindGroup(0, bgB);
+    if (S.memOn) trans.draw(rp, 1, 0);
+    if (S.nNuc) trans.draw(rp, S.nNuc, mOff);
+    rp.setPipeline(partPipe); rp.setBindGroup(0, bgA);
+    if (show.ambient) { rp.setVertexBuffer(0, partBuf); rp.draw(6, N_PART); }
+    if (agN) { rp.setVertexBuffer(0, agBuf); rp.draw(6, agN); }
+    rp.setPipeline(transFront); rp.setBindGroup(0, bgB);
+    if (S.nNuc) trans.draw(rp, S.nNuc, mOff);
+    if (S.memOn) trans.draw(rp, 1, 0);
+    rp.end();
+    device.queue.submit([enc.finish()]);
+
+    updateUI(M, now);
+    requestAnimationFrame(frame);
+  }
+
+  // HTML overlay updates (timeline glow, counters, stage card, labels).
+  let shown = { prot: -1, sec: -1, endo: -1 };
+  function updateUI(M, now) {
+    if (mode === 'process') {
+      for (const key in stepEls) {
+        const g = pulseAt[key] === undefined ? 0 : Math.exp(-(simTime - pulseAt[key]) * 2.2);
+        stepEls[key].style.setProperty('--g', g.toFixed(3));
+      }
+      for (const k of ['prot', 'sec', 'endo']) if (shown[k] !== stats[k]) { shown[k] = stats[k]; $('c' + k[0].toUpperCase() + k.slice(1)).textContent = stats[k]; }
+      if (pendingEvent && now - lastEventShown > 1400) { $('eventLine').textContent = pendingEvent; pendingEvent = null; lastEventShown = now; }
+      $('fade').style.opacity = '0';
+    } else {
+      playhead.style.left = `calc(${((mitoT / MITO_TOTAL) * 100).toFixed(3)}% - 1px)`;
+      if (M.stage !== lastStage) {
+        lastStage = M.stage;
+        renderStageCard(M.stage);
+        const s = STAGES[M.stage];
+        const bn = $('banner');
+        bn.innerHTML = `${s.name}<small>${s.sub[0].toUpperCase() + s.sub.slice(1)}</small>`;
+        bn.style.opacity = '1'; bannerTimer = now;
+      }
+      const fadeIn = cycles > 0 ? 1 - sm(mitoT / 0.8) : 0, fadeOut = sm((mitoT - (MITO_TOTAL - 0.8)) / 0.8);
+      $('fade').style.opacity = Math.max(fadeIn, fadeOut).toFixed(3);
+    }
+    if (bannerTimer && now - bannerTimer > 2200) { $('banner').style.opacity = '0'; bannerTimer = 0; }
+    updateLabels(M);
+    updateTooltip();
+  }
+
+  showOverview();
+  requestAnimationFrame(frame);
+  window.__cell = { setMode, setMitosisTime: (t) => { mitoT = t; }, setPlaying, show, cam, flyTo, stats };
+}
+
+main().catch((e) => { console.error(e); fail(e && e.message ? e.message : String(e)); });
+})();
+</script>
+</body>
+</html>

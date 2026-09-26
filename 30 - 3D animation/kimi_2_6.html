@@ -1,0 +1,1124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sakura Garden — Cinematic 3D</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body {
+  width: 100%; height: 100%;
+  background: #1a1a1a;
+  overflow: hidden;
+  font-family: Georgia, 'Times New Roman', serif;
+}
+#canvas {
+  display: block;
+  width: 100%; height: 100%;
+}
+.letterbox {
+  position: fixed;
+  left: 0; width: 100%; height: 52px;
+  background: #111;
+  z-index: 10;
+  pointer-events: none;
+}
+.letterbox.top { top: 0; }
+.letterbox.bottom { bottom: 0; }
+#overlay {
+  position: fixed;
+  top: 0; left: 0; width: 100%; height: 100%;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 72px 48px;
+  z-index: 5;
+}
+#title {
+  color: #2a2a2a;
+  font-size: 26px;
+  letter-spacing: 10px;
+  text-transform: uppercase;
+  opacity: 0;
+  animation: fadeIn 3s ease forwards 1.2s;
+  text-shadow: 0 1px 2px rgba(255,255,255,0.3);
+}
+#subtitle {
+  color: #555;
+  font-size: 11px;
+  letter-spacing: 5px;
+  text-transform: uppercase;
+  margin-top: 10px;
+  opacity: 0;
+  animation: fadeIn 3s ease forwards 2.2s;
+}
+#controls {
+  color: #777;
+  font-size: 10px;
+  letter-spacing: 3px;
+  text-align: center;
+  text-transform: uppercase;
+  opacity: 0;
+  animation: fadeIn 3s ease forwards 3.5s;
+}
+@keyframes fadeIn { to { opacity: 1; } }
+#loading {
+  position: fixed;
+  top: 0; left: 0; width: 100%; height: 100%;
+  background: #e8e4dc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  transition: opacity 1.2s ease;
+}
+.loading-text {
+  color: #555;
+  font-size: 12px;
+  letter-spacing: 6px;
+  text-transform: uppercase;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+</style>
+</head>
+<body>
+<div class="letterbox top"></div>
+<div class="letterbox bottom"></div>
+<canvas id="canvas"></canvas>
+<div id="overlay">
+  <div>
+    <div id="title">Sakura Garden</div>
+    <div id="subtitle">A Moment of Tranquility</div>
+  </div>
+  <div id="controls">Drag to orbit &middot; Scroll to zoom</div>
+</div>
+<div id="loading"><div class="loading-text">Building Scene...</div></div>
+
+<script>
+(function() {
+'use strict';
+
+const PI = Math.PI;
+const TAU = PI * 2;
+
+/* ===================== MATH ===================== */
+class Vec3 {
+  constructor(x, y, z) { this.x = x || 0; this.y = y || 0; this.z = z || 0; }
+  add(v) { return new Vec3(this.x + v.x, this.y + v.y, this.z + v.z); }
+  sub(v) { return new Vec3(this.x - v.x, this.y - v.y, this.z - v.z); }
+  scale(s) { return new Vec3(this.x * s, this.y * s, this.z * s); }
+  dot(v) { return this.x * v.x + this.y * v.y + this.z * v.z; }
+  cross(v) {
+    return new Vec3(
+      this.y * v.z - this.z * v.y,
+      this.z * v.x - this.x * v.z,
+      this.x * v.y - this.y * v.x
+    );
+  }
+  length() { return Math.sqrt(this.x * this.x + this.y * this.y + this.z * this.z); }
+  normalize() {
+    const len = this.length();
+    return len > 0 ? new Vec3(this.x / len, this.y / len, this.z / len) : new Vec3(0, 0, 0);
+  }
+}
+
+class Mat4 {
+  constructor() { this.m = new Float64Array(16); this.identity(); }
+  identity() {
+    const m = this.m;
+    m[0] = 1; m[1] = 0; m[2] = 0; m[3] = 0;
+    m[4] = 0; m[5] = 1; m[6] = 0; m[7] = 0;
+    m[8] = 0; m[9] = 0; m[10] = 1; m[11] = 0;
+    m[12] = 0; m[13] = 0; m[14] = 0; m[15] = 1;
+    return this;
+  }
+  multiply(other) {
+    const a = this.m;
+    const b = other instanceof Mat4 ? other.m : other;
+    const c = new Float64Array(16);
+    for (let i = 0; i < 4; i++) {
+      for (let j = 0; j < 4; j++) {
+        c[i * 4 + j] = a[i * 4] * b[j] + a[i * 4 + 1] * b[4 + j] + a[i * 4 + 2] * b[8 + j] + a[i * 4 + 3] * b[12 + j];
+      }
+    }
+    this.m = c;
+    return this;
+  }
+  translate(x, y, z) {
+    const t = new Mat4();
+    t.m[12] = x; t.m[13] = y; t.m[14] = z;
+    return this.multiply(t);
+  }
+  rotateY(angle) {
+    const c = Math.cos(angle), s = Math.sin(angle);
+    const r = new Mat4();
+    r.m[0] = c; r.m[2] = -s; r.m[8] = s; r.m[10] = c;
+    return this.multiply(r);
+  }
+  rotateX(angle) {
+    const c = Math.cos(angle), s = Math.sin(angle);
+    const r = new Mat4();
+    r.m[5] = c; r.m[6] = s; r.m[9] = -s; r.m[10] = c;
+    return this.multiply(r);
+  }
+  rotateZ(angle) {
+    const c = Math.cos(angle), s = Math.sin(angle);
+    const r = new Mat4();
+    r.m[0] = c; r.m[1] = s; r.m[4] = -s; r.m[5] = c;
+    return this.multiply(r);
+  }
+  scale(x, y, z) {
+    const s = new Mat4();
+    s.m[0] = x; s.m[5] = y; s.m[10] = z;
+    return this.multiply(s);
+  }
+  transformPoint(v) {
+    const m = this.m;
+    const x = m[0] * v.x + m[4] * v.y + m[8] * v.z + m[12];
+    const y = m[1] * v.x + m[5] * v.y + m[9] * v.z + m[13];
+    const z = m[2] * v.x + m[6] * v.y + m[10] * v.z + m[14];
+    const w = m[3] * v.x + m[7] * v.y + m[11] * v.z + m[15];
+    return new Vec3(x / w, y / w, z / w);
+  }
+  transformDir(v) {
+    const m = this.m;
+    return new Vec3(
+      m[0] * v.x + m[4] * v.y + m[8] * v.z,
+      m[1] * v.x + m[5] * v.y + m[9] * v.z,
+      m[2] * v.x + m[6] * v.y + m[10] * v.z
+    );
+  }
+}
+
+/* ===================== COLOR ===================== */
+const colorCache = {};
+function hexToRgb(hex) {
+  if (colorCache[hex]) return colorCache[hex];
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  colorCache[hex] = { r, g, b };
+  return colorCache[hex];
+}
+
+/* ===================== MESH ===================== */
+class Face {
+  constructor(indices, color, normal) {
+    this.indices = indices;
+    this.color = color;
+    this.normal = normal ? normal.normalize() : new Vec3(0, 1, 0);
+  }
+}
+
+class Mesh {
+  constructor(vertices, faces, position, rotation, scale) {
+    this.vertices = vertices;
+    this.faces = faces;
+    this.position = position || new Vec3();
+    this.rotation = rotation || new Vec3();
+    this.scale = scale || new Vec3(1, 1, 1);
+    this.worldMatrix = new Mat4();
+    this.swayPhase = undefined;
+    this.updateMatrix();
+  }
+  updateMatrix() {
+    this.worldMatrix = new Mat4()
+      .translate(this.position.x, this.position.y, this.position.z)
+      .rotateY(this.rotation.y)
+      .rotateX(this.rotation.x)
+      .rotateZ(this.rotation.z)
+      .scale(this.scale.x, this.scale.y, this.scale.z);
+  }
+}
+
+/* ===================== SCENE ===================== */
+const scene = { meshes: [], particles: [], koi: [], time: 0 };
+function addMesh(mesh) { scene.meshes.push(mesh); return mesh; }
+
+/* ===================== BUILDERS ===================== */
+function createBox(w, h, d, color, x, y, z, rx, ry, rz) {
+  const hw = w / 2, hh = h / 2, hd = d / 2;
+  const v = [
+    new Vec3(-hw, -hh, -hd), new Vec3(hw, -hh, -hd), new Vec3(hw, hh, -hd), new Vec3(-hw, hh, -hd),
+    new Vec3(-hw, -hh, hd), new Vec3(hw, -hh, hd), new Vec3(hw, hh, hd), new Vec3(-hw, hh, hd)
+  ];
+  const f = [
+    new Face([0, 3, 2, 1], color, new Vec3(0, 0, -1)),
+    new Face([5, 6, 7, 4], color, new Vec3(0, 0, 1)),
+    new Face([0, 4, 7, 3], color, new Vec3(-1, 0, 0)),
+    new Face([5, 1, 2, 6], color, new Vec3(1, 0, 0)),
+    new Face([2, 3, 7, 6], color, new Vec3(0, 1, 0)),
+    new Face([5, 4, 0, 1], color, new Vec3(0, -1, 0))
+  ];
+  return new Mesh(v, f, new Vec3(x, y, z), new Vec3(rx || 0, ry || 0, rz || 0));
+}
+
+function createCylinder(rt, rb, h, color, x, y, z) {
+  const segs = 8;
+  const v = [];
+  const f = [];
+  const hh = h / 2;
+  for (let i = 0; i < segs; i++) {
+    const a = (i / segs) * TAU;
+    const c = Math.cos(a), s = Math.sin(a);
+    v.push(new Vec3(c * rb, -hh, s * rb));
+    v.push(new Vec3(c * rt, hh, s * rt));
+  }
+  for (let i = 0; i < segs; i++) {
+    const next = (i + 1) % segs;
+    const bi = i * 2;
+    const bn = next * 2;
+    const na = ((i + 0.5) / segs) * TAU;
+    const normal = new Vec3(Math.cos(na), 0, Math.sin(na));
+    f.push(new Face([bi, bi + 1, bn + 1, bn], color, normal));
+  }
+  const tc = v.length;
+  v.push(new Vec3(0, hh, 0));
+  for (let i = 0; i < segs; i++) {
+    const next = (i + 1) % segs;
+    f.push(new Face([tc, next * 2 + 1, i * 2 + 1], color, new Vec3(0, 1, 0)));
+  }
+  const bc = v.length;
+  v.push(new Vec3(0, -hh, 0));
+  for (let i = 0; i < segs; i++) {
+    const next = (i + 1) % segs;
+    f.push(new Face([bc, i * 2, next * 2], color, new Vec3(0, -1, 0)));
+  }
+  return new Mesh(v, f, new Vec3(x, y, z));
+}
+
+function createSphere(r, color, x, y, z) {
+  const verts = [
+    new Vec3(-1, -1, -1), new Vec3(1, -1, -1), new Vec3(1, 1, -1), new Vec3(-1, 1, -1),
+    new Vec3(-1, -1, 1), new Vec3(1, -1, 1), new Vec3(1, 1, 1), new Vec3(-1, 1, 1)
+  ].map(v => {
+    const len = Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+    return new Vec3(v.x / len * r, v.y / len * r, v.z / len * r);
+  });
+  const f = [
+    new Face([0, 3, 2, 1], color, new Vec3(0, 0, -1)),
+    new Face([5, 6, 7, 4], color, new Vec3(0, 0, 1)),
+    new Face([0, 4, 7, 3], color, new Vec3(-1, 0, 0)),
+    new Face([5, 1, 2, 6], color, new Vec3(1, 0, 0)),
+    new Face([2, 3, 7, 6], color, new Vec3(0, 1, 0)),
+    new Face([5, 4, 0, 1], color, new Vec3(0, -1, 0))
+  ];
+  return new Mesh(verts, f, new Vec3(x, y, z));
+}
+
+function createPyramidRoof(w, d, h, overhang, color, x, y, z) {
+  const hw = w / 2 + overhang, hd = d / 2 + overhang;
+  const v = [
+    new Vec3(-hw, 0, -hd), new Vec3(hw, 0, -hd),
+    new Vec3(hw, 0, hd), new Vec3(-hw, 0, hd),
+    new Vec3(0, h, 0)
+  ];
+  const f = [
+    new Face([1, 0, 4], color, new Vec3(0, 0.5, -0.7)),
+    new Face([2, 1, 4], color, new Vec3(0.7, 0.5, 0)),
+    new Face([3, 2, 4], color, new Vec3(0, 0.5, 0.7)),
+    new Face([0, 3, 4], color, new Vec3(-0.7, 0.5, 0))
+  ];
+  return new Mesh(v, f, new Vec3(x, y, z));
+}
+
+function createGroundPlatform() {
+  const green = '#6b8e4e';
+  const darkGreen = '#5a7a3e';
+  const v = [];
+  const f = [];
+  const segs = 20;
+  const w = 10, d = 8, h = 0.4;
+  for (let i = 0; i < segs; i++) {
+    const a = (i / segs) * TAU;
+    v.push(new Vec3(Math.cos(a) * w, h, Math.sin(a) * d));
+  }
+  v.push(new Vec3(0, h, 0));
+  const cIdx = segs;
+  for (let i = 0; i < segs; i++) {
+    f.push(new Face([cIdx, (i + 1) % segs, i], green, new Vec3(0, 1, 0)));
+  }
+  const baseY = -0.5;
+  for (let i = 0; i < segs; i++) {
+    const next = (i + 1) % segs;
+    v.push(new Vec3(v[i].x, baseY, v[i].z));
+    v.push(new Vec3(v[next].x, baseY, v[next].z));
+    const bi = segs + 1 + i * 2;
+    const nx = (v[i].x + v[next].x) / 2;
+    const nz = (v[i].z + v[next].z) / 2;
+    const normal = new Vec3(nx / w, 0, nz / d).normalize();
+    f.push(new Face([i, next, bi + 1, bi], darkGreen, normal));
+  }
+  const botCenter = v.length;
+  v.push(new Vec3(0, baseY, 0));
+  for (let i = 0; i < segs; i++) {
+    const next = (i + 1) % segs;
+    const bi = segs + 1 + i * 2;
+    const bnext = segs + 1 + next * 2;
+    f.push(new Face([botCenter, bnext, bi], '#4a6a2e', new Vec3(0, -1, 0)));
+  }
+  return new Mesh(v, f, new Vec3(0, 0, 0));
+}
+
+function createPagoda(x, y, z) {
+  const base = '#8a8884';
+  const wall = '#f0ebe3';
+  const red = '#9a3a3a';
+  const door = '#5a3020';
+  const gold = '#c4a43a';
+  const roof = '#2d2d30';
+
+  addMesh(createBox(4.5, 0.6, 4.5, base, x, y + 0.3, z));
+
+  for (let i = 0; i < 4; i++) {
+    const sy = y + i * 0.12;
+    const sz = z + 2.4 - i * 0.22;
+    addMesh(createBox(1.0, 0.12, 0.25, base, x, sy, sz));
+  }
+
+  const f1y = y + 1.0;
+  addMesh(createBox(3.4, 2.0, 3.4, wall, x, f1y, z));
+  addMesh(createBox(3.6, 0.12, 3.6, red, x, f1y + 1.05, z));
+
+  const offsets = [-1.7, 0, 1.7];
+  for (const ox of offsets) {
+    for (const oz of offsets) {
+      if (Math.abs(ox) > 1.5 || Math.abs(oz) > 1.5) {
+        addMesh(createBox(0.07, 0.35, 0.07, red, x + ox, f1y + 0.85, z + oz));
+      }
+    }
+  }
+
+  addMesh(createBox(0.7, 1.2, 0.08, door, x, f1y, z + 1.72));
+  addMesh(createBox(0.08, 1.2, 0.7, door, x + 1.72, f1y, z));
+  addMesh(createBox(0.08, 1.2, 0.7, door, x - 1.72, f1y, z));
+
+  const corners = [[-1.7, -1.7], [1.7, -1.7], [1.7, 1.7], [-1.7, 1.7]];
+  for (const [cx, cz] of corners) {
+    addMesh(createBox(0.1, 0.1, 0.1, gold, x + cx, f1y + 0.9, z + cz));
+  }
+
+  const r1y = f1y + 1.15;
+  addMesh(createPyramidRoof(3.4, 3.4, 1.3, 0.7, roof, x, r1y, z));
+
+  const r1c = [[-2.4, -2.4], [2.4, -2.4], [2.4, 2.4], [-2.4, 2.4]];
+  for (const [cx, cz] of r1c) {
+    addMesh(createSphere(0.08, gold, x + cx, r1y, z + cz));
+  }
+
+  const f2y = r1y + 1.3;
+  addMesh(createBox(2.2, 1.4, 2.2, wall, x, f2y, z));
+  addMesh(createBox(2.35, 0.1, 2.35, red, x, f2y + 0.75, z));
+  addMesh(createBox(0.6, 0.9, 0.08, door, x, f2y, z + 1.12));
+
+  const r2y = f2y + 0.8;
+  addMesh(createPyramidRoof(2.2, 2.2, 1.0, 0.6, roof, x, r2y, z));
+
+  const r2c = [[-1.7, -1.7], [1.7, -1.7], [1.7, 1.7], [-1.7, 1.7]];
+  for (const [cx, cz] of r2c) {
+    addMesh(createSphere(0.07, gold, x + cx, r2y, z + cz));
+  }
+
+  const f3y = r2y + 1.1;
+  addMesh(createBox(1.3, 1.0, 1.3, wall, x, f3y, z));
+  addMesh(createBox(1.4, 0.08, 1.4, red, x, f3y + 0.55, z));
+
+  const r3y = f3y + 0.6;
+  addMesh(createPyramidRoof(1.3, 1.3, 0.8, 0.5, roof, x, r3y, z));
+
+  const r3c = [[-1.15, -1.15], [1.15, -1.15], [1.15, 1.15], [-1.15, 1.15]];
+  for (const [cx, cz] of r3c) {
+    addMesh(createSphere(0.06, gold, x + cx, r3y, z + cz));
+  }
+
+  addMesh(createCylinder(0.06, 0.1, 1.0, gold, x, r3y + 0.7, z));
+  addMesh(createSphere(0.1, gold, x, r3y + 1.25, z));
+  addMesh(createCylinder(0.02, 0.02, 0.4, gold, x, r3y + 1.5, z));
+}
+
+function createCherryTree(x, y, z) {
+  const trunk = '#5a3a1a';
+  const blossom = '#e8b8c8';
+  const darkBlossom = '#d8a8b8';
+
+  addMesh(createCylinder(0.2, 0.3, 3.0, trunk, x, y + 1.5, z));
+  addMesh(createCylinder(0.08, 0.12, 1.8, trunk, x + 0.7, y + 3.2, z + 0.3));
+  addMesh(createCylinder(0.06, 0.1, 1.5, trunk, x - 0.6, y + 3.5, z - 0.4));
+  addMesh(createCylinder(0.05, 0.08, 1.2, trunk, x + 0.2, y + 3.8, z - 0.7));
+
+  const clusters = [
+    [0, 4.2, 0, 1.6], [1.0, 3.8, 0.4, 1.1], [-0.9, 4.0, -0.3, 1.2],
+    [0.4, 4.6, -0.7, 0.9], [-0.4, 3.6, 0.7, 1.0], [0.7, 3.3, -0.4, 0.8]
+  ];
+  for (const [cx, cy, cz, r] of clusters) {
+    const col = Math.random() > 0.3 ? blossom : darkBlossom;
+    addMesh(createSphere(r, col, x + cx, y + cy, z + cz));
+  }
+}
+
+function createBambooClump(x, y, z) {
+  const green = '#4a7a3a';
+  const dark = '#3a6a2a';
+  const stalks = [
+    [0, 0, 3.5], [0.2, 0.1, 4.0], [-0.15, -0.1, 3.0],
+    [0.1, 0.2, 3.8], [-0.2, 0.15, 2.8], [0.25, -0.05, 4.2], [-0.1, -0.2, 3.2]
+  ];
+  for (const [ox, oz, h] of stalks) {
+    const segs = Math.floor(h / 0.7);
+    for (let i = 0; i < segs; i++) {
+      const sy = y + i * 0.7 + 0.35;
+      addMesh(createCylinder(0.04, 0.05, 0.65, green, x + ox, sy, z + oz));
+      addMesh(createCylinder(0.06, 0.06, 0.04, dark, x + ox, sy + 0.32, z + oz));
+    }
+    const topY = y + h;
+    for (let i = 0; i < 4; i++) {
+      const a = Math.random() * TAU;
+      const lx = x + ox + Math.cos(a) * 0.25;
+      const lz = z + oz + Math.sin(a) * 0.25;
+      const ly = topY + Math.random() * 0.4;
+      addMesh(createBox(0.25, 0.04, 0.06, green, lx, ly, lz, 0, a, 0));
+    }
+  }
+}
+
+function createPond(cx, cy, cz, rx, rz) {
+  const water = '#5a9e9e';
+  const v = [];
+  const f = [];
+  const segs = 16;
+  for (let i = 0; i < segs; i++) {
+    const a = (i / segs) * TAU;
+    v.push(new Vec3(Math.cos(a) * rx, 0, Math.sin(a) * rz));
+  }
+  v.push(new Vec3(0, 0, 0));
+  const cIdx = segs;
+  for (let i = 0; i < segs; i++) {
+    f.push(new Face([cIdx, (i + 1) % segs, i], water, new Vec3(0, 1, 0)));
+  }
+  return new Mesh(v, f, new Vec3(cx, cy, cz));
+}
+
+function createBridge(x, y, z) {
+  const red = '#b84040';
+  const wood = '#a08060';
+  const segs = 6;
+  const len = 3.5;
+  const width = 1.0;
+  const archH = 1.0;
+  for (let i = 0; i < segs; i++) {
+    const t1 = i / segs;
+    const t2 = (i + 1) / segs;
+    const ax1 = (t1 - 0.5) * len;
+    const ax2 = (t2 - 0.5) * len;
+    const ay1 = Math.sin(t1 * PI) * archH;
+    const ay2 = Math.sin(t2 * PI) * archH;
+    const v = [
+      new Vec3(ax1, ay1, -width / 2), new Vec3(ax2, ay2, -width / 2),
+      new Vec3(ax2, ay2, width / 2), new Vec3(ax1, ay1, width / 2)
+    ];
+    const f = [new Face([0, 1, 2, 3], wood, new Vec3(0, 1, 0))];
+    addMesh(new Mesh(v, f, new Vec3(x, y, z)));
+    if (i % 2 === 0) {
+      addMesh(createBox(0.05, 0.4, 0.05, red, x + ax1, y + ay1 + 0.25, z - width / 2));
+      addMesh(createBox(0.05, 0.4, 0.05, red, x + ax1, y + ay1 + 0.25, z + width / 2));
+    }
+  }
+  addMesh(createBox(len, 0.05, 0.05, red, x, y + archH + 0.45, z - width / 2));
+  addMesh(createBox(len, 0.05, 0.05, red, x, y + archH + 0.45, z + width / 2));
+}
+
+function createPath() {
+  const stone = '#b8b4ac';
+  const stones = [
+    [-4.5, 4.5], [-3.8, 4.0], [-3.2, 3.5], [-2.7, 2.9], [-2.2, 2.4],
+    [-1.7, 1.9], [-1.2, 1.4], [-0.7, 0.9], [-0.3, 0.4], [0.1, -0.1],
+    [0.2, -0.6], [0.0, -1.1]
+  ];
+  for (const [px, pz] of stones) {
+    const w = 0.35 + Math.random() * 0.2;
+    const d = 0.35 + Math.random() * 0.2;
+    const rot = (Math.random() - 0.5) * 0.4;
+    addMesh(createBox(w, 0.04, d, stone, px, 0.42, pz, 0, rot, 0));
+  }
+}
+
+function createLantern(x, y, z) {
+  const stone = '#9a9894';
+  const dark = '#7a7874';
+  addMesh(createBox(0.4, 0.12, 0.4, stone, x, y + 0.06, z));
+  addMesh(createBox(0.15, 0.7, 0.15, stone, x, y + 0.45, z));
+  addMesh(createBox(0.3, 0.3, 0.3, dark, x, y + 0.95, z));
+  addMesh(createPyramidRoof(0.25, 0.25, 0.2, 0.1, stone, x, y + 1.15, z));
+}
+
+function createPerson(x, y, z, shirt, pants, hair) {
+  addMesh(createBox(0.12, 0.65, 0.12, pants, x - 0.08, y + 0.33, z));
+  addMesh(createBox(0.12, 0.65, 0.12, pants, x + 0.08, y + 0.33, z));
+  addMesh(createBox(0.4, 0.55, 0.22, shirt, x, y + 0.9, z));
+  addMesh(createSphere(0.16, hair, x, y + 1.35, z));
+  addMesh(createBox(0.1, 0.45, 0.1, shirt, x - 0.28, y + 0.85, z));
+  addMesh(createBox(0.1, 0.45, 0.1, shirt, x + 0.28, y + 0.85, z));
+}
+
+function createBush(x, y, z, size) {
+  const g1 = '#4a7a3a';
+  const g2 = '#5a8a4a';
+  const g3 = '#3a6a2a';
+  addMesh(createSphere(size, g1, x, y + size * 0.6, z));
+  addMesh(createSphere(size * 0.7, g2, x + size * 0.3, y + size * 0.4, z + size * 0.2));
+  addMesh(createSphere(size * 0.55, g3, x - size * 0.2, y + size * 0.35, z - size * 0.15));
+}
+
+function createRock(x, y, z, size) {
+  const gray = '#8a8884';
+  const v = [
+    new Vec3(-1, -0.5, -0.7), new Vec3(0.9, -0.4, -0.8),
+    new Vec3(0.7, 0.5, -0.9), new Vec3(-0.8, 0.4, -0.7),
+    new Vec3(-1.1, -0.6, 0.6), new Vec3(0.8, -0.5, 0.7),
+    new Vec3(0.6, 0.4, 0.8), new Vec3(-0.7, 0.3, 0.6)
+  ].map(v => new Vec3(v.x * size, v.y * size, v.z * size));
+  const f = [
+    new Face([0, 3, 2, 1], gray, new Vec3(0, 0, -1)),
+    new Face([5, 6, 7, 4], gray, new Vec3(0, 0, 1)),
+    new Face([0, 4, 7, 3], gray, new Vec3(-1, 0, 0)),
+    new Face([5, 1, 2, 6], gray, new Vec3(1, 0, 0)),
+    new Face([2, 3, 7, 6], gray, new Vec3(0, 1, 0)),
+    new Face([5, 4, 0, 1], gray, new Vec3(0, -1, 0))
+  ];
+  addMesh(new Mesh(v, f, new Vec3(x, y + size * 0.25, z)));
+}
+
+function createFence(x1, z1, x2, z2) {
+  const wood = '#a08060';
+  const dx = x2 - x1, dz = z2 - z1;
+  const len = Math.sqrt(dx * dx + dz * dz);
+  const segs = Math.max(2, Math.floor(len / 1.0));
+  for (let i = 0; i <= segs; i++) {
+    const t = i / segs;
+    const px = x1 + dx * t;
+    const pz = z1 + dz * t;
+    addMesh(createBox(0.06, 0.5, 0.06, wood, px, 0.25, pz));
+  }
+  const mx = (x1 + x2) / 2, mz = (z1 + z2) / 2;
+  const angle = Math.atan2(dx, dz);
+  addMesh(createBox(len, 0.05, 0.04, wood, mx, 0.45, mz, 0, angle, 0));
+  addMesh(createBox(len, 0.05, 0.04, wood, mx, 0.25, mz, 0, angle, 0));
+}
+
+function createShadowBlob(x, z, rx, rz) {
+  const shadow = '#4a6a3a';
+  const v = [];
+  const f = [];
+  const segs = 8;
+  for (let i = 0; i < segs; i++) {
+    const a = (i / segs) * TAU;
+    v.push(new Vec3(Math.cos(a) * rx, 0.02, Math.sin(a) * rz));
+  }
+  v.push(new Vec3(0, 0.02, 0));
+  const cIdx = segs;
+  for (let i = 0; i < segs; i++) {
+    f.push(new Face([cIdx, (i + 1) % segs, i], shadow, new Vec3(0, 1, 0)));
+  }
+  addMesh(new Mesh(v, f, new Vec3(x, 0, z)));
+}
+
+function createGroundDetails() {
+  const pink = '#f0c4d4';
+  const white = '#f5f5f0';
+  for (let i = 0; i < 30; i++) {
+    const x = (Math.random() - 0.5) * 16;
+    const z = (Math.random() - 0.5) * 12;
+    const s = 0.04 + Math.random() * 0.04;
+    addMesh(createBox(s, 0.01, s, pink, x, 0.41, z, 0, Math.random() * TAU, 0));
+  }
+  for (let i = 0; i < 15; i++) {
+    const x = (Math.random() - 0.5) * 16;
+    const z = (Math.random() - 0.5) * 12;
+    addMesh(createSphere(0.06, white, x, 0.45, z));
+  }
+}
+
+/* ===================== PARTICLES ===================== */
+class Petal {
+  constructor() { this.reset(); }
+  reset() {
+    const trees = [[-5.5, -2], [4.5, -0.5]];
+    const tree = trees[Math.floor(Math.random() * trees.length)];
+    const a = Math.random() * TAU;
+    const r = 1 + Math.random() * 3;
+    this.x = tree[0] + Math.cos(a) * r;
+    this.y = 2 + Math.random() * 4;
+    this.z = tree[1] + Math.sin(a) * r;
+    this.vx = (Math.random() - 0.5) * 0.3;
+    this.vy = -0.2 - Math.random() * 0.3;
+    this.vz = (Math.random() - 0.5) * 0.3;
+    this.rot = Math.random() * TAU;
+    this.rotSpeed = (Math.random() - 0.5) * 3;
+    this.size = 0.06 + Math.random() * 0.06;
+    this.life = 1;
+    this.sway = Math.random() * TAU;
+  }
+  update(dt) {
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+    this.z += this.vz * dt;
+    this.sway += dt * 2;
+    this.vx += Math.sin(this.sway) * 0.15 * dt;
+    this.vz += Math.cos(this.sway * 0.7) * 0.1 * dt;
+    this.rot += this.rotSpeed * dt;
+    if (this.y < 0.45) {
+      this.y = 0.45;
+      this.vy *= -0.3;
+      this.vx *= 0.7;
+      this.vz *= 0.7;
+      this.life -= dt * 0.4;
+    }
+    if (this.life <= 0) this.reset();
+  }
+}
+
+class Koi {
+  constructor() { this.reset(); }
+  reset() {
+    this.angle = Math.random() * TAU;
+    this.radius = 1.5 + Math.random() * 2;
+    this.speed = 0.2 + Math.random() * 0.3;
+    this.yOffset = 0.08 + Math.random() * 0.06;
+    this.colors = [
+      { body: '#ff8844', spot: '#ffffff' },
+      { body: '#ffffff', spot: '#ff6644' },
+      { body: '#222222', spot: '#ff8844' },
+      { body: '#ff6644', spot: '#ffffff' },
+      { body: '#ffaa44', spot: '#222222' },
+      { body: '#ffffff', spot: '#222222' }
+    ];
+    this.color = this.colors[Math.floor(Math.random() * this.colors.length)];
+    this.size = 0.12 + Math.random() * 0.08;
+    this.wigglePhase = Math.random() * TAU;
+  }
+  update(dt) {
+    this.angle += this.speed * dt / this.radius;
+    const wiggle = Math.sin(scene.time * 4 + this.wigglePhase) * 0.15;
+    this.x = Math.cos(this.angle) * this.radius + wiggle;
+    this.z = Math.sin(this.angle) * this.radius * 0.65 + 3 + wiggle * 0.5;
+  }
+}
+
+/* ===================== CAMERA & INPUT ===================== */
+const camera = {
+  radius: 28,
+  theta: PI / 4,
+  phi: PI / 5,
+  target: new Vec3(0, 2, 0),
+  fov: 1200
+};
+
+let isDragging = false;
+let lastMX = 0, lastMY = 0;
+let autoOrbit = true;
+let orbitTimer = null;
+
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+function getViewMatrix() {
+  const st = Math.sin(camera.theta);
+  const ct = Math.cos(camera.theta);
+  const sp = Math.sin(camera.phi);
+  const cp = Math.cos(camera.phi);
+
+  const eye = new Vec3(
+    camera.target.x + camera.radius * st * cp,
+    camera.target.y + camera.radius * sp,
+    camera.target.z + camera.radius * ct * cp
+  );
+
+  const forward = camera.target.sub(eye).normalize();
+  const worldUp = new Vec3(0, 1, 0);
+  const right = forward.cross(worldUp).normalize();
+  const up = right.cross(forward);
+
+  const m = new Mat4();
+  m.m[0] = right.x;  m.m[1] = up.x;  m.m[2] = -forward.x;  m.m[3] = 0;
+  m.m[4] = right.y;  m.m[5] = up.y;  m.m[6] = -forward.y;  m.m[7] = 0;
+  m.m[8] = right.z;  m.m[9] = up.z;  m.m[10] = -forward.z; m.m[11] = 0;
+  m.m[12] = -right.dot(eye);
+  m.m[13] = -up.dot(eye);
+  m.m[14] = forward.dot(eye);
+  m.m[15] = 1;
+  return m;
+}
+
+function project(v) {
+  const z = -v.z;
+  if (z <= 0.1) return null;
+  const scale = camera.fov / z;
+  return { x: CX + v.x * scale, y: CY - v.y * scale, z: z };
+}
+
+/* ===================== RENDERER ===================== */
+let W, H, CX, CY;
+const lightDir = new Vec3(0.5, 0.8, 0.3).normalize();
+
+const grainCanvas = document.createElement('canvas');
+grainCanvas.width = 256;
+grainCanvas.height = 256;
+const gctx = grainCanvas.getContext('2d');
+for (let i = 0; i < 6000; i++) {
+  gctx.fillStyle = 'rgba(0,0,0,' + (Math.random() * 0.12) + ')';
+  gctx.fillRect(Math.random() * 256, Math.random() * 256, 1, 1);
+}
+const grainPattern = ctx.createPattern(grainCanvas, 'repeat');
+
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  CX = W / 2;
+  CY = H / 2;
+}
+
+function render() {
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#f0ece4');
+  bg.addColorStop(1, '#e0dcd4');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  const viewMatrix = getViewMatrix();
+  const renderList = [];
+
+  for (const mesh of scene.meshes) {
+    mesh.updateMatrix();
+    const world = mesh.worldMatrix;
+
+    for (const face of mesh.faces) {
+      const worldVerts = face.indices.map(i => world.transformPoint(mesh.vertices[i]));
+      const camVerts = worldVerts.map(v => viewMatrix.transformPoint(v));
+
+      if (camVerts.length >= 3) {
+        const v0 = camVerts[0], v1 = camVerts[1], v2 = camVerts[2];
+        const e1x = v1.x - v0.x, e1y = v1.y - v0.y, e1z = v1.z - v0.z;
+        const e2x = v2.x - v0.x, e2y = v2.y - v0.y, e2z = v2.z - v0.z;
+        const nx = e1y * e2z - e1z * e2y;
+        const ny = e1z * e2x - e1x * e2z;
+        const nz = e1x * e2y - e1y * e2x;
+        if (nz > 0) continue;
+      }
+
+      const projVerts = camVerts.map(project);
+      if (projVerts.some(v => v === null)) continue;
+
+      let avgZ = 0;
+      for (const v of camVerts) avgZ += v.z;
+      avgZ /= camVerts.length;
+
+      const worldNormal = world.transformDir(face.normal).normalize();
+      const light = Math.max(0.25, worldNormal.dot(lightDir) * 0.45 + 0.55);
+
+      renderList.push({
+        verts: projVerts,
+        color: face.color,
+        light: light,
+        z: avgZ,
+        isWater: face.color === '#5a9e9e'
+      });
+    }
+  }
+
+  renderList.sort((a, b) => b.z - a.z);
+
+  for (const item of renderList) {
+    if (item.isWater) continue;
+    const c = hexToRgb(item.color);
+    let lr = c.r * item.light;
+    let lg = c.g * item.light;
+    let lb = c.b * item.light;
+
+    const fogStart = 18, fogEnd = 34;
+    const fog = Math.max(0, Math.min(1, (item.z - fogStart) / (fogEnd - fogStart)));
+    const fr = 208, fg = 220, fb = 212;
+    lr = lr + (fr - lr) * fog;
+    lg = lg + (fg - lg) * fog;
+    lb = lb + (fb - lb) * fog;
+
+    ctx.beginPath();
+    ctx.moveTo(item.verts[0].x, item.verts[0].y);
+    for (let i = 1; i < item.verts.length; i++) {
+      ctx.lineTo(item.verts[i].x, item.verts[i].y);
+    }
+    ctx.closePath();
+    ctx.fillStyle = 'rgb(' + Math.round(lr) + ',' + Math.round(lg) + ',' + Math.round(lb) + ')';
+    ctx.fill();
+  }
+
+  for (const item of renderList) {
+    if (!item.isWater) continue;
+    const c = hexToRgb(item.color);
+    const shimmer = Math.sin(scene.time * 2 + item.verts[0].x * 0.01) * 0.1 + 0.9;
+    const lr = c.r * item.light * shimmer;
+    const lg = c.g * item.light * shimmer;
+    const lb = c.b * item.light * shimmer;
+
+    ctx.beginPath();
+    ctx.moveTo(item.verts[0].x, item.verts[0].y);
+    for (let i = 1; i < item.verts.length; i++) {
+      ctx.lineTo(item.verts[i].x, item.verts[i].y);
+    }
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(' + Math.round(lr) + ',' + Math.round(lg) + ',' + Math.round(lb) + ',0.85)';
+    ctx.fill();
+  }
+
+  for (const koi of scene.koi) {
+    const pos = new Vec3(koi.x, koi.yOffset, koi.z);
+    const camPos = viewMatrix.transformPoint(pos);
+    const proj = project(camPos);
+    if (!proj) continue;
+    const scale = camera.fov / camPos.z;
+    const sz = koi.size * scale;
+
+    ctx.save();
+    ctx.translate(proj.x, proj.y);
+    ctx.rotate(koi.angle + PI / 2);
+    const wiggle = Math.sin(scene.time * 6 + koi.wigglePhase) * 0.3;
+
+    ctx.fillStyle = koi.color.body;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, sz, sz * 0.35, wiggle, 0, TAU);
+    ctx.fill();
+
+    ctx.fillStyle = koi.color.spot;
+    ctx.beginPath();
+    ctx.ellipse(sz * 0.2, 0, sz * 0.25, sz * 0.15, wiggle, 0, TAU);
+    ctx.fill();
+
+    ctx.fillStyle = koi.color.body;
+    ctx.beginPath();
+    ctx.moveTo(-sz * 0.7, 0);
+    ctx.lineTo(-sz * 1.2, -sz * 0.3 + wiggle * sz);
+    ctx.lineTo(-sz * 1.2, sz * 0.3 + wiggle * sz);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  for (let i = 0; i < 4; i++) {
+    const rx = 2 + Math.cos(scene.time * 0.5 + i * 1.5) * 2;
+    const rz = 3 + Math.sin(scene.time * 0.7 + i * 2) * 1.5;
+    const age = (scene.time + i * 1.3) % 3;
+    const r = age * 0.4;
+    const alpha = 1 - age / 3;
+    const pos = new Vec3(rx, 0.15, rz);
+    const camPos = viewMatrix.transformPoint(pos);
+    const proj = project(camPos);
+    if (!proj) continue;
+    const scale = camera.fov / camPos.z;
+    ctx.beginPath();
+    ctx.ellipse(proj.x, proj.y, r * scale, r * scale * 0.6, 0, 0, TAU);
+    ctx.strokeStyle = 'rgba(255,255,255,' + (alpha * 0.25) + ')';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+
+  for (const petal of scene.particles) {
+    const pos = new Vec3(petal.x, petal.y, petal.z);
+    const camPos = viewMatrix.transformPoint(pos);
+    const proj = project(camPos);
+    if (!proj) continue;
+    const scale = camera.fov / camPos.z;
+    const sz = petal.size * scale;
+    ctx.save();
+    ctx.translate(proj.x, proj.y);
+    ctx.rotate(petal.rot);
+    ctx.fillStyle = 'rgba(240,180,200,' + petal.life + ')';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, sz, sz * 0.6, 0, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  const vig = ctx.createRadialGradient(CX, CY, H * 0.25, CX, CY, H * 0.75);
+  vig.addColorStop(0, 'rgba(0,0,0,0)');
+  vig.addColorStop(1, 'rgba(30,25,20,0.18)');
+  ctx.fillStyle = vig;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.fillStyle = 'rgba(255,220,180,0.025)';
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.fillStyle = grainPattern;
+  ctx.fillRect(0, 0, W, H);
+}
+
+/* ===================== INPUT ===================== */
+canvas.addEventListener('mousedown', e => {
+  isDragging = true;
+  lastMX = e.clientX;
+  lastMY = e.clientY;
+  autoOrbit = false;
+  clearTimeout(orbitTimer);
+});
+
+canvas.addEventListener('mousemove', e => {
+  if (!isDragging) return;
+  const dx = e.clientX - lastMX;
+  const dy = e.clientY - lastMY;
+  camera.theta -= dx * 0.008;
+  camera.phi += dy * 0.008;
+  camera.phi = Math.max(0.1, Math.min(PI / 2 - 0.1, camera.phi));
+  lastMX = e.clientX;
+  lastMY = e.clientY;
+});
+
+canvas.addEventListener('mouseup', () => {
+  isDragging = false;
+  orbitTimer = setTimeout(() => { autoOrbit = true; }, 4000);
+});
+
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  camera.radius += e.deltaY * 0.02;
+  camera.radius = Math.max(15, Math.min(45, camera.radius));
+}, { passive: false });
+
+canvas.addEventListener('touchstart', e => {
+  if (e.touches.length === 1) {
+    isDragging = true;
+    lastMX = e.touches[0].clientX;
+    lastMY = e.touches[0].clientY;
+    autoOrbit = false;
+    clearTimeout(orbitTimer);
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchmove', e => {
+  if (!isDragging || e.touches.length !== 1) return;
+  const dx = e.touches[0].clientX - lastMX;
+  const dy = e.touches[0].clientY - lastMY;
+  camera.theta -= dx * 0.008;
+  camera.phi += dy * 0.008;
+  camera.phi = Math.max(0.1, Math.min(PI / 2 - 0.1, camera.phi));
+  lastMX = e.touches[0].clientX;
+  lastMY = e.touches[0].clientY;
+  e.preventDefault();
+}, { passive: false });
+
+canvas.addEventListener('touchend', () => {
+  isDragging = false;
+  orbitTimer = setTimeout(() => { autoOrbit = true; }, 4000);
+});
+
+window.addEventListener('resize', resize);
+
+/* ===================== ANIMATION ===================== */
+let lastTime = 0;
+
+function loop(timestamp) {
+  const dt = Math.min((timestamp - lastTime) / 1000, 0.05);
+  lastTime = timestamp;
+  scene.time += dt;
+
+  if (autoOrbit) {
+    camera.theta += dt * 0.055;
+    camera.phi = PI / 5 + Math.sin(scene.time * 0.22) * 0.035;
+  }
+
+  for (const p of scene.particles) p.update(dt);
+  for (const k of scene.koi) k.update(dt);
+
+  for (const mesh of scene.meshes) {
+    if (mesh.swayPhase !== undefined) {
+      mesh.rotation.z = Math.sin(scene.time * 0.5 + mesh.swayPhase) * 0.012;
+      mesh.updateMatrix();
+    }
+  }
+
+  render();
+  requestAnimationFrame(loop);
+}
+
+/* ===================== SCENE BUILD ===================== */
+function buildScene() {
+  addMesh(createGroundPlatform());
+  createPagoda(0, 0.4, -1.5);
+  createCherryTree(-5.5, 0.4, -2);
+  createCherryTree(4.5, 0.4, -0.5);
+  createBambooClump(-8, 0.4, 1);
+  createBambooClump(7, 0.4, 2.5);
+  addMesh(createPond(3, 0.42, 3, 3.5, 2.2));
+  createBridge(2.5, 0.4, 3);
+  createPath();
+  createLantern(-3.5, 0.4, 1.5);
+  createLantern(-1.5, 0.4, 3.5);
+  createLantern(0.5, 0.4, -0.5);
+  createPerson(-3, 0.4, 3.5, '#f0f0f0', '#2a3050', '#2a2010');
+  createPerson(-1.5, 0.4, 2.8, '#4a8a4a', '#2a2a2a', '#2a2010');
+  createPerson(3.5, 1.3, 3.5, '#2a3a5a', '#c0b8a8', '#2a2010');
+  createBush(-2, 0.4, -3.5, 0.6);
+  createBush(2, 0.4, -3.5, 0.5);
+  createBush(5.5, 0.4, -2.5, 0.55);
+  createBush(-6, 0.4, 3, 0.5);
+  createBush(6, 0.4, -1, 0.45);
+  createBush(-1, 0.4, 4.5, 0.4);
+  createBush(1, 0.4, 5, 0.35);
+  createBush(5, 0.4, 4, 0.4);
+  createRock(1.5, 0.4, 1.5, 0.4);
+  createRock(5, 0.4, 1.8, 0.35);
+  createRock(-1, 0.4, 4.8, 0.3);
+  createRock(6.5, 0.4, 0.5, 0.45);
+  createRock(-5, 0.4, -4, 0.5);
+  createRock(0.5, 0.4, -4.5, 0.4);
+  createFence(-8, 4, -8, -2);
+  createShadowBlob(0, -1.5, 2.5, 2.5);
+  createShadowBlob(-5.5, -2, 1.5, 1.5);
+  createShadowBlob(4.5, -0.5, 1.5, 1.5);
+  createShadowBlob(-8, 1, 1.2, 1.2);
+  createShadowBlob(7, 2.5, 1.2, 1.2);
+  createShadowBlob(2.5, 3, 2.0, 1.5);
+  createGroundDetails();
+}
+
+function initParticles() {
+  for (let i = 0; i < 200; i++) {
+    const p = new Petal();
+    p.y = Math.random() * 6;
+    scene.particles.push(p);
+  }
+}
+
+function initKoi() {
+  for (let i = 0; i < 10; i++) {
+    scene.koi.push(new Koi());
+  }
+}
+
+/* ===================== INIT ===================== */
+buildScene();
+initParticles();
+initKoi();
+resize();
+requestAnimationFrame(loop);
+
+setTimeout(() => {
+  const loading = document.getElementById('loading');
+  if (loading) {
+    loading.style.opacity = '0';
+    setTimeout(() => loading.remove(), 1200);
+  }
+}, 600);
+
+})();
+</script>
+</body>
+</html>

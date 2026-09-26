@@ -1,0 +1,768 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"/>
+<title>Cinematic 3D — Pagoda Garden (Offline)</title>
+<style>
+  html,body{margin:0;height:100%;background:#ffffff;overflow:hidden;font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  #c{width:100%;height:100%;display:block;background:#ffffff}
+  #ui{
+    position:fixed;left:12px;bottom:12px;right:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+    color:#222;background:rgba(255,255,255,.85);backdrop-filter:blur(6px);border:1px solid #ddd;border-radius:10px;padding:10px 12px;
+    box-shadow:0 6px 22px rgba(0,0,0,.12);
+    user-select:none
+  }
+  #ui .label{font-weight:600;margin-right:4px}
+  #ui .sep{opacity:.35}
+  #ui .hint{opacity:.7}
+  #ui input[type=range]{width:150px}
+  #brand{position:fixed;left:12px;top:12px;color:#333;background:rgba(255,255,255,.9);border:1px solid #e6e6e6;border-radius:10px;
+    padding:8px 10px;box-shadow:0 6px 22px rgba(0,0,0,.08);font-weight:600}
+  .pill{padding:.25rem .55rem;border:1px solid #ddd;border-radius:999px;background:#fff}
+  a{color:#0a6}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="brand">Zen Garden — Offline 3D</div>
+<div id="ui">
+  <span class="label">Controls:</span>
+  <span class="pill">Drag = orbit</span>
+  <span class="pill">Scroll = zoom</span>
+  <span class="pill">Space = auto‑cam</span>
+  <span class="sep">|</span>
+  <label class="hint">DOF
+    <input id="aperture" type="range" min="0" max="1" step="0.005" value="0.33"/>
+  </label>
+  <label class="hint">Quality
+    <input id="scale" type="range" min="0.5" max="1" step="0.05" value="1"/>
+  </label>
+  <span class="hint">Made to echo your illustration: pagoda, bridge, koi pond, cherry blossoms, lanterns, bamboo, stone path.</span>
+</div>
+
+<script>
+(() => {
+'use strict';
+
+// --------- Utilities ----------
+const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
+const lerp=(a,b,t)=>a+(b-a)*t;
+function hsl(h,s,l){ // h:0..360
+  h/=360; const a=s*Math.min(l,1-l);
+  const f=n=>{const k=(n+h)%1; return l - a*Math.max(-1,Math.min(k*6,4-k*6,1));};
+  return [f(0),f(1/3),f(2/3)];
+}
+function rand(seed){ // deterministic pseudo RNG
+  const x = Math.sin(seed*127.1+23.17)*43758.5453; return x - Math.floor(x);
+}
+
+// --------- Minimal mat4 ----------
+function m4(){return new Float32Array(16)}
+function m4Identity(o){o[0]=1;o[1]=0;o[2]=0;o[3]=0;o[4]=0;o[5]=1;o[6]=0;o[7]=0;o[8]=0;o[9]=0;o[10]=1;o[11]=0;o[12]=0;o[13]=0;o[14]=0;o[15]=1;return o}
+function m4Multiply(out,a,b){
+  const a00=a[0],a01=a[1],a02=a[2],a03=a[3],
+        a10=a[4],a11=a[5],a12=a[6],a13=a[7],
+        a20=a[8],a21=a[9],a22=a[10],a23=a[11],
+        a30=a[12],a31=a[13],a32=a[14],a33=a[15];
+  const b00=b[0],b01=b[1],b02=b[2],b03=b[3],
+        b10=b[4],b11=b[5],b12=b[6],b13=b[7],
+        b20=b[8],b21=b[9],b22=b[10],b23=b[11],
+        b30=b[12],b31=b[13],b32=b[14],b33=b[15];
+  out[0]=a00*b00+a01*b10+a02*b20+a03*b30;
+  out[1]=a00*b01+a01*b11+a02*b21+a03*b31;
+  out[2]=a00*b02+a01*b12+a02*b22+a03*b32;
+  out[3]=a00*b03+a01*b13+a02*b23+a03*b33;
+  out[4]=a10*b00+a11*b10+a12*b20+a13*b30;
+  out[5]=a10*b01+a11*b11+a12*b21+a13*b31;
+  out[6]=a10*b02+a11*b12+a12*b22+a13*b32;
+  out[7]=a10*b03+a11*b13+a12*b23+a13*b33;
+  out[8]=a20*b00+a21*b10+a22*b20+a23*b30;
+  out[9]=a20*b01+a21*b11+a22*b21+a23*b31;
+  out[10]=a20*b02+a21*b12+a22*b22+a23*b32;
+  out[11]=a20*b03+a21*b13+a22*b23+a23*b33;
+  out[12]=a30*b00+a31*b10+a32*b20+a33*b30;
+  out[13]=a30*b01+a31*b11+a32*b21+a33*b31;
+  out[14]=a30*b02+a31*b12+a32*b22+a33*b32;
+  out[15]=a30*b03+a31*b13+a32*b23+a33*b33;
+  return out;
+}
+function m4Perspective(out,fovy,aspect,near,far){
+  const f=1/Math.tan(fovy/2), nf=1/(near-far);
+  out[0]=f/aspect; out[1]=0; out[2]=0; out[3]=0;
+  out[4]=0; out[5]=f; out[6]=0; out[7]=0;
+  out[8]=0; out[9]=0; out[10]=(far+near)*nf; out[11]=-1;
+  out[12]=0; out[13]=0; out[14]=2*far*near*nf; out[15]=0;
+  return out;
+}
+function m4LookAt(out,eye,target,up){
+  const ex=eye[0],ey=eye[1],ez=eye[2],
+        tx=target[0],ty=target[1],tz=target[2],
+        ux=up[0],uy=up[1],uz=up[2];
+  let zx=ex-tx, zy=ey-ty, zz=ez-tz;
+  let rl=1/Math.hypot(zx,zy,zz); zx*=rl; zy*=rl; zz*=rl;
+  let xx=uy*zz-uz*zy, xy=uz*zx-ux*zz, xz=ux*zy-uy*zx;
+  rl=1/Math.hypot(xx,xy,xz); xx*=rl; xy*=rl; xz*=rl;
+  const yx=zy*xz-zz*xy, yy=zz*xx-zx*xz, yz=zx*xy-zy*xx;
+  out[0]=xx; out[1]=yx; out[2]=zx; out[3]=0;
+  out[4]=xy; out[5]=yy; out[6]=zy; out[7]=0;
+  out[8]=xz; out[9]=yz; out[10]=zz; out[11]=0;
+  out[12]=-(xx*ex+xy*ey+xz*ez);
+  out[13]=-(yx*ex+yy*ey+yz*ez);
+  out[14]=-(zx*ex+zy*ey+zz*ez);
+  out[15]=1;
+  return out;
+}
+function m4Compose(out, t, r, s){
+  const sx=s[0], sy=s[1], sz=s[2];
+  const cx=Math.cos(r[0]), sxr=Math.sin(r[0]);
+  const cy=Math.cos(r[1]), syr=Math.sin(r[1]);
+  const cz=Math.cos(r[2]), szr=Math.sin(r[2]);
+  const m00=cy*cz, m01=-cy*szr, m02=syr;
+  const m10=sxr*syr*cz+cx*szr, m11=cx*cz - sxr*syr*szr, m12=-sxr*cy;
+  const m20=sxr*szr - cx*syr*cz, m21=cx*syr*szr+sxr*cz, m22=cx*cy;
+  out[0]=m00*sx; out[1]=m10*sy; out[2]=m20*sz; out[3]=0;
+  out[4]=m01*sx; out[5]=m11*sy; out[6]=m21*sz; out[7]=0;
+  out[8]=m02*sx; out[9]=m12*sy; out[10]=m22*sz; out[11]=0;
+  out[12]=t[0]; out[13]=t[1]; out[14]=t[2]; out[15]=1;
+  return out;
+}
+
+// --------- GL setup ----------
+const canvas = document.getElementById('c');
+const gl = canvas.getContext('webgl2', {antialias:true, alpha:false, depth:true, stencil:false, desynchronized:false, powerPreference:'high-performance'});
+if(!gl){ alert('WebGL2 not available'); return; }
+
+let DPR = Math.min(2, window.devicePixelRatio||1);
+let RENDER_SCALE = 1.0;
+const state = {
+  near: 0.05,
+  far: 120.0,
+  fov: 50 * Math.PI/180,
+  time: 0,
+  autoCam: true,
+  aperture: 0.33, // UI mapped
+  camera:{yaw:-0.9, pitch:0.35, radius:11.5, target:[0,1.2,0]},
+  drag:false, lastX:0,lastY:0
+};
+
+// Resize
+function resize(){
+  const w = Math.floor(innerWidth*DPR*RENDER_SCALE);
+  const h = Math.floor(innerHeight*DPR*RENDER_SCALE);
+  canvas.width=w; canvas.height=h;
+  canvas.style.width=innerWidth+'px';
+  canvas.style.height=innerHeight+'px';
+  gl.viewport(0,0,w,h);
+  // rebuild FBO
+  createFBO(w, h);
+}
+addEventListener('resize', resize);
+
+// --------- Shaders ----------
+const meshVS = `#version 300 es
+precision highp float;
+layout(location=0) in vec3 position;
+layout(location=1) in vec3 normal;
+uniform mat4 uModel, uView, uProj;
+uniform vec3 uColor, uSunDir, uCameraPos, uSky, uGround;
+uniform float uTime, uNear, uFar;
+uniform int uMaterial; // 0=default,1=water
+out vec3 vColor;
+out float vDepth;
+void main(){
+  vec4 world = uModel * vec4(position,1.0);
+  mat3 nMat = transpose(inverse(mat3(uModel)));
+  vec3 N = normalize(nMat * normal);
+
+  if(uMaterial==1){
+    float w = sin(world.x*0.9 + uTime*0.9)*0.02 +
+              cos(world.z*0.7 + uTime*0.7)*0.015;
+    world.y += w;
+    gl_Position = uProj * uView * world;
+    // approximate wave-normal
+    N = normalize(vec3(
+      -cos(world.x*0.9 + uTime*0.9)*0.018,
+       1.0,
+      -sin(world.z*0.7 + uTime*0.7)*0.010));
+  } else {
+    gl_Position = uProj * uView * world;
+  }
+
+  vec3 L = normalize(-uSunDir);
+  vec3 V = normalize(uCameraPos - world.xyz);
+  float diff = max(dot(N,L), 0.0);
+  float toon = floor(diff*4.0)/4.0;
+  vec3 hemi = mix(uGround, uSky, 0.5 + 0.5*N.y);
+  float rim = pow(max(1.0-dot(N,V),0.0), 2.0)*0.35;
+  float spec = pow(max(dot(normalize(L+V),N),0.0), 32.0)*0.2;
+  vColor = uColor*(0.38 + 0.62*toon) + hemi*0.18 + vec3(spec+rim*0.7);
+
+  float viewZ = -(uView * world).z;
+  vDepth = clamp((viewZ - uNear)/(uFar - uNear),0.0,1.0);
+}
+`;
+
+const meshFS = `#version 300 es
+precision highp float;
+in vec3 vColor;
+in float vDepth;
+layout(location=0) out vec4 outColor;
+void main(){
+  outColor = vec4(vColor, vDepth);
+}
+`;
+
+const postVS = `#version 300 es
+precision highp float;
+out vec2 vUv;
+void main(){
+  vec2 p = vec2((gl_VertexID<<1)&2, gl_VertexID&2);
+  vUv = p;
+  gl_Position = vec4(p*2.0-1.0, 0.0, 1.0);
+}
+`;
+
+const postFS = `#version 300 es
+precision highp float;
+in vec2 vUv;
+uniform sampler2D uColorDepth;
+uniform vec2 uResolution;
+uniform float uFocus; // normalized 0..1
+uniform float uAperture; // 0..1
+out vec4 outColor;
+
+vec3 aces(vec3 x){ // filmic tonemap
+  const float a=2.51, b=0.03, c=2.43, d=0.59, e=0.14;
+  return clamp((x*(a*x+b))/(x*(c*x+d)+e), 0.0, 1.0);
+}
+
+void main(){
+  vec2 uv = vUv;
+  vec4 src = texture(uColorDepth, uv);
+  float depth = src.a;
+  float coc = clamp(abs(depth - uFocus)*(3.0 + 12.0*uAperture), 0.0, 1.0); // 0..1
+  float pxr = mix(0.0, 10.0, pow(coc, 1.4)); // sample radius in px
+  vec2 px = 1.0/uResolution;
+
+  // 12-tap Poisson blur weighted by CoC
+  vec2 o[12];
+  o[0]=vec2(0.0, -0.5); o[1]=vec2(0.5, 0.0); o[2]=vec2(0.0, 0.5); o[3]=vec2(-0.5,0.0);
+  o[4]=vec2(0.35,0.35); o[5]=vec2(-0.35,0.35); o[6]=vec2(0.35,-0.35); o[7]=vec2(-0.35,-0.35);
+  o[8]=vec2(0.9,0.0);   o[9]=vec2(-0.9,0.0);  o[10]=vec2(0.0,0.9);  o[11]=vec2(0.0,-0.9);
+
+  vec3 col = src.rgb; float wsum = 1.0;
+  for(int i=0;i<12;i++){
+    float w = 1.0/12.0;
+    vec3 s = texture(uColorDepth, uv + o[i]*px*pxr).rgb;
+    col += s*w; wsum += w;
+  }
+  col /= wsum;
+
+  // slight vignette + gentle warm grade
+  float d2 = distance(uv, vec2(0.5));
+  float vig = smoothstep(0.92, 0.3, d2);
+  col *= mix(0.9, 1.0, vig);
+  col *= vec3(1.02, 1.0, 0.985);
+
+  col = aces(col);
+  outColor = vec4(col, 1.0);
+}
+`;
+
+// Build programs
+function compile(type,src){ const s=gl.createShader(type); gl.shaderSource(s,src); gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){ console.error(gl.getShaderInfoLog(s)); throw new Error('shader'); } return s; }
+function link(vs,fs){ const p=gl.createProgram(); gl.attachShader(p,vs); gl.attachShader(p,fs); gl.linkProgram(p);
+  if(!gl.getProgramParameter(p,gl.LINK_STATUS)){ console.error(gl.getProgramInfoLog(p)); throw new Error('program'); } return p;}
+const progMesh = link(compile(gl.VERTEX_SHADER,meshVS), compile(gl.FRAGMENT_SHADER,meshFS));
+const progPost = link(compile(gl.VERTEX_SHADER,postVS), compile(gl.FRAGMENT_SHADER,postFS));
+gl.useProgram(null);
+
+// Uniform locations
+const U = {
+  mesh: {
+    uModel: gl.getUniformLocation(progMesh,'uModel'),
+    uView: gl.getUniformLocation(progMesh,'uView'),
+    uProj: gl.getUniformLocation(progMesh,'uProj'),
+    uColor: gl.getUniformLocation(progMesh,'uColor'),
+    uSunDir: gl.getUniformLocation(progMesh,'uSunDir'),
+    uCameraPos: gl.getUniformLocation(progMesh,'uCameraPos'),
+    uSky: gl.getUniformLocation(progMesh,'uSky'),
+    uGround: gl.getUniformLocation(progMesh,'uGround'),
+    uTime: gl.getUniformLocation(progMesh,'uTime'),
+    uNear: gl.getUniformLocation(progMesh,'uNear'),
+    uFar: gl.getUniformLocation(progMesh,'uFar'),
+    uMaterial: gl.getUniformLocation(progMesh,'uMaterial'),
+  },
+  post: {
+    uColorDepth: gl.getUniformLocation(progPost,'uColorDepth'),
+    uResolution: gl.getUniformLocation(progPost,'uResolution'),
+    uFocus: gl.getUniformLocation(progPost,'uFocus'),
+    uAperture: gl.getUniformLocation(progPost,'uAperture'),
+  }
+};
+
+// --------- Geometry helpers ----------
+function makeVAO(geom){
+  const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+  // positions
+  const vboPos=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,vboPos);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(geom.positions), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0,3,gl.FLOAT,false,0,0);
+  // normals
+  const vboNor=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,vboNor);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(geom.normals), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1,3,gl.FLOAT,false,0,0);
+  // indices
+  const ibo = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(geom.indices), gl.STATIC_DRAW);
+  gl.bindVertexArray(null);
+  return {vao, count:geom.indices.length};
+}
+function pushTri(dst,pos,nor){ dst.positions.push(...pos); dst.normals.push(...nor); }
+function createBox(w,h,d){
+  const x=w/2,y=h/2,z=d/2;
+  const p=[],n=[],i=[];
+  function face(ax,ay,az, bx,by,bz, cx,cy,cz, dx,dy,dz, nx,ny,nz){
+    const base = p.length/3;
+    p.push(ax,ay,az, bx,by,bz, cx,cy,cz, dx,dy,dz);
+    n.push(nx,ny,nz, nx,ny,nz, nx,ny,nz, nx,ny,nz);
+    i.push(base,base+1,base+2, base,base+2,base+3);
+  }
+  face(-x,-y, z, x,-y, z, x, y, z, -x, y, z, 0,0,1);  // front
+  face( x,-y,-z,-x,-y,-z,-x, y,-z, x, y,-z, 0,0,-1);// back
+  face(-x,-y,-z,-x,-y, z,-x, y, z,-x, y,-z,-1,0,0); // left
+  face( x,-y, z, x,-y,-z, x, y,-z, x, y, z, 1,0,0); // right
+  face(-x, y, z, x, y, z, x, y,-z,-x, y,-z, 0,1,0); // top
+  face(-x,-y,-z, x,-y,-z, x,-y, z,-x,-y, z, 0,-1,0);// bottom
+  return {positions:p,normals:n,indices:i};
+}
+function createCylinder(rt, rb, h, seg=24, capTop=true, capBot=true){
+  const p=[],n=[],i=[];
+  const half=h/2;
+  for(let s=0;s<seg;s++){
+    const a=2*Math.PI*s/seg, b=2*Math.PI*(s+1)/seg;
+    const ca=Math.cos(a), sa=Math.sin(a), cb=Math.cos(b), sb=Math.sin(b);
+    // side quad
+    const v00=[rb*ca,-half,rb*sa], v01=[rb*cb,-half,rb*sb];
+    const v10=[rt*ca, half,rt*sa], v11=[rt*cb, half,rt*sb];
+    const na=[ca, (rb-rt)/h, sa]; const nb=[cb,(rb-rt)/h,sb];
+    const base = p.length/3;
+    p.push(...v00,...v01,...v11,...v10);
+    n.push(...na,...nb,...nb,...na);
+    i.push(base,base+1,base+2, base,base+2,base+3);
+  }
+  if(capTop && rt>0){
+    const base = p.length/3; p.push(0,half,0); n.push(0,1,0);
+    for(let s=0;s<=seg;s++){
+      const a=2*Math.PI*s/seg, ca=Math.cos(a), sa=Math.sin(a);
+      p.push(rt*ca,half,rt*sa); n.push(0,1,0);
+    }
+    for(let s=0;s<seg;s++){ i.push(base, base+1+s, base+2+s); }
+  }
+  if(capBot && rb>0){
+    const base = p.length/3; p.push(0,-half,0); n.push(0,-1,0);
+    for(let s=0;s<=seg;s++){
+      const a=2*Math.PI*s/seg, ca=Math.cos(a), sa=Math.sin(a);
+      p.push(rb*ca,-half,rb*sa); n.push(0,-1,0);
+    }
+    for(let s=0;s<seg;s++){ i.push(base, base+2+s, base+1+s); }
+  }
+  return {positions:p,normals:n,indices:i};
+}
+function createSphere(r=1, segW=20, segH=12){
+  const p=[],n=[],i=[];
+  for(let y=0;y<=segH;y++){
+    const v=y/segH, phi=v*Math.PI;
+    for(let x=0;x<=segW;x++){
+      const u=x/segW, th=u*Math.PI*2;
+      const sx=Math.cos(th)*Math.sin(phi), sy=Math.cos(phi), sz=Math.sin(th)*Math.sin(phi);
+      p.push(r*sx, r*sy, r*sz); n.push(sx,sy,sz);
+    }
+  }
+  for(let y=0;y<segH;y++){
+    for(let x=0;x<segW;x++){
+      const a = y*(segW+1)+x;
+      const b = a + segW + 1;
+      i.push(a,b,a+1, b,b+1,a+1);
+    }
+  }
+  return {positions:p,normals:n,indices:i};
+}
+function createFrustumPyramid(wb,db,wt,dt,h){
+  const y0=0, y1=h, x0=-wb/2, x1=wb/2, z0=-db/2, z1=db/2;
+  const xt0=-wt/2, xt1=wt/2, zt0=-dt/2, zt1=dt/2;
+  const p=[],n=[],i=[];
+  function addQuad(a,b,c,d){
+    const base=p.length/3;
+    // normals via cross
+    const ux=b[0]-a[0], uy=b[1]-a[1], uz=b[2]-a[2];
+    const vx=c[0]-a[0], vy=c[1]-a[1], vz=c[2]-a[2];
+    let nx=uy*vz-uz*vy, ny=uz*vx-ux*vz, nz=ux*vy-uy*vx;
+    const l=1/Math.hypot(nx,ny,nz); nx*=l; ny*=l; nz*=l;
+    p.push(...a,...b,...c,...d);
+    n.push(nx,ny,nz,nx,ny,nz,nx,ny,nz,nx,ny,nz);
+    i.push(base,base+1,base+2, base,base+2,base+3);
+  }
+  // Sides
+  addQuad([x0,y0,z1],[x1,y0,z1],[xt1,y1,zt1],[xt0,y1,zt1]); // front
+  addQuad([x1,y0,z0],[x0,y0,z0],[xt0,y1,zt0],[xt1,y1,zt0]); // back
+  addQuad([x0,y0,z0],[x0,y0,z1],[xt0,y1,zt1],[xt0,y1,zt0]); // left
+  addQuad([x1,y0,z1],[x1,y0,z0],[xt1,y1,zt0],[xt1,y1,zt1]); // right
+  // bottom
+  const b = createBox(wb,0.001,db);
+  const baseI = p.length/3;
+  for(let k=0;k<b.positions.length;k+=3){ p.push(b.positions[k],y0,b.positions[k+2]); }
+  for(let k=0;k<b.normals.length;k+=3){ n.push(0,-1,0); }
+  for(let k=0;k<b.indices.length;k++){ i.push(baseI + b.indices[k]); }
+  // top cap
+  const tc = createBox(wt,0.001,dt);
+  const baseT = p.length/3;
+  for(let k=0;k<tc.positions.length;k+=3){ p.push(tc.positions[k],y1,tc.positions[k+2]); }
+  for(let k=0;k<tc.normals.length;k+=3){ n.push(0,1,0); }
+  for(let k=0;k<tc.indices.length;k++){ i.push(baseT + tc.indices[k]); }
+  return {positions:p,normals:n,indices:i};
+}
+function createPlane(w,d){
+  const p=[-w/2,0,-d/2, w/2,0,-d/2, w/2,0,d/2, -w/2,0,d/2];
+  const n=[0,1,0, 0,1,0, 0,1,0, 0,1,0];
+  const i=[0,1,2, 0,2,3];
+  return {positions:p,normals:n,indices:i};
+}
+function createBridgeArc(length=4,width=1,height=0.7, segL=24, segW=3){
+  const p=[],n=[],i=[];
+  const halfW=width/2;
+  for(let il=0; il<=segL; il++){
+    const t=il/segL;
+    const x = lerp(-length/2,length/2,t);
+    const y = Math.sin((t-0.5)*Math.PI)*height + 0.1;
+    for(let iw=0;iw<=segW;iw++){
+      const u=iw/segW;
+      const z = lerp(-halfW, halfW, u);
+      p.push(x, y, z);
+      // approximate normal (upwards with slight outward)
+      const nx=0, ny=1, nz=(u-0.5)*0.2; const l=1/Math.hypot(nx,ny,nz);
+      n.push(nx*l,ny*l,nz*l);
+    }
+  }
+  for(let il=0;il<segL;il++){
+    for(let iw=0;iw<segW;iw++){
+      const a= il*(segW+1)+iw;
+      const b= a + segW+1;
+      i.push(a,b,a+1, b,b+1,a+1);
+    }
+  }
+  return {positions:p,normals:n,indices:i};
+}
+
+// --------- Scene data ----------
+const meshes=[];
+function addMesh(geom, color, t=[0,0,0], r=[0,0,0], s=[1,1,1], material=0){
+  const vao = makeVAO(geom);
+  const model = m4(); m4Compose(model,t,r,s);
+  meshes.push({vao,count:vao.count,color,model,material, t, r, s});
+  return meshes[meshes.length-1];
+}
+
+// Colors inspired by the illustration
+const COL = {
+  red: [0.72,0.19,0.18],
+  darkRed: [0.55,0.12,0.12],
+  white: [0.96,0.96,0.95],
+  blackRoof: [0.10,0.10,0.11],
+  stone: [0.73,0.73,0.72],
+  stoneDark: [0.58,0.58,0.58],
+  grass: [0.67,0.78,0.58],
+  bamboo: [0.55,0.74,0.47],
+  cherry: [0.96,0.76,0.87],
+  koiWhite: [0.96,0.96,0.96],
+  koiOrange: [0.93,0.43,0.15],
+  water: [0.55,0.80,0.86],
+};
+const SKY = [0.85,0.92,0.99];
+const GROUND = [0.85,0.90,0.82];
+const SUN_DIR = (function(){const a=0.9,b=0.8; const l=1/Math.hypot(a,b,1); return [a*l,1*l,b*l];})();
+
+// Build garden "island" patch
+(function(){
+  // grass ellipse: make a disc via cylinder scaled in XZ
+  const disc = createCylinder(1,1,0.1, 48, true, true);
+  addMesh(disc, COL.grass, [0,-0.05,0], [0,0,0], [7,1,5]);
+
+  // stone border around pond (we'll scale ellipse later)
+  // pagoda base platform
+  addMesh(createBox(3.2,0.35,3.2), COL.stone, [0,0.175,0]);
+
+  // deck (slightly larger than base)
+  addMesh(createBox(3.4,0.18,3.4), COL.darkRed, [0,0.35,0]);
+
+  // simple stairs
+  addMesh(createBox(1.0,0.18,0.6), COL.stone, [0,0.35,-1.9]);
+
+  // railings: four sides
+  const railH=0.9, railT=0.12, railOff=1.6;
+  addMesh(createBox(3.4,railT,railT), COL.red, [0,0.35+0.35, -railOff]); // bottom thin rail
+  addMesh(createBox(3.4,railT,railT), COL.red, [0,0.35+0.75, -railOff]);
+  addMesh(createBox(3.4,railT,railT), COL.red, [0,0.35+0.35, railOff]);
+  addMesh(createBox(3.4,railT,railT), COL.red, [0,0.35+0.75, railOff]);
+  addMesh(createBox(railT,railT,3.4), COL.red, [-railOff,0.35+0.35,0]);
+  addMesh(createBox(railT,railT,3.4), COL.red, [-railOff,0.35+0.75,0]);
+  addMesh(createBox(railT,railT,3.4), COL.red, [ railOff,0.35+0.35,0]);
+  addMesh(createBox(railT,railT,3.4), COL.red, [ railOff,0.35+0.75,0]);
+
+  // pillars
+  const pillar=createBox(0.18,1.6,0.18);
+  const pts=[[1.5,1.15,1.5],[-1.5,1.15,1.5],[1.5,1.15,-1.5],[-1.5,1.15,-1.5],
+            [1.5,1.15,0],[-1.5,1.15,0],[0,1.15,1.5],[0,1.15,-1.5]];
+  pts.forEach(p=>addMesh(pillar,COL.red,[p[0],0.35+0.8,p[2]]));
+
+  // walls (white panels)
+  addMesh(createBox(2.7,1.2,0.15), COL.white, [0,0.92, -1.45]);
+  addMesh(createBox(2.7,1.2,0.15), COL.white, [0,0.92, 1.45]);
+  addMesh(createBox(0.15,1.2,2.7), COL.white, [-1.45,0.92, 0]);
+  addMesh(createBox(0.15,1.2,2.7), COL.white, [ 1.45,0.92, 0]);
+
+  // roofs (3 tiers)
+  const roofColor = COL.blackRoof;
+  addMesh(createFrustumPyramid(4.6,4.6,2.6,2.6,0.7), roofColor, [0,1.6,0]);
+  addMesh(createFrustumPyramid(3.4,3.4,1.8,1.8,0.6), roofColor, [0,2.5,0]);
+  addMesh(createFrustumPyramid(2.4,2.4,1.0,1.0,0.5), roofColor, [0,3.25,0]);
+  // top spire
+  addMesh(createCylinder(0.0,0.12,0.5,18,true,true), [0.9,0.75,0.2], [0,3.8,0]);
+
+  // lanterns
+  function lantern(x,z){
+    addMesh(createBox(0.22,0.15,0.22), COL.stoneDark, [x,0.075,z]);
+    addMesh(createBox(0.16,0.8,0.16), COL.stone, [x,0.55,z]);
+    addMesh(createBox(0.45,0.1,0.45), COL.stoneDark, [x,0.98,z]);
+    addMesh(createBox(0.28,0.24,0.28), COL.stone, [x,1.12,z]);
+    addMesh(createBox(0.6,0.08,0.6), COL.stoneDark, [x,1.25,z]);
+  }
+  lantern(-2.8,-0.2); lantern(-1.3,0.2); lantern(0.2,0.5);
+
+  // path stones (rounded discs)
+  const step=createCylinder(0.45,0.45,0.12,24,true,true);
+  const pathCurve = t=>{
+    const x = lerp(-3.5, -0.6, t) + 0.45*Math.sin(t*3.2);
+    const z = lerp(-2.2, 0.2, t) + 0.35*Math.sin(t*2.8+0.6);
+    return [x,0.06,z];
+  };
+  for(let s=0;s<12;s++){
+    const t=s/11; const p=pathCurve(t);
+    const st=addMesh(step, COL.stone, p, [0,0,0], [1,1,1]);
+    st.r=[0,rand(s)*0.2,0];
+  }
+
+  // pond border (stone) and water
+  const pondOuter = addMesh(createCylinder(1.0,1.0,0.24,48,true,true), COL.stone, [2.3,0.12,1.4],[0,0,0],[2.2,1,1.5]);
+  const pondInner = addMesh(createCylinder(1.0,1.0,0.02,48,true,true), COL.water, [2.3,0.18,1.4],[0,0,0],[1.9,1,1.3], 1); // material=water
+
+  // bridge arc over pond
+  addMesh(createBridgeArc(3.2,0.9,0.6, 40,3), COL.red, [2.3,0.25,1.4],[0,Math.PI/2,0]);
+
+  // shrubs
+  const shrub=createSphere(0.35,16,10);
+  [[-0.3,0.35,1.9],[-1.0,0.33,1.1],[-2.3,0.3,1.6],[0.9,0.32,-0.1],[1.7,0.35,2.2]].forEach(p=>addMesh(shrub,[0.52,0.66,0.45],p));
+
+  // bamboo cluster
+  const cane = createCylinder(0.07,0.07,1.8,16,true,true);
+  for(let i=0;i<5;i++){
+    const ox=-3.1 + 0.15*i, oz=-0.3 + 0.2*rand(i+12);
+    addMesh(cane, COL.bamboo, [ox,0.9,oz], [0,0.05*Math.sin(i),0]);
+  }
+
+  // cherry blossom trees (two)
+  function cherryTree(cx,cz,seed=1){
+    addMesh(createCylinder(0.12,0.22,2.1,16,true,true), [0.40,0.23,0.12], [cx,1.05,cz], [0.05,-0.2,0.03]);
+    // clustered spheres for canopy
+    for(let k=0;k<14;k++){
+      const a = rand(seed*17+k)*Math.PI*2;
+      const r = 0.8 + rand(seed*13+k)*0.45;
+      const y = 1.7 + rand(seed*19+k)*0.8;
+      const x = cx + Math.cos(a)*r;
+      const z = cz + Math.sin(a)*r;
+      const s = 0.40 + rand(seed*7+k)*0.35;
+      const tone = 0.85 + rand(seed*29+k)*0.12;
+      const c = [COL.cherry[0]*tone, COL.cherry[1]*tone, COL.cherry[2]*tone];
+      addMesh(createSphere(1,14,10), c, [x,y,z], [0,0,0], [s,s,s]);
+    }
+  }
+  cherryTree(-0.5,2.8,1);
+  cherryTree(4.2,2.6,2);
+})();
+
+// koi fish
+const kois=[];
+(function(){
+  // simple tapered body + tiny tail as a box
+  const body = createCylinder(0.06,0.12,0.35,12,true,true);
+  for(let k=0;k<14;k++){
+    const colorMix = rand(100+k);
+    const base = [
+      lerp(COL.koiWhite[0], COL.koiOrange[0], colorMix*0.8),
+      lerp(COL.koiWhite[1], COL.koiOrange[1], colorMix*0.8),
+      lerp(COL.koiWhite[2], COL.koiOrange[2], colorMix*0.8),
+    ];
+    const m = addMesh(body, base, [2.3,0.205,1.4]);
+    m.material=0; // opaque
+    const spd = 0.25 + rand(9+k)*0.55;
+    const phase = rand(33+k)*Math.PI*2;
+    kois.push({mesh:m, t:phase, speed:spd, r:0.85+rand(50+k)*0.25, e:0.55+rand(51+k)*0.18});
+  }
+})();
+
+// --------- FBO for post ----------
+let fbo=null, texColor=null, rbo=null, quadVao=null, FBOW=0, FBOH=0;
+function createFBO(w,h){
+  if(fbo){ gl.deleteFramebuffer(fbo); gl.deleteTexture(texColor); gl.deleteRenderbuffer(rbo); }
+  fbo = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+
+  texColor = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, texColor);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA8,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texColor, 0);
+
+  rbo = gl.createRenderbuffer(); gl.bindRenderbuffer(gl.RENDERBUFFER, rbo);
+  gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, w,h);
+  gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, rbo);
+
+  // small VAO for screen quad (tri-strip via gl_VertexID)
+  if(!quadVao){ quadVao = gl.createVertexArray(); }
+
+  FBOW=w; FBOH=h;
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+}
+
+// --------- Interaction ----------
+canvas.addEventListener('pointerdown',e=>{
+  state.drag=true; state.lastX=e.clientX; state.lastY=e.clientY; state.autoCam=false;
+});
+addEventListener('pointerup',()=>state.drag=false);
+addEventListener('pointermove',e=>{
+  if(!state.drag)return;
+  const dx=(e.clientX-state.lastX)/innerWidth;
+  const dy=(e.clientY-state.lastY)/innerHeight;
+  state.lastX=e.clientX; state.lastY=e.clientY;
+  state.camera.yaw -= dx*3.2;
+  state.camera.pitch = clamp(state.camera.pitch - dy*2.0, 0.05, 1.2);
+});
+addEventListener('wheel',e=>{
+  state.camera.radius = clamp(state.camera.radius + Math.sign(e.deltaY)*0.7, 6.0, 22.0);
+});
+addEventListener('keydown',e=>{
+  if(e.code==='Space'){ state.autoCam=!state.autoCam; }
+});
+
+// UI binds
+const uiAperture = document.getElementById('aperture');
+const uiScale = document.getElementById('scale');
+uiAperture.addEventListener('input',()=>{ state.aperture=parseFloat(uiAperture.value); });
+uiScale.addEventListener('input',()=>{
+  RENDER_SCALE=parseFloat(uiScale.value); resize();
+});
+state.aperture=parseFloat(uiAperture.value);
+
+// --------- Render loop ----------
+const view=m4(), proj=m4(), model=m4();
+let last=performance.now();
+resize();
+
+function render(){
+  const now=performance.now(); const dt=Math.min(0.033,(now-last)/1000); last=now;
+  state.time += dt;
+
+  // camera motion (auto)
+  const cam=state.camera;
+  if(state.autoCam){
+    cam.yaw = -0.9 + Math.sin(state.time*0.18)*0.5;
+    cam.pitch = 0.34 + Math.sin(state.time*0.11)*0.08;
+    cam.radius = 10.8 + Math.sin(state.time*0.21)*0.9;
+  }
+  const cx = Math.cos(cam.yaw)*Math.cos(cam.pitch)*cam.radius;
+  const cy = Math.sin(cam.pitch)*cam.radius*0.8 + 2.2;
+  const cz = Math.sin(cam.yaw)*Math.cos(cam.pitch)*cam.radius;
+  const eye=[cx+cam.target[0], cy+cam.target[1], cz+cam.target[2]];
+  m4LookAt(view, eye, cam.target, [0,1,0]);
+  m4Perspective(proj, state.fov, FBOW/Math.max(1,FBOH), state.near, state.far);
+
+  // animate koi (ellipse orbits)
+  for(const k of kois){
+    k.t += dt*k.speed;
+    const x = 2.3 + Math.cos(k.t)*k.r;
+    const z = 1.4 + Math.sin(k.t)*k.e;
+    const y = 0.205 + 0.02*Math.sin(k.t*2.0);
+    const yaw = Math.atan2(-Math.sin(k.t)*k.e, Math.cos(k.t)*k.r)+Math.PI/2;
+    m4Compose(k.mesh.model, [x,y,z], [0,yaw,0], [1,1,1]);
+  }
+
+  // gentle sways on trees and shrubs (by tweaking pre-stored rotations if exist)
+  for(const m of meshes){
+    if(m.sway){
+      m.r[1]+=0.1*dt;
+      m4Compose(m.model, m.t, m.r, m.s);
+    }
+  }
+
+  // FOCUS: rack between pagoda and koi pond
+  const focusPagodaWorld = [0,1.8,0];
+  const focusPondWorld   = [2.3,0.25,1.4];
+  const phase = 0.5 + 0.5*Math.sin(state.time*0.18);
+  const fx = lerp(focusPagodaWorld[0], focusPondWorld[0], phase);
+  const fy = lerp(focusPagodaWorld[1], focusPondWorld[1], phase);
+  const fz = lerp(focusPagodaWorld[2], focusPondWorld[2], phase);
+  // view-space Z for focus
+  const wz = -(view[2]*fx + view[6]*fy + view[10]*fz + view[14]); // quick dot with 3rd row
+  const focusNorm = clamp((wz - state.near)/(state.far - state.near), 0, 1);
+
+  // ---- Geometry pass to FBO ----
+  gl.bindFramebuffer(gl.FRAMEBUFFER,fbo);
+  gl.viewport(0,0,FBOW,FBOH);
+  gl.enable(gl.DEPTH_TEST);
+  gl.clearColor(1,1,1,1); // white paper-like background
+  gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+
+  gl.useProgram(progMesh);
+  gl.uniformMatrix4fv(U.mesh.uView,false,view);
+  gl.uniformMatrix4fv(U.mesh.uProj,false,proj);
+  gl.uniform3fv(U.mesh.uSunDir,SUN_DIR);
+  gl.uniform3fv(U.mesh.uCameraPos,eye);
+  gl.uniform3fv(U.mesh.uSky, SKY);
+  gl.uniform3fv(U.mesh.uGround, GROUND);
+  gl.uniform1f(U.mesh.uTime, state.time);
+  gl.uniform1f(U.mesh.uNear, state.near);
+  gl.uniform1f(U.mesh.uFar, state.far);
+
+  for(const m of meshes){
+    gl.bindVertexArray(m.vao.vao);
+    gl.uniformMatrix4fv(U.mesh.uModel,false,m.model);
+    gl.uniform3fv(U.mesh.uColor,m.color);
+    gl.uniform1i(U.mesh.uMaterial, m.material||0);
+    gl.drawElements(gl.TRIANGLES, m.vao.count, gl.UNSIGNED_INT, 0);
+  }
+
+  // ---- Post pass ----
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+  gl.viewport(0,0,canvas.width,canvas.height);
+  gl.disable(gl.DEPTH_TEST);
+  gl.useProgram(progPost);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, texColor);
+  gl.uniform1i(U.post.uColorDepth, 0);
+  gl.uniform2f(U.post.uResolution, FBOW, FBOH);
+  gl.uniform1f(U.post.uFocus, focusNorm);
+  gl.uniform1f(U.post.uAperture, state.aperture);
+  gl.bindVertexArray(quadVao);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+  requestAnimationFrame(render);
+}
+requestAnimationFrame(render);
+
+})();
+</script>
+</body>
+</html>

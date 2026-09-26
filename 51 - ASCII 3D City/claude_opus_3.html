@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ASCII City</title>
+  <style>
+    body { 
+      background: #000;
+      color: #0f0;
+      font-family: monospace;
+      font-size: 1.5vw; 
+      line-height: 1.2;
+      margin: 0; 
+      overflow: hidden;
+    }
+    #city {
+      position: absolute;
+      white-space: pre;
+    }
+  </style>
+</head>
+<body>
+<div id="city"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const city = document.getElementById('city');
+
+// Generate city grid
+const citySize = 16;
+const grid = [];
+for (let z=0; z<citySize; z++) {
+  grid[z] = [];
+  for (let x=0; x<citySize; x++) {
+    grid[z][x] = {
+      height: Math.random() * 10 | 0,
+      type: Math.random() > 0.8 ? 'tower' : Math.random() > 0.7 ? 'building' : 'street'
+    };
+  }
+}
+
+// Setup Three.js scene
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+camera.position.set(citySize/2, 5, citySize/2);
+camera.lookAt(new THREE.Vector3(citySize/2, 0, citySize/2));
+const renderer = new THREE.WebGLRenderer();
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+// City geometry
+const cityGeometry = new THREE.BufferGeometry();
+const positions = [];
+const uvs = [];
+for (let z=0; z<citySize; z++) {
+  for (let x=0; x<citySize; x++) {
+    const building = grid[z][x];
+    
+    // Roof
+    positions.push(
+      x, building.height, z,
+      x+1, building.height, z,  
+      x+1, building.height, z+1,
+      x, building.height, z+1
+    );
+    uvs.push(
+      0,0, 1,0, 1,1, 0,1
+    );
+    
+    // Walls
+    positions.push(
+      x, 0, z,
+      x, building.height, z,
+      x+1, building.height, z,
+      x+1, 0, z,
+
+      x+1, 0, z,
+      x+1, building.height, z,
+      x+1, building.height, z+1, 
+      x+1, 0, z+1,
+
+      x+1, 0, z+1,
+      x+1, building.height, z+1,
+      x, building.height, z+1,
+      x, 0, z+1,
+
+      x, 0, z+1,
+      x, building.height, z+1,
+      x, building.height, z,
+      x, 0, z 
+    );
+    uvs.push(
+      0,0, 0,1, 1,1, 1,0,
+      0,0, 0,1, 1,1, 1,0,
+      0,0, 0,1, 1,1, 1,0,
+      0,0, 0,1, 1,1, 1,0
+    );
+  }
+}
+cityGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+cityGeometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+
+// Materials
+const wallMaterial = new THREE.ShaderMaterial({
+  uniforms: {
+    time: { value: 0 },
+    colorA: { value: new THREE.Color(0x3c1e88) },
+    colorB: { value: new THREE.Color(0x88335d) }
+  },
+  vertexShader: `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    uniform float time;
+    uniform vec3 colorA;
+    uniform vec3 colorB;
+    varying vec2 vUv;
+    void main() {
+      vec3 color = mix(colorA, colorB, vUv.y + sin(vUv.x * 3.14159 + time) * 0.2);
+      gl_FragColor = vec4(color, 1.0);
+    }
+  `
+});
+
+const roofMaterial = new THREE.MeshBasicMaterial({ color: 0x1d1638 });
+
+// Mesh
+const cityMesh = new THREE.Mesh(cityGeometry, [wallMaterial, roofMaterial]);
+scene.add(cityMesh);
+
+// Lights
+const light = new THREE.DirectionalLight(0xccccff, 0.8);
+light.position.set(1, 1, 1);
+scene.add(light);
+
+const backLight = new THREE.DirectionalLight(0x331166, 0.6);
+backLight.position.set(-1, 0.5, -1); 
+scene.add(backLight);
+
+// Skybox
+const skyColor = 0x03051a;
+scene.background = new THREE.Color(skyColor);
+scene.fog = new THREE.Fog(skyColor, 10, 40);
+
+// Rain
+const rainCount = 1500;
+const rainGeometry = new THREE.BufferGeometry();
+const rainPositions = [];
+for (let i=0; i<rainCount; i++) {
+  const x = Math.random() * citySize;
+  const y = Math.random() * 50;
+  const z = Math.random() * citySize;
+  rainPositions.push(x, y, z);
+}
+rainGeometry.setAttribute('position', new THREE.Float32BufferAttribute(rainPositions, 3));
+const rainMaterial = new THREE.PointsMaterial({ 
+  color: 0xaaaaaa,
+  size: 0.1,
+  transparent: true
+});
+const rain = new THREE.Points(rainGeometry, rainMaterial);
+scene.add(rain);
+
+// Render loop
+function render(time) {
+  requestAnimationFrame(render);
+  
+  // Update materials
+  wallMaterial.uniforms.time.value = time / 3000;
+  
+  // Render scene  
+  renderer.render(scene, camera);
+  
+  // Update ASCII
+  const chars = ' .:!*=$%@#'; 
+  let output = '';
+  for (let y=0; y<window.innerHeight/16; y++) {
+    for (let x=0; x<window.innerWidth/12; x++) {
+      const ray = new THREE.Raycaster();
+      ray.setFromCamera(new THREE.Vector2(x/window.innerWidth*2-1, -y/window.innerHeight*2+1), camera);
+      const intersects = ray.intersectObject(cityMesh);
+
+      if (intersects.length > 0) {
+        const depth = intersects[0].distance;
+        const charIndex = depth / 50 * chars.length | 0;
+        output += chars[charIndex];
+      } else {
+        output += ' ';
+      }
+    }
+    output += '\n';
+  }
+
+  city.innerHTML = output;
+}
+
+// Keyboard controls
+const controls = {
+  forward: false,
+  left: false,
+  backward: false,
+  right: false,
+  speed: 0.1
+};
+
+window.addEventListener('keydown', (e) => {
+  switch (e.code) {
+    case 'KeyW': controls.forward = true; break;
+    case 'KeyA': controls.left = true; break; 
+    case 'KeyS': controls.backward = true; break;
+    case 'KeyD': controls.right = true; break;
+  }
+});
+
+window.addEventListener('keyup', (e) => {
+  switch (e.code) {
+    case 'KeyW': controls.forward = false; break;
+    case 'KeyA': controls.left = false; break;
+    case 'KeyS': controls.backward = false; break; 
+    case 'KeyD': controls.right = false; break;
+  }
+});
+
+// Mouse look
+window.addEventListener('mousemove', (e) => {
+  camera.rotation.y -= e.movementX / 500;
+  camera.rotation.x -= e.movementY / 500;
+  camera.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, camera.rotation.x));
+});
+window.addEventListener('pointerlockchange', () => {
+  if (document.pointerLockElement === renderer.domElement) {
+    window.addEventListener('mousemove', onMouseMove, false);
+  } else {
+    window.removeEventListener('mousemove', onMouseMove, false);
+  }
+});
+window.addEventListener('click', () => {
+  renderer.domElement.requestPointerLock();
+});
+
+function animate() {
+  requestAnimationFrame(animate);
+  
+  // Update rain
+  rainGeometry.attributes.position.array.forEach((v,i) => {
+    rainGeometry.attributes.position.array[i] = v - controls.speed * 5;
+    if (rainGeometry.attributes.position.array[i] < 0) {
+      rainGeometry.attributes.position.array[i] = 50;
+    }
+  });
+  rainGeometry.attributes.position.needsUpdate = true;
+  
+  // Update camera
+  camera.translateX((controls.right - controls.left) * controls.speed);  
+  camera.translateZ((controls.backward - controls.forward) * controls.speed);
+  camera.position.y = 2;
+  
+  render(performance.now());
+}
+
+animate();
+
+</script>
+</body>
+</html>

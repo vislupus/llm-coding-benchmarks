@@ -1,0 +1,1805 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<title>Luxe Go — 3D Go with MCTS AI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --gold:#d9b45b;
+    --gold-2:#f3dc9a;
+    --gold-dim:rgba(217,180,91,.30);
+    --panel:rgba(14,18,26,.72);
+    --panel-2:rgba(20,26,38,.86);
+    --stroke:rgba(217,180,91,.22);
+    --text:#e9e7e2;
+    --muted:#98a2b3;
+    --shadow:0 18px 50px rgba(0,0,0,.55);
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;margin:0;padding:0;overflow:hidden;background:#05070b;}
+  body{
+    font-family:'Inter',system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+    color:var(--text);
+    user-select:none;
+  }
+  #scene{
+    position:fixed;inset:0;width:100%;height:100%;display:block;
+    touch-action:none;
+  }
+  /* ---------- HUD ---------- */
+  #hud{position:fixed;inset:0;pointer-events:none;z-index:10;}
+  .panel{
+    pointer-events:auto;
+    background:linear-gradient(160deg,var(--panel-2),var(--panel));
+    border:1px solid var(--stroke);
+    border-radius:16px;
+    backdrop-filter:blur(14px) saturate(140%);
+    -webkit-backdrop-filter:blur(14px) saturate(140%);
+    box-shadow:var(--shadow), inset 0 1px 0 rgba(255,255,255,.05);
+  }
+  .panel-tl{
+    position:absolute;top:16px;left:16px;padding:14px 16px 12px;min-width:196px;
+  }
+  .logo{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+  .logo .glyph{
+    font-family:'Cinzel',serif;font-size:26px;line-height:1;
+    background:linear-gradient(180deg,var(--gold-2),var(--gold) 60%,#a9812f);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    filter:drop-shadow(0 2px 6px rgba(217,180,91,.35));
+  }
+  .logo .name{
+    font-family:'Cinzel',serif;font-size:13px;letter-spacing:.22em;
+    color:var(--gold-2);opacity:.92;
+  }
+  .turn{display:flex;align-items:center;gap:9px;font-size:13.5px;font-weight:600;letter-spacing:.01em;}
+  .dot{
+    width:15px;height:15px;border-radius:50%;flex:0 0 auto;
+    box-shadow:0 1px 3px rgba(0,0,0,.6), inset 0 1px 2px rgba(255,255,255,.35);
+    transition:background .25s, box-shadow .25s;
+  }
+  .dot.black{background:radial-gradient(circle at 34% 28%,#6a6f7a,#111318 60%,#000);}
+  .dot.white{background:radial-gradient(circle at 34% 28%,#ffffff,#e2ddd2 55%,#b3ada0);}
+  .dot.pulse{animation:pulse 1.6s ease-in-out infinite;}
+  @keyframes pulse{0%,100%{transform:scale(1);}50%{transform:scale(1.18);}}
+  .caps{display:flex;justify-content:space-between;gap:12px;margin-top:9px;font-size:11.5px;color:var(--muted);}
+  .caps b{color:var(--text);font-weight:600;}
+
+  .panel-tr{
+    position:absolute;top:16px;right:16px;padding:12px 14px;min-width:172px;
+  }
+  .score-row{display:flex;align-items:center;gap:8px;font-size:13px;padding:3px 0;}
+  .score-row span:nth-child(2){flex:1;color:var(--muted);font-size:12px;}
+  .score-row b{font-variant-numeric:tabular-nums;font-weight:700;color:var(--gold-2);}
+  .komi{margin-top:6px;padding-top:7px;border-top:1px solid rgba(255,255,255,.07);
+    font-size:11px;color:var(--muted);text-align:right;letter-spacing:.05em;}
+
+  .panel-b{
+    position:absolute;left:50%;bottom:18px;transform:translateX(-50%);
+    display:flex;gap:8px;padding:9px;border-radius:18px;
+  }
+  .btn{
+    pointer-events:auto;
+    font-family:inherit;font-size:13px;font-weight:600;letter-spacing:.02em;
+    color:var(--text);
+    background:linear-gradient(180deg,rgba(255,255,255,.09),rgba(255,255,255,.03));
+    border:1px solid rgba(255,255,255,.12);
+    border-radius:11px;padding:10px 16px;cursor:pointer;
+    transition:transform .13s ease, background .2s, border-color .2s, opacity .2s;
+    white-space:nowrap;
+  }
+  .btn:hover{background:linear-gradient(180deg,rgba(217,180,91,.22),rgba(217,180,91,.07));border-color:var(--gold-dim);}
+  .btn:active{transform:scale(.95);}
+  .btn:disabled{opacity:.32;cursor:not-allowed;transform:none;}
+  .btn.icon{padding:10px 13px;font-size:15px;line-height:1;}
+  .btn.primary{
+    background:linear-gradient(180deg,var(--gold-2),var(--gold) 55%,#a9812f);
+    color:#20170a;border-color:rgba(255,255,255,.28);
+    box-shadow:0 6px 18px rgba(217,180,91,.28);
+  }
+  .btn.primary:hover{filter:brightness(1.08);}
+
+  .panel-settings{
+    position:absolute;top:16px;right:16px;padding:16px;width:250px;
+    transform:translateY(-14px) scale(.96);opacity:0;pointer-events:none;
+    transition:transform .25s cubic-bezier(.2,.9,.3,1.3), opacity .2s;
+    z-index:5;
+  }
+  .panel-settings.open{transform:translateY(0) scale(1);opacity:1;pointer-events:auto;}
+  .panel-settings h3{
+    margin:0 0 12px;font-family:'Cinzel',serif;font-size:12px;letter-spacing:.2em;
+    color:var(--gold-2);text-transform:uppercase;font-weight:600;
+  }
+  .setting{margin-bottom:13px;}
+  .setting > label{display:block;font-size:11px;color:var(--muted);margin-bottom:6px;letter-spacing:.08em;text-transform:uppercase;}
+  .seg{display:flex;gap:5px;}
+  .seg button{
+    flex:1;font-family:inherit;font-size:12px;font-weight:600;color:var(--muted);
+    background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.09);
+    border-radius:9px;padding:8px 4px;cursor:pointer;transition:.18s;
+  }
+  .seg button:hover{color:var(--text);background:rgba(255,255,255,.09);}
+  .seg button.active{
+    color:#241a08;background:linear-gradient(180deg,var(--gold-2),var(--gold));
+    border-color:transparent;box-shadow:0 3px 12px rgba(217,180,91,.3);
+  }
+  .panel-settings .btn.primary{width:100%;margin-top:4px;}
+
+  .thinking{
+    position:absolute;left:50%;bottom:82px;transform:translateX(-50%) translateY(10px);
+    display:flex;align-items:center;gap:9px;
+    font-size:12.5px;font-weight:600;letter-spacing:.06em;
+    color:var(--gold-2);background:rgba(10,14,22,.8);border:1px solid var(--gold-dim);
+    padding:9px 18px;border-radius:100px;opacity:0;pointer-events:none;
+    transition:opacity .25s, transform .25s;backdrop-filter:blur(10px);
+  }
+  .thinking.on{opacity:1;transform:translateX(-50%) translateY(0);}
+  .spinner{
+    width:13px;height:13px;border-radius:50%;
+    border:2px solid rgba(217,180,91,.25);border-top-color:var(--gold);
+    animation:spin .7s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  .modal{
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    background:rgba(3,5,9,.72);backdrop-filter:blur(6px);
+    opacity:0;pointer-events:none;transition:opacity .3s;z-index:20;
+  }
+  .modal.on{opacity:1;pointer-events:auto;}
+  .modal-card{
+    background:linear-gradient(165deg,rgba(26,32,46,.97),rgba(13,17,25,.98));
+    border:1px solid var(--stroke);border-radius:22px;padding:32px 36px;
+    text-align:center;max-width:88vw;width:400px;
+    box-shadow:0 30px 80px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.06);
+    transform:scale(.92) translateY(12px);transition:transform .35s cubic-bezier(.2,.9,.3,1.25);
+  }
+  .modal.on .modal-card{transform:scale(1) translateY(0);}
+  .modal-card h2{
+    margin:0 0 8px;font-family:'Cinzel',serif;font-size:24px;letter-spacing:.08em;
+    background:linear-gradient(180deg,var(--gold-2),var(--gold) 70%,#9c7528);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+  }
+  .modal-card p{margin:0 0 22px;font-size:13.5px;line-height:1.7;color:var(--muted);}
+  .modal-card p b{color:var(--text);font-weight:600;}
+  .modal-card .btn{width:100%;}
+
+  @media (max-width:720px){
+    .panel-tl{top:10px;left:10px;padding:10px 12px;min-width:0;}
+    .logo .name{display:none;}
+    .logo{margin-bottom:6px;}
+    .panel-tr{top:10px;right:10px;padding:9px 11px;min-width:130px;}
+    .score-row{font-size:11.5px;}
+    .komi{font-size:10px;}
+    .panel-b{bottom:12px;gap:6px;padding:7px;border-radius:15px;}
+    .btn{padding:9px 12px;font-size:12px;border-radius:9px;}
+    .btn.icon{padding:9px 10px;}
+    .panel-settings{top:auto;bottom:78px;right:10px;left:10px;width:auto;}
+    .thinking{bottom:72px;font-size:11.5px;padding:8px 14px;}
+    .caps{font-size:10.5px;}
+  }
+  @media (max-height:520px){
+    .panel-b{bottom:8px;}
+    .thinking{bottom:64px;}
+  }
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+
+<div id="hud">
+  <div class="panel panel-tl">
+    <div class="logo"><span class="glyph">碁</span><span class="name">LUXE GO</span></div>
+    <div class="turn">
+      <span class="dot black pulse" id="turnDot"></span>
+      <span id="turnText">Your turn</span>
+    </div>
+    <div class="caps">
+      <span>Captures</span>
+      <span id="capText">B 0 · W 0</span>
+    </div>
+  </div>
+
+  <div class="panel panel-tr">
+    <div class="score-row"><span class="dot black"></span><span>Black</span><b id="scoreB">0</b></div>
+    <div class="score-row"><span class="dot white"></span><span>White</span><b id="scoreW">6.5</b></div>
+    <div class="komi">KOMI 6.5</div>
+  </div>
+
+  <div class="panel panel-b">
+    <button class="btn" id="btnPass">Pass</button>
+    <button class="btn" id="btnUndo">Undo</button>
+    <button class="btn" id="btnNew">New</button>
+    <button class="btn icon" id="btnSound" title="Sound">♪</button>
+    <button class="btn icon" id="btnSettings" title="Settings">⚙</button>
+  </div>
+
+  <div class="panel panel-settings" id="settingsPanel">
+    <h3>Settings</h3>
+    <div class="setting">
+      <label>Board Size</label>
+      <div class="seg" id="sizeSeg">
+        <button data-size="9" class="active">9×9</button>
+        <button data-size="13">13×13</button>
+        <button data-size="19">19×19</button>
+      </div>
+    </div>
+    <div class="setting">
+      <label>AI Difficulty</label>
+      <div class="seg" id="diffSeg">
+        <button data-diff="easy">Easy</button>
+        <button data-diff="medium" class="active">Medium</button>
+        <button data-diff="hard">Hard</button>
+      </div>
+    </div>
+    <button class="btn primary" id="btnApply">Start New Game</button>
+  </div>
+
+  <div class="thinking" id="thinking"><span class="spinner"></span><span>Thinking…</span></div>
+
+  <div class="modal" id="modal">
+    <div class="modal-card">
+      <h2 id="modalTitle">Game Over</h2>
+      <p id="modalBody"></p>
+      <button class="btn primary" id="btnModalNew">Play Again</button>
+    </div>
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+/* ==========================================================================
+   1. UTILITIES
+   ========================================================================== */
+const EMPTY = 0, BLACK = 1, WHITE = 2;
+const EMPTY_ARR = [];
+
+function mulberry32(a){
+  return function(){
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+/* ==========================================================================
+   2. GO ENGINE  (fast, typed-array based, with play/undo)
+   ========================================================================== */
+function createPos(size){
+  const n = size * size;
+  return {
+    size, n,
+    board: new Int8Array(n),
+    ko: -1,
+    toPlay: BLACK,
+    capB: 0, capW: 0,
+    _mark: new Int32Array(n),
+    _lmark: new Int32Array(n),
+    _seen: new Int32Array(n),
+    _mid: 0,
+    _sid: 0,
+    _stack: new Int32Array(n),
+    _stones: new Int32Array(n)
+  };
+}
+
+/** Flood-fill the group containing idx. Returns {count, libs} (stones in pos._stones). */
+function floodGroup(pos, idx){
+  const board = pos.board, size = pos.size;
+  const mark = pos._mark, lmark = pos._lmark;
+  const stack = pos._stack, stones = pos._stones;
+  const color = board[idx];
+
+  if (++pos._mid > 2000000000){ pos._mark.fill(0); pos._lmark.fill(0); pos._mid = 1; }
+  const mid = pos._mid;
+
+  let sp = 0, sc = 0, libs = 0;
+  stack[sp++] = idx; mark[idx] = mid;
+
+  while (sp > 0){
+    const p = stack[--sp];
+    stones[sc++] = p;
+    const x = p % size;
+    const y = (p - x) / size;
+
+    if (x > 0){
+      const q = p - 1, b = board[q];
+      if (b === 0){ if (lmark[q] !== mid){ lmark[q] = mid; libs++; } }
+      else if (b === color && mark[q] !== mid){ mark[q] = mid; stack[sp++] = q; }
+    }
+    if (x < size - 1){
+      const q = p + 1, b = board[q];
+      if (b === 0){ if (lmark[q] !== mid){ lmark[q] = mid; libs++; } }
+      else if (b === color && mark[q] !== mid){ mark[q] = mid; stack[sp++] = q; }
+    }
+    if (y > 0){
+      const q = p - size, b = board[q];
+      if (b === 0){ if (lmark[q] !== mid){ lmark[q] = mid; libs++; } }
+      else if (b === color && mark[q] !== mid){ mark[q] = mid; stack[sp++] = q; }
+    }
+    if (y < size - 1){
+      const q = p + size, b = board[q];
+      if (b === 0){ if (lmark[q] !== mid){ lmark[q] = mid; libs++; } }
+      else if (b === color && mark[q] !== mid){ mark[q] = mid; stack[sp++] = q; }
+    }
+  }
+  return { count: sc, libs };
+}
+
+/** Play a stone (idx >= 0) or pass (idx === -1). Returns an undo record or null if illegal. */
+function playStone(pos, idx, color){
+  const board = pos.board, size = pos.size;
+
+  if (idx < 0){
+    const rec = { idx: -1, color, captured: EMPTY_ARR, prevKo: pos.ko };
+    pos.ko = -1;
+    return rec;
+  }
+
+  if (board[idx] !== 0) return null;
+  if (idx === pos.ko) return null;
+
+  const opp = 3 - color;
+  board[idx] = color;
+
+  const x = idx % size;
+  const y = (idx - x) / size;
+
+  let captured = null;
+
+  if (x > 0 && board[idx - 1] === opp){
+    const g = floodGroup(pos, idx - 1);
+    if (g.libs === 0){
+      captured = captured || [];
+      for (let i = 0; i < g.count; i++){ captured.push(pos._stones[i]); board[pos._stones[i]] = 0; }
+    }
+  }
+  if (x < size - 1 && board[idx + 1] === opp){
+    const g = floodGroup(pos, idx + 1);
+    if (g.libs === 0){
+      captured = captured || [];
+      for (let i = 0; i < g.count; i++){ captured.push(pos._stones[i]); board[pos._stones[i]] = 0; }
+    }
+  }
+  if (y > 0 && board[idx - size] === opp){
+    const g = floodGroup(pos, idx - size);
+    if (g.libs === 0){
+      captured = captured || [];
+      for (let i = 0; i < g.count; i++){ captured.push(pos._stones[i]); board[pos._stones[i]] = 0; }
+    }
+  }
+  if (y < size - 1 && board[idx + size] === opp){
+    const g = floodGroup(pos, idx + size);
+    if (g.libs === 0){
+      captured = captured || [];
+      for (let i = 0; i < g.count; i++){ captured.push(pos._stones[i]); board[pos._stones[i]] = 0; }
+    }
+  }
+
+  const own = floodGroup(pos, idx);
+  if (own.libs === 0){
+    board[idx] = 0;
+    if (captured) for (let i = 0; i < captured.length; i++) board[captured[i]] = opp;
+    return null;
+  }
+
+  const ownCount = own.count, ownLibs = own.libs;
+  const capList = captured || EMPTY_ARR;
+
+  const newKo = (capList.length === 1 && ownCount === 1 && ownLibs === 1) ? capList[0] : -1;
+  const rec = { idx, color, captured: capList, prevKo: pos.ko };
+  pos.ko = newKo;
+  if (color === BLACK) pos.capB += capList.length; else pos.capW += capList.length;
+  return rec;
+}
+
+function undoStone(pos, rec){
+  if (rec.idx >= 0){
+    pos.board[rec.idx] = 0;
+    const opp = 3 - rec.color;
+    const cap = rec.captured;
+    for (let i = 0; i < cap.length; i++) pos.board[cap[i]] = opp;
+    if (rec.color === BLACK) pos.capB -= cap.length; else pos.capW -= cap.length;
+  }
+  pos.ko = rec.prevKo;
+}
+
+/** Fast legality check (uses a cheap early-out for adjacent empty points). */
+function isLegalMove(pos, idx, color){
+  const board = pos.board, size = pos.size;
+  if (board[idx] !== 0) return false;
+  if (idx === pos.ko) return false;
+
+  const x = idx % size;
+  const y = (idx - x) / size;
+
+  if (x > 0 && board[idx - 1] === 0) return true;
+  if (x < size - 1 && board[idx + 1] === 0) return true;
+  if (y > 0 && board[idx - size] === 0) return true;
+  if (y < size - 1 && board[idx + size] === 0) return true;
+
+  const rec = playStone(pos, idx, color);
+  if (!rec) return false;
+  undoStone(pos, rec);
+  return true;
+}
+
+/** Simple eye test: is idx a self-eye for `color`? */
+function isEye(pos, idx, color){
+  const board = pos.board, size = pos.size;
+  const x = idx % size;
+  const y = (idx - x) / size;
+
+  if (x > 0 && board[idx - 1] !== color) return false;
+  if (x < size - 1 && board[idx + 1] !== color) return false;
+  if (y > 0 && board[idx - size] !== color) return false;
+  if (y < size - 1 && board[idx + size] !== color) return false;
+
+  let badDiag = 0;
+  const onEdge = (x === 0 || y === 0 || x === size - 1 || y === size - 1);
+
+  if (x > 0 && y > 0 && board[idx - size - 1] !== color) badDiag++;
+  if (x < size - 1 && y > 0 && board[idx - size + 1] !== color) badDiag++;
+  if (x > 0 && y < size - 1 && board[idx + size - 1] !== color) badDiag++;
+  if (x < size - 1 && y < size - 1 && board[idx + size + 1] !== color) badDiag++;
+
+  return badDiag === 0 || (onEdge && badDiag === 1);
+}
+
+/** Area score (Chinese-style): stones + surrounded empty territory. */
+function areaScore(pos){
+  const board = pos.board, size = pos.size, n = pos.n;
+  const seen = pos._seen;
+  const stack = pos._stack;
+
+  if (++pos._sid > 2000000000){ pos._seen.fill(0); pos._sid = 1; }
+  const sid = pos._sid;
+
+  let black = 0, white = 0;
+
+  for (let i = 0; i < n; i++){
+    const c = board[i];
+    if (c === BLACK){ black++; continue; }
+    if (c === WHITE){ white++; continue; }
+    if (seen[i] === sid) continue;
+
+    let sp = 0, count = 0;
+    let touchB = false, touchW = false;
+    stack[sp++] = i; seen[i] = sid;
+
+    while (sp > 0){
+      const p = stack[--sp];
+      count++;
+      const x = p % size;
+      const y = (p - x) / size;
+
+      if (x > 0){
+        const q = p - 1, b = board[q];
+        if (b === 0){ if (seen[q] !== sid){ seen[q] = sid; stack[sp++] = q; } }
+        else if (b === BLACK) touchB = true; else touchW = true;
+      }
+      if (x < size - 1){
+        const q = p + 1, b = board[q];
+        if (b === 0){ if (seen[q] !== sid){ seen[q] = sid; stack[sp++] = q; } }
+        else if (b === BLACK) touchB = true; else touchW = true;
+      }
+      if (y > 0){
+        const q = p - size, b = board[q];
+        if (b === 0){ if (seen[q] !== sid){ seen[q] = sid; stack[sp++] = q; } }
+        else if (b === BLACK) touchB = true; else touchW = true;
+      }
+      if (y < size - 1){
+        const q = p + size, b = board[q];
+        if (b === 0){ if (seen[q] !== sid){ seen[q] = sid; stack[sp++] = q; } }
+        else if (b === BLACK) touchB = true; else touchW = true;
+      }
+    }
+
+    if (touchB && !touchW) black += count;
+    else if (touchW && !touchB) white += count;
+  }
+  return { black, white };
+}
+
+/** Generate legal moves, shuffled. Optionally append pass. */
+function generateMoves(pos, color, allowPass){
+  const moves = [];
+  const n = pos.n, board = pos.board;
+
+  for (let i = 0; i < n; i++){
+    if (board[i] !== 0) continue;
+    if (i === pos.ko) continue;
+    if (isEye(pos, i, color)) continue;
+    if (!isLegalMove(pos, i, color)) continue;
+    moves.push(i);
+  }
+
+  if (allowPass && moves.length < n * 0.55) moves.push(-1);
+
+  for (let i = moves.length - 1; i > 0; i--){
+    const j = (Math.random() * (i + 1)) | 0;
+    const t = moves[i]; moves[i] = moves[j]; moves[j] = t;
+  }
+  return moves;
+}
+
+/* ==========================================================================
+   3. MONTE CARLO TREE SEARCH
+   ========================================================================== */
+class MCTSNode {
+  constructor(move, parent, color){
+    this.move = move;
+    this.parent = parent;
+    this.color = color;      // color to play at this node
+    this.children = [];
+    this.untried = null;
+    this.visits = 0;
+    this.wins = 0;
+  }
+}
+
+function selectChild(node, c){
+  let best = null, bestVal = -Infinity;
+  const logN = Math.log(node.visits + 1);
+  const kids = node.children;
+  for (let i = 0; i < kids.length; i++){
+    const ch = kids[i];
+    if (ch.visits === 0) return ch;
+    const val = (ch.wins / ch.visits) + c * Math.sqrt(logN / ch.visits);
+    if (val > bestVal){ bestVal = val; best = ch; }
+  }
+  return best;
+}
+
+function randomMove(pos, color){
+  const n = pos.n, board = pos.board;
+
+  for (let k = 0; k < 24; k++){
+    const idx = (Math.random() * n) | 0;
+    if (board[idx] !== 0) continue;
+    if (idx === pos.ko) continue;
+    if (isEye(pos, idx, color)) continue;
+    if (!isLegalMove(pos, idx, color)) continue;
+    return idx;
+  }
+
+  const start = (Math.random() * n) | 0;
+  for (let k = 0; k < n; k++){
+    const idx = (start + k) % n;
+    if (board[idx] !== 0) continue;
+    if (idx === pos.ko) continue;
+    if (isEye(pos, idx, color)) continue;
+    if (!isLegalMove(pos, idx, color)) continue;
+    return idx;
+  }
+  return -1;
+}
+
+const _playoutPath = [];
+
+function playout(pos, color){
+  _playoutPath.length = 0;
+  const limit = pos.n + 40;
+  let passes = 0, moves = 0;
+
+  while (passes < 2 && moves < limit){
+    const idx = randomMove(pos, color);
+    const rec = playStone(pos, idx, color);
+    if (!rec) break;
+    _playoutPath.push(rec);
+    if (idx === -1) passes++; else passes = 0;
+    color = 3 - color;
+    moves++;
+  }
+
+  const sc = areaScore(pos);
+
+  for (let i = _playoutPath.length - 1; i >= 0; i--) undoStone(pos, _playoutPath[i]);
+
+  if (sc.black > sc.white) return BLACK;
+  if (sc.white > sc.black) return WHITE;
+  return 0;
+}
+
+/**
+ * Run MCTS. `pos` is temporarily mutated and fully restored on return.
+ * Returns the best move index (-1 = pass).
+ */
+async function mctsSearch(pos, rootColor, opts){
+  const { timeLimit, maxPlayouts, c } = opts;
+  const root = new MCTSNode(-1, null, rootColor);
+  const t0 = performance.now();
+  let playouts = 0;
+  const path = [];
+
+  while (playouts < maxPlayouts && (performance.now() - t0) < timeLimit){
+
+    let node = root;
+    path.length = 0;
+
+    /* ---- Selection ---- */
+    while (true){
+      if (node.untried === null){
+        node.untried = generateMoves(pos, node.color, node === root);
+      }
+      if (node.untried.length > 0) break;
+      if (node.children.length === 0) break;
+
+      const next = selectChild(node, c);
+      if (!next) break;
+      node = next;
+      const rec = playStone(pos, node.move, node.parent.color);
+      if (!rec){ node = node.parent; break; }
+      path.push(rec);
+    }
+
+    /* ---- Expansion ---- */
+    if (node.untried && node.untried.length > 0){
+      const mv = node.untried.pop();
+      const rec = playStone(pos, mv, node.color);
+      if (rec){
+        path.push(rec);
+        const child = new MCTSNode(mv, node, 3 - node.color);
+        node.children.push(child);
+        node = child;
+      }
+    }
+
+    /* ---- Playout ---- */
+    const winner = playout(pos, node.color);
+
+    /* ---- Backpropagation ---- */
+    let nd = node;
+    while (nd){
+      nd.visits++;
+      if (nd.parent){
+        if (winner === 0) nd.wins += 0.5;
+        else if (winner === nd.parent.color) nd.wins += 1;
+      }
+      nd = nd.parent;
+    }
+
+    /* ---- Undo path ---- */
+    for (let i = path.length - 1; i >= 0; i--) undoStone(pos, path[i]);
+
+    playouts++;
+    if ((playouts & 31) === 0) await new Promise(r => setTimeout(r, 0));
+  }
+
+  /* ---- Choose best child by visit count ---- */
+  let best = null, bestVisits = -1;
+  for (const ch of root.children){
+    if (ch.visits > bestVisits){ bestVisits = ch.visits; best = ch; }
+  }
+  return best ? best.move : -1;
+}
+
+/* ==========================================================================
+   4. THREE.JS — SCENE SETUP
+   ========================================================================== */
+const canvas = document.getElementById('scene');
+const isMobile = window.matchMedia('(max-width: 820px)').matches;
+
+const renderer = new THREE.WebGLRenderer({
+  canvas, antialias: true, powerPreference: 'high-performance'
+});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 2 : 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.06;
+
+const maxAniso = renderer.capabilities.getMaxAnisotropy();
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x05070b);
+scene.fog = new THREE.FogExp2(0x05070b, 0.0075);
+
+const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 400);
+camera.position.set(0, 12, 11);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.075;
+controls.rotateSpeed = 0.85;
+controls.zoomSpeed = 0.85;
+controls.panSpeed = 0.7;
+controls.minPolarAngle = 0.12;
+controls.maxPolarAngle = 1.30;
+controls.enablePan = true;
+controls.screenSpacePanning = false;
+controls.target.set(0, 0, 0);
+
+/* ---- Environment (subtle reflections on stones) ---- */
+const pmrem = new THREE.PMREMGenerator(renderer);
+pmrem.compileEquirectangularShader();
+const envRT = pmrem.fromScene(new RoomEnvironment(), 0.04);
+scene.environment = envRT.texture;
+
+/* ---- Lights ---- */
+const hemi = new THREE.HemisphereLight(0xbcd2ff, 0x2a1c0c, 0.42);
+scene.add(hemi);
+
+const keyLight = new THREE.DirectionalLight(0xfff0d8, 2.35);
+keyLight.position.set(9, 17, 8);
+keyLight.castShadow = true;
+keyLight.shadow.mapSize.set(isMobile ? 1024 : 2048, isMobile ? 1024 : 2048);
+keyLight.shadow.camera.near = 1;
+keyLight.shadow.camera.far = 70;
+keyLight.shadow.camera.left = -16;
+keyLight.shadow.camera.right = 16;
+keyLight.shadow.camera.top = 16;
+keyLight.shadow.camera.bottom = -16;
+keyLight.shadow.bias = -0.0006;
+keyLight.shadow.normalBias = 0.02;
+keyLight.shadow.radius = 2.5;
+scene.add(keyLight);
+scene.add(keyLight.target);
+
+const fillLight = new THREE.DirectionalLight(0x8fb0ff, 0.55);
+fillLight.position.set(-11, 9, -7);
+scene.add(fillLight);
+
+const rimLight = new THREE.PointLight(0xffa855, 90, 60, 2);
+rimLight.position.set(-9, 7, -10);
+scene.add(rimLight);
+
+const rimLight2 = new THREE.PointLight(0x66aaff, 55, 50, 2);
+rimLight2.position.set(10, 5, 9);
+scene.add(rimLight2);
+
+/* ---- Floor ---- */
+const floorGeo = new THREE.PlaneGeometry(160, 160);
+const floorMat = new THREE.MeshStandardMaterial({
+  color: 0x080b12, roughness: 0.92, metalness: 0.08,
+  envMapIntensity: 0.25
+});
+const floor = new THREE.Mesh(floorGeo, floorMat);
+floor.rotation.x = -Math.PI / 2;
+floor.position.y = -1.9;
+floor.receiveShadow = true;
+scene.add(floor);
+
+/* ==========================================================================
+   5. TEXTURES
+   ========================================================================== */
+function drawWoodGrain(ctx, w, h, seed){
+  const rnd = mulberry32(seed);
+
+  const g = ctx.createLinearGradient(0, 0, w * 0.35, h);
+  g.addColorStop(0.00, '#e8c07a');
+  g.addColorStop(0.32, '#d9a95c');
+  g.addColorStop(0.62, '#c48f42');
+  g.addColorStop(0.85, '#d3a253');
+  g.addColorStop(1.00, '#dfb469');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, w, h);
+
+  for (let i = 0; i < 320; i++){
+    const y0 = rnd() * h;
+    const amp = 4 + rnd() * 30;
+    const freq = (0.4 + rnd() * 2.6) / w * Math.PI * 2;
+    const phase = rnd() * Math.PI * 2;
+
+    ctx.beginPath();
+    ctx.moveTo(0, y0);
+    for (let x = 0; x <= w; x += 7){
+      ctx.lineTo(x, y0 + Math.sin(x * freq + phase) * amp);
+    }
+    const d = rnd();
+    ctx.strokeStyle = d < 0.45
+      ? `rgba(104, 62, 20, ${(0.02 + rnd() * 0.10).toFixed(3)})`
+      : `rgba(255, 235, 190, ${(0.015 + rnd() * 0.07).toFixed(3)})`;
+    ctx.lineWidth = 0.8 + rnd() * 5.5;
+    ctx.stroke();
+  }
+
+  for (let k = 0; k < 3; k++){
+    const cx = rnd() * w, cy = rnd() * h;
+    for (let r = 2; r < 110; r += 3 + rnd() * 7){
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, r, r * (0.45 + rnd() * 0.55), rnd() * Math.PI, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(118, 72, 26, ${(0.03 + rnd() * 0.055).toFixed(3)})`;
+      ctx.lineWidth = 1 + rnd() * 3;
+      ctx.stroke();
+    }
+  }
+}
+
+function starPoints(size){
+  if (size === 19){
+    return [[3,3],[3,9],[3,15],[9,3],[9,9],[9,15],[15,3],[15,9],[15,15]];
+  }
+  if (size === 13){
+    return [[3,3],[3,9],[9,3],[9,9],[6,6]];
+  }
+  if (size === 9){
+    return [[2,2],[2,6],[6,2],[6,6],[4,4]];
+  }
+  return [];
+}
+
+const MARGIN = 1.15;
+
+function makeBoardTopTexture(size){
+  const CS = 2048;
+  const worldSize = (size - 1) + 2 * MARGIN;
+  const s = CS / worldSize;
+
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = CS;
+  const ctx = cv.getContext('2d');
+
+  drawWoodGrain(ctx, CS, CS, 20240617);
+
+  // Slightly lighter playing field
+  const c0 = MARGIN * s;
+  const c1 = CS - MARGIN * s;
+  const fieldGrad = ctx.createRadialGradient(CS/2, CS/2, 0, CS/2, CS/2, CS * 0.72);
+  fieldGrad.addColorStop(0, 'rgba(255, 240, 205, 0.10)');
+  fieldGrad.addColorStop(1, 'rgba(255, 240, 205, 0.00)');
+  ctx.fillStyle = fieldGrad;
+  ctx.fillRect(0, 0, CS, CS);
+
+  // Grid lines
+  ctx.strokeStyle = 'rgba(44, 25, 8, 0.92)';
+  ctx.lineWidth = Math.max(2, s * 0.030);
+  ctx.lineCap = 'round';
+  ctx.shadowColor = 'rgba(255, 226, 170, 0.30)';
+  ctx.shadowBlur = 2.5;
+
+  for (let i = 0; i < size; i++){
+    const p = c0 + i * s;
+    ctx.beginPath(); ctx.moveTo(c0, p); ctx.lineTo(c1, p); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(p, c0); ctx.lineTo(p, c1); ctx.stroke();
+  }
+  ctx.shadowBlur = 0;
+
+  // Star points
+  const stars = starPoints(size);
+  ctx.fillStyle = 'rgba(38, 20, 6, 0.96)';
+  for (let i = 0; i < stars.length; i++){
+    const [gx, gy] = stars[i];
+    ctx.beginPath();
+    ctx.arc(c0 + gx * s, c0 + gy * s, Math.max(3.2, s * 0.082), 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Vignette
+  const vg = ctx.createRadialGradient(CS/2, CS/2, CS * 0.30, CS/2, CS/2, CS * 0.75);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, 'rgba(46, 22, 0, 0.30)');
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, CS, CS);
+
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = maxAniso;
+  return tex;
+}
+
+function makeWoodSideTexture(){
+  const W = 1024, H = 256;
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d');
+  drawWoodGrain(ctx, W, H, 987654);
+  // darken
+  ctx.fillStyle = 'rgba(70, 38, 6, 0.22)';
+  ctx.fillRect(0, 0, W, H);
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = maxAniso;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(3, 1);
+  return tex;
+}
+
+/* ==========================================================================
+   6. BOARD & STONES
+   ========================================================================== */
+const STONE_R = 0.462;
+const STONE_HH = 0.158;
+const STONE_Y = STONE_HH + 0.004;
+
+let boardGroup = null;
+let boardWorldSize = 10;
+let stoneMeshes = new Map();
+
+function disposeObject(obj){
+  obj.traverse(o => {
+    if (o.geometry) o.geometry.dispose();
+    if (o.material){
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      for (const m of mats){
+        if (m.map) m.map.dispose();
+        m.dispose();
+      }
+    }
+  });
+}
+
+/* Stone geometry (biconvex lens) */
+const stoneGeo = (() => {
+  const pts = [];
+  const SEG = 22;
+  for (let i = 0; i <= SEG; i++){
+    const t = i / SEG;
+    const ang = t * Math.PI;
+    const x = Math.max(Math.sin(ang) * STONE_R, 0.0008);
+    const y = Math.cos(ang) * STONE_HH;
+    pts.push(new THREE.Vector2(x, y));
+  }
+  const g = new THREE.LatheGeometry(pts, 40);
+  g.computeVertexNormals();
+  return g;
+})();
+
+const blackStoneMat = new THREE.MeshPhysicalMaterial({
+  color: 0x14161b,
+  roughness: 0.11,
+  metalness: 0.0,
+  clearcoat: 1.0,
+  clearcoatRoughness: 0.045,
+  envMapIntensity: 1.35,
+  sheen: 0.35,
+  sheenColor: new THREE.Color(0x2a3340)
+});
+
+const whiteStoneMat = new THREE.MeshPhysicalMaterial({
+  color: 0xf3efe6,
+  roughness: 0.16,
+  metalness: 0.0,
+  clearcoat: 0.85,
+  clearcoatRoughness: 0.08,
+  envMapIntensity: 1.0,
+  sheen: 0.25,
+  sheenColor: new THREE.Color(0xffffff)
+});
+
+function buildBoard(size){
+  if (boardGroup){
+    scene.remove(boardGroup);
+    disposeObject(boardGroup);
+    boardGroup = null;
+  }
+  for (const [, m] of stoneMeshes) boardGroup && boardGroup.remove(m);
+  stoneMeshes.clear();
+
+  boardGroup = new THREE.Group();
+  scene.add(boardGroup);
+
+  const worldSize = (size - 1) + 2 * MARGIN;
+  boardWorldSize = worldSize;
+  const thickness = Math.max(0.72, worldSize * 0.058);
+
+  const topTex = makeBoardTopTexture(size);
+  const sideTex = makeWoodSideTexture();
+
+  const topMat = new THREE.MeshStandardMaterial({
+    map: topTex, roughness: 0.40, metalness: 0.05, envMapIntensity: 0.42
+  });
+  const sideMat = new THREE.MeshStandardMaterial({
+    map: sideTex, roughness: 0.55, metalness: 0.06, envMapIntensity: 0.35,
+    color: 0xcfae7c
+  });
+  const bottomMat = new THREE.MeshStandardMaterial({
+    color: 0x3a2a16, roughness: 0.9, metalness: 0.05
+  });
+
+  const geo = new THREE.BoxGeometry(worldSize, thickness, worldSize);
+  const mesh = new THREE.Mesh(geo, [sideMat, sideMat, topMat, bottomMat, sideMat, sideMat]);
+  mesh.position.y = -thickness / 2;
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  boardGroup.add(mesh);
+
+  // Decorative base rim
+  const rimGeo = new THREE.BoxGeometry(worldSize + 0.34, thickness * 0.30, worldSize + 0.34);
+  const rimMat = new THREE.MeshStandardMaterial({
+    color: 0x2a1a0c, roughness: 0.55, metalness: 0.25, envMapIntensity: 0.5
+  });
+  const rim = new THREE.Mesh(rimGeo, rimMat);
+  rim.position.y = -thickness + thickness * 0.15 - 0.01;
+  rim.castShadow = true;
+  rim.receiveShadow = true;
+  boardGroup.add(rim);
+
+  // Board top surface y = 0
+  updateShadowCamera(worldSize);
+}
+
+function updateShadowCamera(worldSize){
+  const r = worldSize * 0.85 + 3;
+  const cam = keyLight.shadow.camera;
+  cam.left = -r; cam.right = r; cam.top = r; cam.bottom = -r;
+  cam.far = 90;
+  cam.updateProjectionMatrix();
+  keyLight.position.set(worldSize * 0.55, worldSize * 1.05, worldSize * 0.5);
+  keyLight.target.position.set(0, 0, 0);
+  keyLight.target.updateMatrixWorld();
+}
+
+function frameCamera(size){
+  const extent = (size - 1) + 2 * MARGIN;
+  const dist = extent * 1.02;
+  camera.position.set(0, dist * 0.92, dist * 0.86);
+  controls.target.set(0, 0, 0);
+  controls.minDistance = extent * 0.55;
+  controls.maxDistance = extent * 2.6;
+  controls.update();
+}
+
+function idxToWorld(idx, size){
+  const half = (size - 1) / 2;
+  const x = (idx % size) - half;
+  const z = Math.floor(idx / size) - half;
+  return { x, z };
+}
+
+function createStoneMesh(idx, color, size){
+  const mesh = new THREE.Mesh(stoneGeo, color === BLACK ? blackStoneMat : whiteStoneMat);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  const p = idxToWorld(idx, size);
+  mesh.position.set(p.x, STONE_Y, p.z);
+  mesh.userData.idx = idx;
+  mesh.userData.color = color;
+  return mesh;
+}
+
+/* ---- Ghost / hover stone ---- */
+const ghostMat = new THREE.MeshPhysicalMaterial({
+  color: 0xffffff, transparent: true, opacity: 0.30,
+  roughness: 0.2, metalness: 0, clearcoat: 1,
+  depthWrite: false, envMapIntensity: 0.8
+});
+const ghostStone = new THREE.Mesh(stoneGeo, ghostMat);
+ghostStone.visible = false;
+ghostStone.renderOrder = 5;
+scene.add(ghostStone);
+
+/* ---- Last-move marker ---- */
+const markerMat = new THREE.MeshBasicMaterial({
+  color: 0xff5a7a, transparent: true, opacity: 0.92, side: THREE.DoubleSide, depthWrite: false
+});
+const marker = new THREE.Mesh(new THREE.RingGeometry(0.115, 0.195, 28), markerMat);
+marker.rotation.x = -Math.PI / 2;
+marker.visible = false;
+marker.renderOrder = 6;
+scene.add(marker);
+
+/* ==========================================================================
+   7. ANIMATIONS
+   ========================================================================== */
+const animations = [];
+const easeOutCubic = t => 1 - Math.pow(1 - t, 3);
+
+function pushAnim(a){ animations.push(a); }
+
+function animateDrop(mesh){
+  const targetY = STONE_Y;
+  const startY = targetY + 3.2;
+  mesh.position.y = startY;
+  const start = performance.now();
+  pushAnim({
+    start, duration: 290,
+    update(t){
+      const e = easeOutCubic(t);
+      mesh.position.y = startY + (targetY - startY) * e;
+      const s = 0.86 + 0.14 * e;
+      mesh.scale.set(s, s, s);
+    },
+    onDone(){ mesh.position.y = targetY; mesh.scale.set(1,1,1); }
+  });
+}
+
+function animateCapture(mesh){
+  const start = performance.now();
+  const y0 = mesh.position.y;
+  const targetOpacity = 0;
+  const mat = mesh.material;
+  const wasTransparent = mat.transparent;
+  mat.transparent = true;
+  const baseOpacity = mat.opacity;
+
+  pushAnim({
+    start, duration: 300,
+    update(t){
+      const e = easeOutCubic(t);
+      const s = 1 - e;
+      mesh.scale.set(Math.max(0.001, s), Math.max(0.001, s * 0.9), Math.max(0.001, s));
+      mesh.position.y = y0 + e * 0.9;
+      mat.opacity = baseOpacity * (1 - e);
+    },
+    onDone(){
+      mesh.parent && mesh.parent.remove(mesh);
+      mat.opacity = baseOpacity;
+      mat.transparent = wasTransparent;
+    }
+  });
+}
+
+function stepAnimations(now){
+  for (let i = animations.length - 1; i >= 0; i--){
+    const a = animations[i];
+    let t = (now - a.start) / a.duration;
+    if (t < 0) t = 0;
+    if (t > 1) t = 1;
+    a.update(t);
+    if (t >= 1){
+      animations.splice(i, 1);
+      if (a.onDone) a.onDone();
+    }
+  }
+}
+
+/* ==========================================================================
+   8. AUDIO
+   ========================================================================== */
+let audioCtx = null;
+let soundEnabled = true;
+
+function ensureAudio(){
+  if (!audioCtx){
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    audioCtx = new AC();
+  }
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  return audioCtx;
+}
+
+function noiseBuffer(ctx, seconds, decay){
+  const len = Math.floor(ctx.sampleRate * seconds);
+  const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++){
+    d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
+  }
+  return buf;
+}
+
+function playSound(type){
+  if (!soundEnabled) return;
+  const ctx = ensureAudio();
+  if (!ctx) return;
+
+  const t = ctx.currentTime;
+  const master = ctx.createGain();
+  master.gain.value = 0.5;
+  master.connect(ctx.destination);
+
+  if (type === 'place' || type === 'capture'){
+    // Wooden click
+    const src = ctx.createBufferSource();
+    src.buffer = noiseBuffer(ctx, 0.055, 7);
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = type === 'capture' ? 1250 : 1850;
+    bp.Q.value = 1.1;
+    const g1 = ctx.createGain();
+    g1.gain.value = type === 'capture' ? 0.45 : 0.34;
+    src.connect(bp); bp.connect(g1); g1.connect(master);
+    src.start(t);
+
+    // Body tone
+    const osc = ctx.createOscillator();
+    osc.type = 'triangle';
+    const f0 = type === 'capture' ? 330 : 480;
+    osc.frequency.setValueAtTime(f0, t);
+    osc.frequency.exponentialRampToValueAtTime(f0 * 0.42, t + 0.10);
+    const g2 = ctx.createGain();
+    g2.gain.setValueAtTime(0.001, t);
+    g2.gain.linearRampToValueAtTime(0.16, t + 0.004);
+    g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.13);
+    osc.connect(g2); g2.connect(master);
+    osc.start(t); osc.stop(t + 0.15);
+
+    if (type === 'capture'){
+      const src2 = ctx.createBufferSource();
+      src2.buffer = noiseBuffer(ctx, 0.14, 4);
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 900;
+      const g3 = ctx.createGain();
+      g3.gain.setValueAtTime(0.001, t + 0.01);
+      g3.gain.linearRampToValueAtTime(0.22, t + 0.02);
+      g3.gain.exponentialRampToValueAtTime(0.0001, t + 0.20);
+      src2.connect(lp); lp.connect(g3); g3.connect(master);
+      src2.start(t + 0.01);
+    }
+  } else if (type === 'pass'){
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(620, t);
+    osc.frequency.exponentialRampToValueAtTime(300, t + 0.16);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.001, t);
+    g.gain.linearRampToValueAtTime(0.09, t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+    osc.connect(g); g.connect(master);
+    osc.start(t); osc.stop(t + 0.24);
+  } else if (type === 'illegal'){
+    const osc = ctx.createOscillator();
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(160, t);
+    osc.frequency.exponentialRampToValueAtTime(90, t + 0.10);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.05, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+    osc.connect(g); g.connect(master);
+    osc.start(t); osc.stop(t + 0.13);
+  } else if (type === 'win'){
+    const notes = [523.25, 659.25, 783.99, 1046.5];
+    notes.forEach((f, i) => {
+      const o = ctx.createOscillator();
+      o.type = 'triangle';
+      o.frequency.value = f;
+      const g = ctx.createGain();
+      const st = t + i * 0.11;
+      g.gain.setValueAtTime(0.0001, st);
+      g.gain.linearRampToValueAtTime(0.12, st + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, st + 0.5);
+      o.connect(g); g.connect(ctx.destination);
+      o.start(st); o.stop(st + 0.55);
+    });
+  }
+}
+
+/* ==========================================================================
+   9. GAME STATE & CONTROLLER
+   ========================================================================== */
+const DIFFICULTY = {
+  easy:   { label: 'Easy',   timeMs: 320,  maxPlayouts: 260,  c: 1.7, randomChance: 0.38 },
+  medium: { label: 'Medium', timeMs: 1100, maxPlayouts: 2200, c: 1.25, randomChance: 0.07 },
+  hard:   { label: 'Hard',   timeMs: 2600, maxPlayouts: 9000, c: 0.92, randomChance: 0.0 }
+};
+
+const KOMI = 6.5;
+
+const G = {
+  size: 9,
+  pos: createPos(9),
+  history: [],
+  passes: 0,
+  lastMove: -1,
+  moveNumber: 0,
+  gameOver: false,
+  aiThinking: false,
+  humanColor: BLACK,
+  aiColor: WHITE,
+  difficulty: 'medium',
+  searchToken: 0
+};
+
+let hoverIdx = -1;
+
+/* ---------- UI helpers ---------- */
+const el = id => document.getElementById(id);
+const turnDot = el('turnDot');
+const turnText = el('turnText');
+const capText = el('capText');
+const scoreBEl = el('scoreB');
+const scoreWEl = el('scoreW');
+const thinkingEl = el('thinking');
+const modalEl = el('modal');
+const modalTitle = el('modalTitle');
+const modalBody = el('modalBody');
+
+function fmt(n){
+  return (Math.round(n * 10) / 10).toFixed(n % 1 === 0 ? 0 : 1);
+}
+
+function computeScore(){
+  const sc = areaScore(G.pos);
+  // Japanese-flavoured display: territory + captures
+  const blackTerritory = sc.black - countStones(BLACK);
+  const whiteTerritory = sc.white - countStones(WHITE);
+  const blackTotal = sc.black + G.pos.capB;
+  const whiteTotal = sc.white + G.pos.capW + KOMI;
+  return { blackTotal, whiteTotal, blackTerritory, whiteTerritory, sc };
+}
+
+function countStones(color){
+  let c = 0;
+  const b = G.pos.board;
+  for (let i = 0; i < b.length; i++) if (b[i] === color) c++;
+  return c;
+}
+
+function updateUI(){
+  const turn = G.pos.toPlay;
+  if (G.gameOver){
+    turnDot.className = 'dot ' + (turn === BLACK ? 'black' : 'white');
+    turnDot.classList.remove('pulse');
+    turnText.textContent = 'Game over';
+  } else {
+    turnDot.className = 'dot ' + (turn === BLACK ? 'black' : 'white') + ' pulse';
+    turnText.textContent = turn === G.humanColor ? 'Your turn' : 'AI thinking…';
+  }
+
+  capText.textContent = `B ${G.pos.capB} · W ${G.pos.capW}`;
+
+  const s = computeScore();
+  scoreBEl.textContent = fmt(s.blackTotal);
+  scoreWEl.textContent = fmt(s.whiteTotal);
+
+  el('btnUndo').disabled = G.history.length === 0 || G.aiThinking || G.gameOver;
+  el('btnPass').disabled = G.gameOver || G.aiThinking || G.pos.toPlay !== G.humanColor;
+}
+
+function updateMarker(){
+  if (G.lastMove >= 0 && G.pos.board[G.lastMove] !== 0){
+    const p = idxToWorld(G.lastMove, G.size);
+    marker.position.set(p.x, STONE_Y + STONE_HH + 0.02, p.z);
+    marker.visible = true;
+  } else {
+    marker.visible = false;
+  }
+}
+
+/* ---------- Mesh management ---------- */
+function rebuildStones(){
+  for (const [, m] of stoneMeshes){
+    if (m.parent) m.parent.remove(m);
+  }
+  stoneMeshes.clear();
+
+  const board = G.pos.board;
+  for (let i = 0; i < G.pos.n; i++){
+    if (board[i] !== 0){
+      const mesh = createStoneMesh(i, board[i], G.size);
+      boardGroup.add(mesh);
+      stoneMeshes.set(i, mesh);
+    }
+  }
+  updateMarker();
+}
+
+/* ---------- Core move application ---------- */
+function applyMove(idx, color){
+  const rec = playStone(G.pos, idx, color);
+  if (!rec) return false;
+
+  G.history.push({
+    rec,
+    prevPasses: G.passes,
+    prevLastMove: G.lastMove
+  });
+
+  if (idx >= 0){
+    const mesh = createStoneMesh(idx, color, G.size);
+    boardGroup.add(mesh);
+    stoneMeshes.set(idx, mesh);
+    animateDrop(mesh);
+
+    if (rec.captured.length > 0){
+      for (let i = 0; i < rec.captured.length; i++){
+        const ci = rec.captured[i];
+        const cm = stoneMeshes.get(ci);
+        if (cm){
+          stoneMeshes.delete(ci);
+          animateCapture(cm);
+        }
+      }
+      playSound('capture');
+    } else {
+      playSound('place');
+    }
+    G.lastMove = idx;
+    G.passes = 0;
+  } else {
+    G.lastMove = -1;
+    G.passes++;
+    playSound('pass');
+  }
+
+  G.pos.toPlay = 3 - G.pos.toPlay;
+  G.moveNumber++;
+
+  updateMarker();
+  updateUI();
+
+  if (G.passes >= 2){
+    endGame();
+    return true;
+  }
+  return true;
+}
+
+function endGame(){
+  G.gameOver = true;
+  const s = computeScore();
+  const diff = s.blackTotal - s.whiteTotal;
+
+  let title, body;
+  if (Math.abs(diff) < 0.01){
+    title = 'Draw';
+    body = `Perfectly balanced. <b>${fmt(s.blackTotal)}</b> — <b>${fmt(s.whiteTotal)}</b>`;
+  } else if (diff > 0){
+    title = 'Black Wins';
+    body = `Black takes it by <b>${fmt(diff)}</b> points.<br>Black <b>${fmt(s.blackTotal)}</b> — White <b>${fmt(s.whiteTotal)}</b>`;
+  } else {
+    title = 'White Wins';
+    body = `White takes it by <b>${fmt(-diff)}</b> points.<br>Black <b>${fmt(s.blackTotal)}</b> — White <b>${fmt(s.whiteTotal)}</b>`;
+  }
+
+  if (diff > 0 && G.humanColor === BLACK) playSound('win');
+  else if (diff < 0 && G.humanColor === WHITE) playSound('win');
+
+  modalTitle.textContent = title;
+  modalBody.innerHTML = body;
+  modalEl.classList.add('on');
+
+  ghostStone.visible = false;
+  updateUI();
+}
+
+/* ---------- AI ---------- */
+function scheduleAI(){
+  if (G.gameOver || G.aiThinking) return;
+  if (G.pos.toPlay !== G.aiColor) return;
+
+  G.aiThinking = true;
+  thinkingEl.classList.add('on');
+  updateUI();
+
+  const token = ++G.searchToken;
+
+  setTimeout(async () => {
+    try {
+      const cfg = DIFFICULTY[G.difficulty];
+      const sizeScale = G.size === 19 ? 0.55 : G.size === 13 ? 0.8 : 1;
+
+      let move;
+
+      // Occasional random move for weaker difficulties
+      if (Math.random() < cfg.randomChance){
+        const quick = generateMoves(G.pos, G.aiColor, false);
+        if (quick.length > 0){
+          move = quick[(Math.random() * quick.length) | 0];
+        }
+      }
+
+      if (move === undefined){
+        const opts = {
+          timeLimit: cfg.timeMs * (G.size === 19 ? 1.35 : 1),
+          maxPlayouts: Math.round(cfg.maxPlayouts * sizeScale),
+          c: cfg.c
+        };
+        move = await mctsSearch(G.pos, G.aiColor, opts);
+      }
+
+      if (token !== G.searchToken){ return; }
+
+      if (move === -1 || move === undefined || move === null){
+        applyMove(-1, G.aiColor);
+      } else {
+        const ok = applyMove(move, G.aiColor);
+        if (!ok) applyMove(-1, G.aiColor);
+      }
+    } catch (e){
+      console.error(e);
+      applyMove(-1, G.aiColor);
+    } finally {
+      if (token === G.searchToken){
+        G.aiThinking = false;
+        thinkingEl.classList.remove('on');
+        updateUI();
+      }
+    }
+  }, 80);
+}
+
+/* ---------- Human interaction ---------- */
+const raycaster = new THREE.Raycaster();
+const pointerNDC = new THREE.Vector2();
+const boardPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const hitPoint = new THREE.Vector3();
+
+function screenToBoard(clientX, clientY){
+  const rect = renderer.domElement.getBoundingClientRect();
+  pointerNDC.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+  pointerNDC.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+
+  raycaster.setFromCamera(pointerNDC, camera);
+
+  if (!raycaster.ray.intersectPlane(boardPlane, hitPoint)) return -1;
+
+  const half = (G.size - 1) / 2;
+  const fx = hitPoint.x + half;
+  const fz = hitPoint.z + half;
+
+  const i = Math.round(fx);
+  const j = Math.round(fz);
+
+  if (i < 0 || i >= G.size || j < 0 || j >= G.size) return -1;
+
+  const dx = fx - i;
+  const dz = fz - j;
+  if (dx * dx + dz * dz > 0.42 * 0.42) return -1;
+
+  return j * G.size + i;
+}
+
+function tryHumanMove(idx){
+  if (G.gameOver || G.aiThinking) return;
+  if (G.pos.toPlay !== G.humanColor) return;
+  if (idx < 0) return;
+
+  const rec = playStone(G.pos, idx, G.humanColor);
+  if (!rec){
+    playSound('illegal');
+    return;
+  }
+  undoStone(G.pos, rec);
+
+  applyMove(idx, G.humanColor);
+  hoverIdx = -1;
+  ghostStone.visible = false;
+
+  if (!G.gameOver) scheduleAI();
+}
+
+/* Pointer handling — distinguish tap from orbit drag */
+let downX = 0, downY = 0, downTime = 0, downActive = false;
+
+canvas.addEventListener('pointerdown', e => {
+  downActive = true;
+  downX = e.clientX;
+  downY = e.clientY;
+  downTime = performance.now();
+});
+
+canvas.addEventListener('pointerup', e => {
+  if (!downActive) return;
+  downActive = false;
+  const dt = performance.now() - downTime;
+  const dist = Math.hypot(e.clientX - downX, e.clientY - downY);
+  if (dt > 520 || dist > 12) return;
+  if (e.button !== undefined && e.button !== 0 && e.pointerType === 'mouse') return;
+
+  const idx = screenToBoard(e.clientX, e.clientY);
+  tryHumanMove(idx);
+});
+
+canvas.addEventListener('pointercancel', () => { downActive = false; });
+
+canvas.addEventListener('pointermove', e => {
+  if (e.pointerType !== 'mouse') return;
+  if (G.gameOver || G.aiThinking || G.pos.toPlay !== G.humanColor){
+    ghostStone.visible = false;
+    return;
+  }
+
+  const idx = screenToBoard(e.clientX, e.clientY);
+  if (idx < 0 || G.pos.board[idx] !== 0){
+    ghostStone.visible = false;
+    hoverIdx = -1;
+    return;
+  }
+
+  const legal = isLegalMove(G.pos, idx, G.humanColor);
+  if (!legal){
+    ghostStone.visible = false;
+    hoverIdx = -1;
+    return;
+  }
+
+  hoverIdx = idx;
+  const p = idxToWorld(idx, G.size);
+  ghostStone.position.set(p.x, STONE_Y, p.z);
+  ghostStone.material = ghostMat;
+  ghostMat.color.setHex(G.humanColor === BLACK ? 0x22262e : 0xffffff);
+  ghostMat.opacity = 0.34;
+  ghostStone.visible = true;
+});
+
+canvas.addEventListener('pointerleave', () => {
+  ghostStone.visible = false;
+  hoverIdx = -1;
+});
+
+/* ---------- Buttons ---------- */
+function doPass(){
+  if (G.gameOver || G.aiThinking) return;
+  if (G.pos.toPlay !== G.humanColor) return;
+  applyMove(-1, G.humanColor);
+  ghostStone.visible = false;
+  if (!G.gameOver) scheduleAI();
+}
+
+function doUndo(){
+  if (G.aiThinking || G.history.length === 0 || G.gameOver) return;
+
+  // Undo back to the human's turn (at least one move)
+  let undone = 0;
+  while (G.history.length > 0){
+    const h = G.history.pop();
+    undoStone(G.pos, h.rec);
+    G.passes = h.prevPasses;
+    G.lastMove = h.prevLastMove;
+    G.pos.toPlay = h.rec.color;
+    G.moveNumber = Math.max(0, G.moveNumber - 1);
+    undone++;
+    if (G.pos.toPlay === G.humanColor) break;
+  }
+
+  G.gameOver = false;
+  G.searchToken++;
+  modalEl.classList.remove('on');
+  rebuildStones();
+  updateUI();
+  if (undone > 0) playSound('pass');
+}
+
+function newGame(size, difficulty){
+  G.searchToken++;
+  G.size = size;
+  G.pos = createPos(size);
+  G.history = [];
+  G.passes = 0;
+  G.lastMove = -1;
+  G.moveNumber = 0;
+  G.gameOver = false;
+  G.aiThinking = false;
+  G.humanColor = BLACK;
+  G.aiColor = WHITE;
+  G.difficulty = difficulty;
+  hoverIdx = -1;
+
+  thinkingEl.classList.remove('on');
+  modalEl.classList.remove('on');
+  ghostStone.visible = false;
+
+  buildBoard(size);
+  rebuildStones();
+  frameCamera(size);
+  updateUI();
+
+  animations.length = 0;
+}
+
+/* ---------- Settings panel ---------- */
+let selSize = 9;
+let selDiff = 'medium';
+
+const settingsPanel = el('settingsPanel');
+
+el('btnSettings').addEventListener('click', () => {
+  settingsPanel.classList.toggle('open');
+});
+
+el('sizeSeg').addEventListener('click', e => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  [...el('sizeSeg').children].forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  selSize = parseInt(btn.dataset.size, 10);
+});
+
+el('diffSeg').addEventListener('click', e => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  [...el('diffSeg').children].forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  selDiff = btn.dataset.diff;
+});
+
+el('btnApply').addEventListener('click', () => {
+  settingsPanel.classList.remove('open');
+  newGame(selSize, selDiff);
+});
+
+el('btnPass').addEventListener('click', doPass);
+el('btnUndo').addEventListener('click', doUndo);
+el('btnNew').addEventListener('click', () => {
+  settingsPanel.classList.add('open');
+});
+el('btnModalNew').addEventListener('click', () => {
+  modalEl.classList.remove('on');
+  settingsPanel.classList.add('open');
+});
+
+el('btnSound').addEventListener('click', () => {
+  soundEnabled = !soundEnabled;
+  el('btnSound').textContent = soundEnabled ? '♪' : '✕';
+  el('btnSound').style.opacity = soundEnabled ? '1' : '0.45';
+  if (soundEnabled) playSound('place');
+});
+
+/* Keyboard shortcuts */
+window.addEventListener('keydown', e => {
+  if (e.repeat) return;
+  if (e.key === 'u' || e.key === 'U') doUndo();
+  else if (e.key === 'p' || e.key === 'P') doPass();
+  else if (e.key === 'r' || e.key === 'R') settingsPanel.classList.add('open');
+  else if (e.key === 'Escape'){
+    settingsPanel.classList.remove('open');
+    modalEl.classList.remove('on');
+  }
+});
+
+/* ---------- Resize ---------- */
+function onResize(){
+  const w = window.innerWidth, h = window.innerHeight;
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(w, h);
+}
+window.addEventListener('resize', onResize);
+window.addEventListener('orientationchange', () => setTimeout(onResize, 200));
+
+/* ==========================================================================
+   10. MAIN LOOP
+   ========================================================================== */
+function tick(){
+  requestAnimationFrame(tick);
+
+  const now = performance.now();
+  stepAnimations(now);
+
+  // Gentle marker pulse
+  if (marker.visible){
+    const p = 0.72 + 0.28 * Math.sin(now * 0.004);
+    markerMat.opacity = 0.55 + 0.4 * p;
+    marker.scale.setScalar(0.94 + 0.08 * p);
+  }
+
+  // Ghost stone subtle bob
+  if (ghostStone.visible){
+    ghostStone.position.y = STONE_Y + Math.sin(now * 0.005) * 0.012;
+  }
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+/* ==========================================================================
+   11. BOOT
+   ========================================================================== */
+(function boot(){
+  newGame(9, 'medium');
+  tick();
+
+  // Slight intro animation of the camera
+  const startPos = camera.position.clone().multiplyScalar(1.9);
+  camera.position.copy(startPos);
+  const t0 = performance.now();
+  const targetPos = new THREE.Vector3();
+  frameCamera(9);
+  targetPos.copy(camera.position);
+  camera.position.copy(startPos);
+
+  const intro = {
+    start: t0, duration: 1200,
+    update(t){
+      const e = 1 - Math.pow(1 - t, 4);
+      camera.position.lerpVectors(startPos, targetPos, e);
+    }
+  };
+  animations.push(intro);
+})();
+</script>
+</body>
+</html>

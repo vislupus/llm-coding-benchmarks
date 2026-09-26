@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cinematic Pagoda Garden</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <style>
+    :root {
+      color-scheme: light;
+    }
+
+    html,
+    body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #f2f0f6;
+      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    #stage {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .title {
+      position: fixed;
+      left: 50%;
+      top: 20px;
+      transform: translateX(-50%);
+      letter-spacing: 0.35em;
+      text-transform: uppercase;
+      font-size: 11px;
+      color: rgba(40, 34, 40, 0.58);
+      pointer-events: none;
+      user-select: none;
+      mix-blend-mode: multiply;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="stage"></canvas>
+  <div class="title">Cinematic Garden Study</div>
+
+  <script>
+    const canvas = document.getElementById("stage");
+    const ctx = canvas.getContext("2d");
+
+    const TAU = Math.PI * 2;
+    const DEG = Math.PI / 180;
+
+    const scene = {
+      blossoms: [],
+      petals: [],
+      koi: []
+    };
+
+    function resize() {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = Math.floor(window.innerWidth * dpr);
+      canvas.height = Math.floor(window.innerHeight * dpr);
+      canvas.style.width = `${window.innerWidth}px`;
+      canvas.style.height = `${window.innerHeight}px`;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    window.addEventListener("resize", resize);
+    resize();
+
+    function vec3(x, y, z) {
+      return { x, y, z };
+    }
+
+    function add(a, b) {
+      return vec3(a.x + b.x, a.y + b.y, a.z + b.z);
+    }
+
+    function sub(a, b) {
+      return vec3(a.x - b.x, a.y - b.y, a.z - b.z);
+    }
+
+    function mul(v, s) {
+      return vec3(v.x * s, v.y * s, v.z * s);
+    }
+
+    function dot(a, b) {
+      return a.x * b.x + a.y * b.y + a.z * b.z;
+    }
+
+    function cross(a, b) {
+      return vec3(
+        a.y * b.z - a.z * b.y,
+        a.z * b.x - a.x * b.z,
+        a.x * b.y - a.y * b.x
+      );
+    }
+
+    function length(v) {
+      return Math.sqrt(dot(v, v));
+    }
+
+    function normalize(v) {
+      const len = length(v) || 1;
+      return mul(v, 1 / len);
+    }
+
+    function clamp(v, min, max) {
+      return Math.max(min, Math.min(max, v));
+    }
+
+    function hexToRgb(hex) {
+      const h = hex.replace("#", "");
+      const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+      const n = parseInt(full, 16);
+      return {
+        r: (n >> 16) & 255,
+        g: (n >> 8) & 255,
+        b: n & 255
+      };
+    }
+
+    function shade(hex, factor) {
+      const c = hexToRgb(hex);
+      const f = clamp(factor, 0, 2);
+      const r = clamp(Math.round(c.r * f), 0, 255);
+      const g = clamp(Math.round(c.g * f), 0, 255);
+      const b = clamp(Math.round(c.b * f), 0, 255);
+      return `rgb(${r},${g},${b})`;
+    }
+
+    function cameraBasis(camera) {
+      const forward = normalize(sub(camera.target, camera.pos));
+      const right = normalize(cross(forward, vec3(0, 1, 0)));
+      const up = cross(right, forward);
+      return { forward, right, up };
+    }
+
+    function project(point, camera, basis, focal, centerX, centerY) {
+      const rel = sub(point, camera.pos);
+      const cx = dot(rel, basis.right);
+      const cy = dot(rel, basis.up);
+      const cz = dot(rel, basis.forward);
+      if (cz < 0.25) {
+        return null;
+      }
+      const scale = focal / cz;
+      return {
+        x: centerX + cx * scale,
+        y: centerY - cy * scale,
+        z: cz,
+        scale
+      };
+    }
+
+    function polyEllipse(cx, cz, rx, rz, y, steps) {
+      const pts = [];
+      for (let i = 0; i < steps; i += 1) {
+        const a = (i / steps) * TAU;
+        pts.push(vec3(cx + Math.cos(a) * rx, y, cz + Math.sin(a) * rz));
+      }
+      return pts;
+    }
+
+    function generateScene() {
+      const blossomTrees = [
+        { base: vec3(-5.5, 0, -4.8), spread: 3.8, height: 4.3 },
+        { base: vec3(6.4, 0, -4.3), spread: 3.6, height: 4.1 }
+      ];
+
+      blossomTrees.forEach((tree, ti) => {
+        for (let i = 0; i < 90; i += 1) {
+          const a = Math.random() * TAU;
+          const r = Math.pow(Math.random(), 0.6) * tree.spread;
+          const h = tree.height + (Math.random() - 0.5) * 2.2;
+          scene.blossoms.push({
+            x: tree.base.x + Math.cos(a) * r,
+            y: h,
+            z: tree.base.z + Math.sin(a) * r,
+            radius: 0.2 + Math.random() * 0.18,
+            treeIndex: ti,
+            phase: Math.random() * TAU
+          });
+        }
+      });
+
+      for (let i = 0; i < 48; i += 1) {
+        scene.petals.push({
+          x: (Math.random() - 0.5) * 18,
+          y: 1.2 + Math.random() * 8,
+          z: (Math.random() - 0.5) * 16,
+          vx: (Math.random() - 0.5) * 0.015,
+          vz: (Math.random() - 0.5) * 0.02,
+          vy: 0.01 + Math.random() * 0.015,
+          spin: Math.random() * TAU,
+          size: 0.055 + Math.random() * 0.04
+        });
+      }
+
+      for (let i = 0; i < 12; i += 1) {
+        scene.koi.push({
+          t: Math.random() * TAU,
+          speed: 0.25 + Math.random() * 0.22,
+          orbit: i < 7 ? 0 : 1,
+          phase: Math.random() * TAU,
+          body: ["#f8f8f8", "#ff6a3d", "#222"][Math.floor(Math.random() * 3)]
+        });
+      }
+    }
+
+    generateScene();
+
+    function addDrawItem(drawItems, depth, blur, fn) {
+      drawItems.push({ depth, blur, fn });
+    }
+
+    function avgDepth(points) {
+      return points.reduce((a, p) => a + p.z, 0) / points.length;
+    }
+
+    function enqueuePolygon(drawItems, camera, basis, focal, centerX, centerY, verts, fill, stroke, blur, alpha) {
+      const projected = [];
+      for (let i = 0; i < verts.length; i += 1) {
+        const p = project(verts[i], camera, basis, focal, centerX, centerY);
+        if (!p) return;
+        projected.push(p);
+      }
+
+      addDrawItem(drawItems, avgDepth(projected), blur, () => {
+        ctx.globalAlpha = alpha == null ? 1 : alpha;
+        ctx.beginPath();
+        ctx.moveTo(projected[0].x, projected[0].y);
+        for (let i = 1; i < projected.length; i += 1) {
+          ctx.lineTo(projected[i].x, projected[i].y);
+        }
+        ctx.closePath();
+        if (fill) {
+          ctx.fillStyle = fill;
+          ctx.fill();
+        }
+        if (stroke) {
+          ctx.strokeStyle = stroke;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+      });
+    }
+
+    function addCuboid(drawItems, camera, basis, focal, cx, cy, floorCenter, sx, sy, sz, colorSet, dof, lightDir) {
+      const half = vec3(sx / 2, sy / 2, sz / 2);
+      const c = floorCenter;
+      const p = [
+        vec3(c.x - half.x, c.y - half.y, c.z - half.z),
+        vec3(c.x + half.x, c.y - half.y, c.z - half.z),
+        vec3(c.x + half.x, c.y - half.y, c.z + half.z),
+        vec3(c.x - half.x, c.y - half.y, c.z + half.z),
+        vec3(c.x - half.x, c.y + half.y, c.z - half.z),
+        vec3(c.x + half.x, c.y + half.y, c.z - half.z),
+        vec3(c.x + half.x, c.y + half.y, c.z + half.z),
+        vec3(c.x - half.x, c.y + half.y, c.z + half.z)
+      ];
+
+      const faces = [
+        { idx: [0, 1, 5, 4], n: vec3(0, 0, -1), base: colorSet.front },
+        { idx: [1, 2, 6, 5], n: vec3(1, 0, 0), base: colorSet.side },
+        { idx: [2, 3, 7, 6], n: vec3(0, 0, 1), base: colorSet.back },
+        { idx: [3, 0, 4, 7], n: vec3(-1, 0, 0), base: colorSet.side2 || colorSet.side },
+        { idx: [4, 5, 6, 7], n: vec3(0, 1, 0), base: colorSet.top || colorSet.front }
+      ];
+
+      faces.forEach((f) => {
+        const facing = dot(f.n, sub(camera.pos, floorCenter));
+        if (facing <= 0) return;
+        const light = 0.5 + Math.max(0, dot(normalize(f.n), lightDir)) * 0.45;
+        enqueuePolygon(
+          drawItems,
+          camera,
+          basis,
+          focal,
+          cx,
+          cy,
+          f.idx.map((i) => p[i]),
+          shade(f.base, light),
+          null,
+          dof,
+          1
+        );
+      });
+    }
+
+    function drawScene(timeMs) {
+      const t = timeMs * 0.001;
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+
+      const bg = ctx.createLinearGradient(0, 0, 0, h);
+      bg.addColorStop(0, "#fbfbff");
+      bg.addColorStop(1, "#efeaf4");
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, w, h);
+
+      const camera = {
+        pos: vec3(
+          Math.cos(0.45 + t * 0.1) * (21 + Math.sin(t * 0.16) * 1.4),
+          10 + Math.sin(t * 0.31) * 1.1,
+          Math.sin(0.45 + t * 0.1) * (21 + Math.sin(t * 0.16) * 1.4)
+        ),
+        target: vec3(0, 3.8 + Math.sin(t * 0.2) * 0.3, 0)
+      };
+
+      const basis = cameraBasis(camera);
+      const focal = h / (2 * Math.tan(32 * DEG));
+      const centerX = w * 0.5;
+      const centerY = h * 0.62;
+      const focusDist = length(sub(camera.target, camera.pos));
+      const lightDir = normalize(vec3(-0.7, 1, 0.35));
+
+      const drawItems = [];
+
+      const island = polyEllipse(0, 0.6, 14.5, 11.3, 0, 64);
+      enqueuePolygon(drawItems, camera, basis, focal, centerX, centerY, island, "#96a458", null, 0.2, 1);
+
+      const path = polyEllipse(-2.1, 0.8, 5.1, 8.5, 0.025, 46).filter((_, i) => i < 25 || i > 35);
+      enqueuePolygon(drawItems, camera, basis, focal, centerX, centerY, path, "#d9d0c0", null, 0.1, 1);
+
+      const pondA = polyEllipse(5.3, 3.2, 4.7, 2.45, 0.03, 46);
+      const pondB = polyEllipse(5.9, 8.1, 5.4, 2.8, 0.03, 50);
+      enqueuePolygon(drawItems, camera, basis, focal, centerX, centerY, pondA, "#7fc8ca", "#9ec7bf", 0.05, 0.93);
+      enqueuePolygon(drawItems, camera, basis, focal, centerX, centerY, pondB, "#8ad1d2", "#9ec7bf", 0.05, 0.93);
+
+      const pagodaBase = vec3(0, 1.6, -0.2);
+      addCuboid(
+        drawItems,
+        camera,
+        basis,
+        focal,
+        centerX,
+        centerY,
+        vec3(pagodaBase.x, 0.85, pagodaBase.z),
+        8.8,
+        1.7,
+        8.8,
+        { front: "#9f9ba1", side: "#8f8b93", back: "#8a8790", top: "#aaa6ad" },
+        0.2,
+        lightDir
+      );
+
+      for (let level = 0; level < 3; level += 1) {
+        const y = 2.2 + level * 2.55;
+        const sx = 7.3 - level * 1.35;
+        const sz = 7.3 - level * 1.35;
+        addCuboid(
+          drawItems,
+          camera,
+          basis,
+          focal,
+          centerX,
+          centerY,
+          vec3(0, y, -0.15),
+          sx,
+          2.05,
+          sz,
+          { front: "#f2ece5", side: "#ece5df", back: "#efe8e2", top: "#ece6de" },
+          0.15,
+          lightDir
+        );
+
+        addCuboid(
+          drawItems,
+          camera,
+          basis,
+          focal,
+          centerX,
+          centerY,
+          vec3(0, y, -0.15),
+          sx + 0.3,
+          2.15,
+          0.34,
+          { front: "#9f3e42", side: "#93383c", back: "#9f3e42" },
+          0.15,
+          lightDir
+        );
+
+        const ry = y + 1.35;
+        const roofW = sx + 2.5;
+        const roofD = sz + 2.5;
+        const peak = vec3(0, ry + 1.2, -0.15);
+        const e0 = vec3(-roofW / 2, ry, -roofD / 2 - 0.15);
+        const e1 = vec3(roofW / 2, ry, -roofD / 2 - 0.15);
+        const e2 = vec3(roofW / 2, ry, roofD / 2 - 0.15);
+        const e3 = vec3(-roofW / 2, ry, roofD / 2 - 0.15);
+
+        const roofFaces = [
+          [e0, e1, peak],
+          [e1, e2, peak],
+          [e2, e3, peak],
+          [e3, e0, peak]
+        ];
+
+        roofFaces.forEach((f, i) => {
+          const normal = normalize(cross(sub(f[1], f[0]), sub(f[2], f[0])));
+          const facing = dot(normal, sub(camera.pos, f[0]));
+          if (facing <= 0) return;
+          const l = 0.4 + Math.max(0, dot(normal, lightDir)) * 0.55;
+          enqueuePolygon(
+            drawItems,
+            camera,
+            basis,
+            focal,
+            centerX,
+            centerY,
+            f,
+            shade(i % 2 === 0 ? "#2e2a31" : "#26222a", l),
+            null,
+            0.08,
+            1
+          );
+        });
+
+        const railY = y + 0.05;
+        const rail = [
+          vec3(-sx / 2 - 0.45, railY, -sz / 2 - 0.45),
+          vec3(sx / 2 + 0.45, railY, -sz / 2 - 0.45),
+          vec3(sx / 2 + 0.45, railY, sz / 2 - 0.45),
+          vec3(-sx / 2 - 0.45, railY, sz / 2 - 0.45)
+        ];
+        enqueuePolygon(drawItems, camera, basis, focal, centerX, centerY, rail, "#a94549", null, 0.16, 0.9);
+      }
+
+      addCuboid(
+        drawItems,
+        camera,
+        basis,
+        focal,
+        centerX,
+        centerY,
+        vec3(0, 10.45, -0.15),
+        0.72,
+        1.22,
+        0.72,
+        { front: "#e7bd62", side: "#d4aa55", back: "#dbb156", top: "#f4cb6f" },
+        0.25,
+        lightDir
+      );
+
+      const trunkSets = [
+        { p: vec3(-5.7, 2.15, -4.9), h: 4.2, w: 0.52 },
+        { p: vec3(6.5, 2.1, -4.2), h: 4.1, w: 0.48 }
+      ];
+
+      trunkSets.forEach((tset) => {
+        addCuboid(
+          drawItems,
+          camera,
+          basis,
+          focal,
+          centerX,
+          centerY,
+          vec3(tset.p.x, tset.h * 0.5, tset.p.z),
+          tset.w,
+          tset.h,
+          tset.w,
+          { front: "#6e4036", side: "#5d352e", back: "#6e4036", top: "#714339" },
+          0.2,
+          lightDir
+        );
+      });
+
+      scene.blossoms.forEach((b) => {
+        const sway = Math.sin(t * 0.7 + b.phase) * 0.11;
+        const world = vec3(b.x + sway * 0.18, b.y + sway * 0.05, b.z + sway * 0.22);
+        const p = project(world, camera, basis, focal, centerX, centerY);
+        if (!p) return;
+        const blur = clamp(Math.abs(p.z - focusDist) * 0.05, 0, 2.5);
+        addDrawItem(drawItems, p.z, blur, () => {
+          const r = b.radius * p.scale * 1.9;
+          const grad = ctx.createRadialGradient(p.x - r * 0.2, p.y - r * 0.2, r * 0.25, p.x, p.y, r);
+          grad.addColorStop(0, "rgba(255,238,247,0.94)");
+          grad.addColorStop(1, "rgba(244,190,220,0.88)");
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, r, 0, TAU);
+          ctx.fill();
+        });
+      });
+
+      for (let side = -1; side <= 1; side += 2) {
+        const bx = side * 10.2;
+        for (let i = 0; i < 9; i += 1) {
+          const offset = (i - 4) * 0.46;
+          addCuboid(
+            drawItems,
+            camera,
+            basis,
+            focal,
+            centerX,
+            centerY,
+            vec3(bx + offset, 1.8, -1.2 + i * 0.38),
+            0.16,
+            3.6 + Math.sin(i) * 0.35,
+            0.16,
+            { front: "#7da543", side: "#6a8f36", back: "#7da543", top: "#85ad4a" },
+            0.25,
+            lightDir
+          );
+        }
+      }
+
+      for (let i = 0; i < 19; i += 1) {
+        const px = -4.4 + i * 0.56;
+        const py = 0.06;
+        const pz = 8.85 + Math.sin(i * 0.55) * 0.4;
+        const stone = polyEllipse(px, pz, 0.38, 0.24, py, 16);
+        enqueuePolygon(drawItems, camera, basis, focal, centerX, centerY, stone, "#c6c2ba", "#b6b1aa", 0.1, 1);
+      }
+
+      const bridgeSections = 18;
+      for (let i = 0; i < bridgeSections; i += 1) {
+        const t0 = i / bridgeSections;
+        const t1 = (i + 1) / bridgeSections;
+        const z0 = 2.2 + t0 * 4.6;
+        const z1 = 2.2 + t1 * 4.6;
+        const y0 = 0.55 + Math.sin(t0 * Math.PI) * 1.25;
+        const y1 = 0.55 + Math.sin(t1 * Math.PI) * 1.25;
+        const xL = 4.2;
+        const xR = 7.9;
+        const plank = [
+          vec3(xL, y0, z0),
+          vec3(xR, y0, z0),
+          vec3(xR, y1, z1),
+          vec3(xL, y1, z1)
+        ];
+        enqueuePolygon(drawItems, camera, basis, focal, centerX, centerY, plank, i % 2 ? "#b64748" : "#c65255", "#95393c", 0.08, 1);
+
+        const railL = [
+          vec3(xL - 0.2, y0 + 0.8, z0),
+          vec3(xL - 0.2, y1 + 0.8, z1),
+          vec3(xL - 0.06, y1 + 0.64, z1),
+          vec3(xL - 0.06, y0 + 0.64, z0)
+        ];
+        const railR = [
+          vec3(xR + 0.2, y0 + 0.8, z0),
+          vec3(xR + 0.2, y1 + 0.8, z1),
+          vec3(xR + 0.06, y1 + 0.64, z1),
+          vec3(xR + 0.06, y0 + 0.64, z0)
+        ];
+        enqueuePolygon(drawItems, camera, basis, focal, centerX, centerY, railL, "#9f3f42", null, 0.08, 1);
+        enqueuePolygon(drawItems, camera, basis, focal, centerX, centerY, railR, "#9f3f42", null, 0.08, 1);
+      }
+
+      const shrubSpots = [
+        [-7.5, 2.5], [-7, 5.2], [-5.8, 4.5], [-4.8, 6.1], [-2.6, 5.8],
+        [2.8, 4.8], [4.1, 5.1], [7.9, 3.2], [8.8, -1.7], [5.3, -2.2],
+        [-3.4, -2.5], [-9.3, -1.2], [-10.2, 2.2], [9.8, 5.4]
+      ];
+
+      shrubSpots.forEach((s, i) => {
+        const p = vec3(s[0], 0.42 + (i % 3) * 0.08, s[1]);
+        const r = 0.72 + (i % 4) * 0.14;
+        const sph = polyEllipse(p.x, p.z, r, r * 0.85, p.y, 24);
+        enqueuePolygon(drawItems, camera, basis, focal, centerX, centerY, sph, i % 2 ? "#4f6b2e" : "#3f5a25", null, 0.12, 0.96);
+      });
+
+      scene.koi.forEach((k, i) => {
+        k.t += k.speed * 0.005;
+        const ring = k.orbit === 0 ? { cx: 5.4, cz: 3.25, rx: 3.4, rz: 1.4 } : { cx: 5.8, cz: 8.1, rx: 3.9, rz: 1.7 };
+        const x = ring.cx + Math.cos(k.t + k.phase) * ring.rx;
+        const z = ring.cz + Math.sin(k.t + k.phase * 0.8) * ring.rz;
+        const y = 0.06 + Math.sin(t * 2.2 + i) * 0.03;
+        const p = project(vec3(x, y, z), camera, basis, focal, centerX, centerY);
+        if (!p) return;
+        addDrawItem(drawItems, p.z, 0.04, () => {
+          ctx.save();
+          ctx.translate(p.x, p.y);
+          const dir = Math.atan2(Math.cos(k.t + k.phase * 0.8), -Math.sin(k.t + k.phase));
+          ctx.rotate(dir);
+          const bodyW = 0.42 * p.scale;
+          const bodyH = 0.14 * p.scale;
+          ctx.fillStyle = k.body;
+          ctx.beginPath();
+          ctx.ellipse(0, 0, bodyW, bodyH, 0, 0, TAU);
+          ctx.fill();
+          ctx.fillStyle = "rgba(255,255,255,0.65)";
+          ctx.beginPath();
+          ctx.ellipse(-bodyW * 0.2, -bodyH * 0.2, bodyW * 0.32, bodyH * 0.25, 0, 0, TAU);
+          ctx.fill();
+          ctx.restore();
+        });
+      });
+
+      const people = [
+        { x: -4.6, z: 4.7, body: "#2e3d63" },
+        { x: -3.2, z: 5.25, body: "#426f3f" },
+        { x: 8.45, z: 5.95, body: "#2d4763" }
+      ];
+
+      people.forEach((person, idx) => {
+        const feet = project(vec3(person.x, 0.12, person.z), camera, basis, focal, centerX, centerY);
+        const head = project(vec3(person.x, 1.42, person.z), camera, basis, focal, centerX, centerY);
+        if (!feet || !head) return;
+        const depth = (feet.z + head.z) * 0.5;
+        addDrawItem(drawItems, depth, clamp(Math.abs(depth - focusDist) * 0.03, 0, 1.8), () => {
+          const hBody = Math.abs(head.y - feet.y);
+          const wBody = hBody * 0.38;
+          ctx.fillStyle = person.body;
+          ctx.beginPath();
+          ctx.roundRect(feet.x - wBody * 0.5, feet.y - hBody * 0.78, wBody, hBody * 0.58, 4);
+          ctx.fill();
+          ctx.fillStyle = idx === 0 ? "#f4efe9" : "#e7d6c6";
+          ctx.beginPath();
+          ctx.arc(feet.x, feet.y - hBody * 0.9, wBody * 0.26, 0, TAU);
+          ctx.fill();
+          ctx.strokeStyle = "rgba(20,20,20,0.45)";
+          ctx.lineWidth = Math.max(1, hBody * 0.08);
+          ctx.beginPath();
+          ctx.moveTo(feet.x - wBody * 0.15, feet.y - hBody * 0.2);
+          ctx.lineTo(feet.x - wBody * 0.15, feet.y);
+          ctx.moveTo(feet.x + wBody * 0.15, feet.y - hBody * 0.2);
+          ctx.lineTo(feet.x + wBody * 0.15, feet.y);
+          ctx.stroke();
+        });
+      });
+
+      scene.petals.forEach((petal) => {
+        petal.x += petal.vx + Math.sin(t + petal.spin) * 0.002;
+        petal.z += petal.vz + Math.cos(t * 0.7 + petal.spin) * 0.0015;
+        petal.y -= petal.vy;
+        petal.spin += 0.025;
+
+        if (petal.y < 0.08) {
+          petal.y = 6 + Math.random() * 5;
+          petal.x = (Math.random() - 0.5) * 17;
+          petal.z = (Math.random() - 0.5) * 14;
+        }
+
+        const p = project(vec3(petal.x, petal.y, petal.z), camera, basis, focal, centerX, centerY);
+        if (!p) return;
+        const b = clamp(Math.abs(p.z - focusDist) * 0.05, 0, 2.5);
+        addDrawItem(drawItems, p.z, b, () => {
+          ctx.save();
+          ctx.translate(p.x, p.y);
+          ctx.rotate(petal.spin);
+          ctx.fillStyle = "rgba(245,208,228,0.9)";
+          ctx.beginPath();
+          ctx.ellipse(0, 0, petal.size * p.scale * 1.6, petal.size * p.scale, 0, 0, TAU);
+          ctx.fill();
+          ctx.restore();
+        });
+      });
+
+      drawItems.sort((a, b) => b.depth - a.depth);
+
+      for (let i = 0; i < drawItems.length; i += 1) {
+        const item = drawItems[i];
+        if (item.blur > 0.05) {
+          ctx.filter = `blur(${item.blur.toFixed(2)}px)`;
+        } else {
+          ctx.filter = "none";
+        }
+        item.fn();
+      }
+      ctx.filter = "none";
+
+      const glow = ctx.createRadialGradient(w * 0.47, h * 0.22, 20, w * 0.47, h * 0.22, h * 0.7);
+      glow.addColorStop(0, "rgba(255,242,236,0.34)");
+      glow.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.fillStyle = glow;
+      ctx.fillRect(0, 0, w, h);
+
+      const vignette = ctx.createRadialGradient(w * 0.5, h * 0.5, h * 0.2, w * 0.5, h * 0.5, h * 0.9);
+      vignette.addColorStop(0, "rgba(0,0,0,0)");
+      vignette.addColorStop(1, "rgba(26,18,30,0.19)");
+      ctx.fillStyle = vignette;
+      ctx.fillRect(0, 0, w, h);
+    }
+
+    function tick(now) {
+      drawScene(now);
+      requestAnimationFrame(tick);
+    }
+
+    requestAnimationFrame(tick);
+  </script>
+</body>
+</html>

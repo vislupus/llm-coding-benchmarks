@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>GO • KŌBO - 3D MCTS Master</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;user-select:none}
+:root{--gold:#d4a85c;--gold2:#f3d8a0;--bg:#08090a;--panel:rgba(20,20,22,0.72);--border:rgba(255,255,255,0.08);--text:#ece9e3;--muted:#9a9690}
+html,body{width:100%;height:100%;overflow:hidden;background:radial-gradient(120% 120% at 50% -20%, #1c1a16 0%, #0e0e10 35%, #070708 100%);font-family:"Instrument Sans",system-ui,sans-serif;color:var(--text)}
+#canvas-wrap{position:absolute;inset:0;z-index:1}
+#loading{position:fixed;inset:0;z-index:100;background:#070708;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:opacity .8s ease}
+#loading h1{font-family:"Instrument Serif",serif;font-size:clamp(42px,8vw,84px);font-weight:400;letter-spacing:-0.02em}
+#loading h1 i{font-style:italic;color:var(--gold)}
+#loading p{margin-top:12px;color:var(--muted);letter-spacing:.18em;text-transform:uppercase;font-size:11px}
+.loader-bar{width:180px;height:1px;background:rgba(255,255,255,.1);margin-top:28px;overflow:hidden;position:relative}
+.loader-bar::after{content:"";position:absolute;left:0;top:0;bottom:0;width:60%;background:linear-gradient(90deg,var(--gold),var(--gold2));animation:load 1.2s ease-in-out infinite}
+@keyframes load{0%{transform:translateX(-100%)}100%{transform:translateX(250%)}}
+#topbar{position:absolute;top:0;left:0;right:0;z-index:20;display:flex;align-items:center;justify-content:space-between;padding:18px 22px;pointer-events:none}
+.brand{pointer-events:auto;display:flex;align-items:baseline;gap:10px}
+.brand-mark{width:28px;height:28px;border-radius:50%;background:conic-gradient(from 0deg,#111 0 50%,#f5f3ef 50% 100%);border:1.5px solid rgba(255,255,255,.15);box-shadow:0 2px 12px rgba(0,0,0,.4)}
+.brand-name{font-family:"Instrument Serif",serif;font-size:22px;letter-spacing:.02em}
+.brand-name span{color:var(--gold);font-style:italic}
+.score-cluster{pointer-events:auto;display:flex;gap:10px}
+.score-card{backdrop-filter:blur(18px);background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:10px 16px;display:flex;align-items:center;gap:12px;min-width:132px}
+.score-dot{width:22px;height:22px;border-radius:50%;box-shadow:inset 0 1px 1px rgba(255,255,255,.6),0 2px 8px rgba(0,0,0,.4)}
+.score-dot.black{background:radial-gradient(40% 30% at 35% 30%,#3a3a3a,#0a0a0a)}
+.score-dot.white{background:radial-gradient(40% 30% at 35% 30%,#fff,#d9d5ce);border:1px solid rgba(0,0,0,.08)}
+.score-info{display:flex;flex-direction:column;line-height:1}
+.score-info b{font-size:18px;font-weight:600;letter-spacing:-.02em}
+.score-info i{font-style:normal;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-top:2px}
+.score-card.active{border-color:rgba(212,168,92,.5);box-shadow:0 0 0 1px rgba(212,168,92,.2) inset,0 8px 24px rgba(0,0,0,.4)}
+#leftPanel{position:absolute;left:18px;top:78px;bottom:18px;z-index:15;width:300px;display:flex;flex-direction:column;gap:12px;pointer-events:none}
+.glass{backdrop-filter:blur(22px) saturate(1.2);background:linear-gradient(180deg,rgba(26,26,28,.82),rgba(16,16,18,.72));border:1px solid var(--border);border-radius:20px;box-shadow:0 20px 60px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.06);pointer-events:auto}
+.panel-section{padding:16px 16px 14px}
+.panel-title{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);margin-bottom:12px;display:flex;align-items:center;justify-content:space-between}
+.seg{display:flex;background:rgba(0,0,0,.35);border-radius:12px;padding:3px;border:1px solid rgba(255,255,255,.06)}
+.seg button{flex:1;border:0;background:transparent;color:var(--muted);font-size:12.5px;font-weight:500;padding:8px 6px;border-radius:9px;cursor:pointer;transition:.2s}
+.seg button.on{background:rgba(255,255,255,.92);color:#0d0d0e;box-shadow:0 2px 10px rgba(0,0,0,.25)}
+.control-row{display:flex;gap:8px;margin-top:10px}
+.btn{flex:1;border:1px solid var(--border);background:rgba(255,255,255,.06);color:var(--text);padding:11px 12px;border-radius:12px;font-size:13px;font-weight:500;cursor:pointer;transition:.2s;display:flex;align-items:center;justify-content:center;gap:7px}
+.btn:hover{background:rgba(255,255,255,.1);transform:translateY(-1px)}
+.btn.primary{background:linear-gradient(180deg,#f0d39a,#d4a85c);color:#1a1205;border-color:rgba(212,168,92,.5);font-weight:600}
+.btn:disabled{opacity:.4;pointer-events:none}
+.status-pill{display:inline-flex;align-items:center;gap:8px;background:rgba(0,0,0,.4);border:1px solid var(--border);border-radius:999px;padding:7px 12px;font-size:12px}
+.status-dot{width:6px;height:6px;border-radius:50%;background:var(--gold);box-shadow:0 0 8px var(--gold);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+.moves{max-height:150px;overflow:auto;padding-right:4px}
+.moves::-webkit-scrollbar{width:3px}
+.moves::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:999px}
+.move-item{display:flex;justify-content:space-between;padding:6px 8px;border-radius:8px;font-size:12.5px;color:var(--muted)}
+.move-item:nth-child(odd){background:rgba(255,255,255,.03)}
+.move-item b{color:var(--text);font-weight:500}
+.hint{font-size:11px;color:var(--muted);line-height:1.5;margin-top:10px;background:rgba(0,0,0,.25);padding:10px 12px;border-radius:10px;border:1px dashed rgba(255,255,255,.06)}
+#rightBar{position:absolute;right:18px;top:78px;z-index:15;display:flex;flex-direction:column;gap:10px;pointer-events:none}
+.icon-btn{pointer-events:auto;width:44px;height:44px;border-radius:14px;display:grid;place-items:center;background:var(--panel);border:1px solid var(--border);backdrop-filter:blur(18px);cursor:pointer;transition:.2s;color:var(--text)}
+.icon-btn:hover{transform:translateY(-1px);background:rgba(255,255,255,.08)}
+#bottomBar{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);z-index:15;display:flex;gap:10px;align-items:center;pointer-events:none}
+.bottom-glass{pointer-events:auto;display:flex;align-items:center;gap:12px;padding:8px 14px 8px 10px}
+.modal{position:fixed;inset:0;z-index:60;display:none;align-items:center;justify-content:center;padding:18px;background:rgba(5,5,6,.72);backdrop-filter:blur(14px)}
+.modal.show{display:flex}
+.modal-card{width:min(520px,100%);border-radius:24px;padding:28px;background:linear-gradient(180deg,#1c1b19,#121110);border:1px solid rgba(255,255,255,.1);box-shadow:0 30px 80px rgba(0,0,0,.7)}
+.modal-card h2{font-family:"Instrument Serif",serif;font-size:36px;font-weight:400;line-height:1}
+.modal-card h2 i{font-style:italic;color:var(--gold)}
+.modal-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:20px}
+.stat{padding:14px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);border-radius:14px}
+.stat label{font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--muted)}
+.stat b{font-size:20px;display:block;margin-top:4px}
+@media(max-width:900px){#leftPanel{width:auto;right:18px;top:auto;bottom:86px;max-height:44vh;overflow:auto}#topbar{padding:12px}.score-cluster{gap:6px}.score-card{min-width:0;padding:8px 12px}.brand-name{display:none}#rightBar{top:auto;bottom:18px;right:auto;left:18px;flex-direction:row}#bottomBar{bottom:78px;width:calc(100% - 36px);justify-content:center}}
+</style>
+</head>
+<body>
+<div id="loading"><h1>GO • <i>KŌBO</i></h1><p>Monte Carlo • Handcrafted wood • Museum stones</p><div class="loader-bar"></div></div>
+<div id="canvas-wrap"></div>
+<div id="topbar"><div class="brand"><div class="brand-mark"></div><div class="brand-name">GO • <span>KŌBO</span></div></div><div class="score-cluster"><div class="score-card" id="blackCard"><div class="score-dot black"></div><div class="score-info"><b id="blackScore">0</b><i>Black • Captured</i></div></div><div class="score-card" id="whiteCard"><div class="score-dot white"></div><div class="score-info"><b id="whiteScore">6.5</b><i>White • Komi</i></div></div></div></div>
+<div id="leftPanel"><div class="glass panel-section"><div class="panel-title">Board <span id="turnLabel" class="status-pill"><span class="status-dot"></span><span id="turnText">Black to play</span></span></div><div class="seg" id="sizeSeg"><button data-size="9">9×9</button><button data-size="13" class="on">13×13</button><button data-size="19">19×19</button></div><div class="seg" style="margin-top:8px" id="colorSeg"><button data-color="1" class="on">● Black</button><button data-color="2">○ White</button></div><div class="control-row"><button class="btn" id="undoBtn">↩ Undo</button><button class="btn" id="passBtn">Pass</button><button class="btn primary" id="newBtn">New Game</button></div><div class="hint">Ko prevents immediate recapture. Territory counted after two passes. Surround to capture.</div></div><div class="glass panel-section"><div class="panel-title">Intelligence <span style="color:var(--gold);letter-spacing:.08em" id="aiStatus">READY</span></div><div class="seg" id="diffSeg"><button data-diff="easy">Easy</button><button data-diff="medium" class="on">Medium</button><button data-diff="hard">Hard • MCTS 1.2k</button></div><div class="control-row" style="margin-top:10px"><button class="btn" id="hintBtn">💡 Hint</button><button class="btn" id="camBtn">Camera: Angle</button></div><div class="panel-title" style="margin-top:14px">Moves</div><div class="moves" id="movesList"><div class="move-item" style="justify-content:center;color:var(--muted)">No moves yet</div></div></div></div>
+<div id="rightBar"><button class="icon-btn" id="soundBtn" title="Sound">🔊</button><button class="icon-btn" id="terrBtn" title="Territory">◧</button><button class="icon-btn" id="topViewBtn" title="Top view">⬙</button></div>
+<div id="bottomBar"><div class="glass bottom-glass"><span class="status-dot" id="liveDot"></span><span style="font-size:13px;color:var(--text)" id="statusText">Handcrafted goban ready. Place a stone.</span><span style="width:1px;height:18px;background:var(--border)"></span><span style="font-size:11px;color:var(--muted);letter-spacing:.12em" id="coordText">—</span></div></div>
+<div class="modal" id="overModal"><div class="modal-card"><h2>Game <i>finished</i></h2><p style="color:var(--muted);margin-top:8px;line-height:1.5;font-size:13.5px" id="overDesc">Both passed. Territory counted.</p><div class="modal-grid" id="overGrid"></div><div class="control-row" style="margin-top:20px"><button class="btn" id="reviewBtn">Review board</button><button class="btn primary" id="againBtn">Play again</button></div></div></div>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+const $=s=>document.querySelector(s);
+let soundOn=true; let audioCtx=null;
+function ensureAudio(){ if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)(); }
+function playClack(isBlack=true,captureCount=0){
+ if(!soundOn) return; ensureAudio(); const t=audioCtx.currentTime;
+ const o=audioCtx.createOscillator(); const g=audioCtx.createGain();
+ o.type='sine'; o.frequency.setValueAtTime(isBlack?420:560,t); o.frequency.exponentialRampToValueAtTime(isBlack?180:220,t+0.12);
+ g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(0.7,t+0.005); g.gain.exponentialRampToValueAtTime(0.001,t+0.25+captureCount*0.04);
+ o.connect(g); g.connect(audioCtx.destination); o.start(t); o.stop(t+0.35);
+ if(captureCount>0){ setTimeout(()=>{ const n=audioCtx.createBufferSource(); const buf=audioCtx.createBuffer(1,audioCtx.sampleRate*0.08,audioCtx.sampleRate); const ch=buf.getChannelData(0); for(let i=0;i<ch.length;i++) ch[i]=(Math.random()*2-1)*Math.pow(1-i/ch.length,2)*0.6; n.buffer=buf; const gg=audioCtx.createGain(); gg.gain.value=0.5; n.connect(gg); gg.connect(audioCtx.destination); n.start(); },120); }
+}
+function playTick(){ if(!soundOn) return; ensureAudio(); const o=audioCtx.createOscillator(); const g=audioCtx.createGain(); o.frequency.value=900; g.gain.value=0.04; o.connect(g); g.connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime+0.06); }
+function createWoodTexture(size=1024){
+ const c=document.createElement('canvas'); c.width=c.height=size; const ctx=c.getContext('2d');
+ ctx.fillStyle='#e6c395'; ctx.fillRect(0,0,size,size);
+ const grad=ctx.createLinearGradient(0,0,0,size); grad.addColorStop(0,'#edd3a5'); grad.addColorStop(0.5,'#e0b97f'); grad.addColorStop(1,'#d3a86a');
+ ctx.fillStyle=grad; ctx.fillRect(0,0,size,size);
+ for(let i=0;i<80;i++){ const x=Math.random()*size; ctx.strokeStyle=`rgba(${90+Math.random()*40},${60+Math.random()*20},${30+Math.random()*20},${0.04+Math.random()*0.08})`; ctx.lineWidth=0.5+Math.random()*3.5; ctx.beginPath(); ctx.moveTo(x+Math.sin(0)*12,0); for(let y=0;y<size;y+=8){ ctx.lineTo(x+Math.sin(y*0.008+i)*14+Math.cos(y*0.02)*6,y); } ctx.stroke(); }
+ for(let i=0;i<22;i++){ const x=Math.random()*size; ctx.strokeStyle=`rgba(70,40,15,${0.06+Math.random()*0.07})`; ctx.lineWidth=1+Math.random()*5; ctx.beginPath(); ctx.moveTo(x,0); for(let y=0;y<size;y+=10) ctx.lineTo(x+Math.sin(y*0.015+i)*8,y); ctx.stroke(); }
+ const tex=new THREE.CanvasTexture(c); tex.wrapS=tex.wrapT=THREE.RepeatWrapping; tex.anisotropy=8; tex.colorSpace=THREE.SRGBColorSpace; return tex;
+}
+class GoEngine{
+ constructor(size=13){ this.size=size; this.reset(); }
+ reset(){ this.board=Array.from({length:this.size},()=>Array(this.size).fill(0)); this.turn=1; this.captured={1:0,2:0}; this.history=[]; this.moveHistory=[]; this.koPoint=null; this.hashes=new Set(); this.hashes.add(this.hash()); this.passes=0; }
+ clone(){ const e=new GoEngine(this.size); e.board=this.board.map(r=>r.slice()); e.turn=this.turn; e.captured={...this.captured}; e.koPoint=this.koPoint?{...this.koPoint}:null; e.hashes=new Set(this.hashes); e.passes=this.passes; e.moveHistory=this.moveHistory.slice(); e.history=[]; return e; }
+ hash(){ return this.board.map(r=>r.join('')).join('|'); }
+ inBounds(x,y){ return x>=0&&y>=0&&x<this.size&&y<this.size; }
+ get(x,y){ return this.inBounds(x,y)?this.board[y][x]:-1; }
+ neighbors(x,y){ return [[x+1,y],[x-1,y],[x,y+1],[x,y-1]].filter(([a,b])=>this.inBounds(a,b)); }
+ getGroup(x,y){
+  const color=this.get(x,y); if(color===0) return null;
+  const visited=new Set(); const q=[[x,y]]; const stones=[]; const libs=new Set(); visited.add(`${x},${y}`);
+  while(q.length){ const [cx,cy]=q.pop(); stones.push([cx,cy]); for(const [nx,ny] of this.neighbors(cx,cy)){ const v=this.get(nx,ny); if(v===0) libs.add(`${nx},${ny}`); else if(v===color&&!visited.has(`${nx},${ny}`)){ visited.add(`${nx},${ny}`); q.push([nx,ny]); } } }
+  return {color,stones,liberties:libs,libCount:libs.size};
+ }
+ isLegal(x,y,color){
+  if(!this.inBounds(x,y)) return false; if(this.get(x,y)!==0) return false;
+  if(this.koPoint&&this.koPoint.x===x&&this.koPoint.y===y) return false;
+  const copy=this.clone(); const res=copy._placeInternal(x,y,color,true); if(!res.ok) return false;
+  if(this.hashes.has(res.newHash)) return false; return true;
+ }
+ _placeInternal(x,y,color,dry=false){
+  if(this.get(x,y)!==0) return {ok:false,reason:'occupied'}; this.board[y][x]=color;
+  let captured=[]; let capturedCount=0;
+  for(const [nx,ny] of this.neighbors(x,y)){ if(this.get(nx,ny)===3-color){ const g=this.getGroup(nx,ny); if(g&&g.libCount===0){ for(const [sx,sy] of g.stones){ this.board[sy][sx]=0; captured.push([sx,sy]); capturedCount++; } } } }
+  const own=this.getGroup(x,y);
+  if(!own||own.libCount===0){ if(capturedCount===0){ this.board[y][x]=0; return {ok:false,reason:'suicide'}; } }
+  const newHash=this.hash();
+  return {ok:true,captured,capturedCount,newHash,ownGroup:own};
+ }
+ place(x,y,color=null){
+  if(color===null) color=this.turn; if(!this.isLegal(x,y,color)) return {ok:false};
+  this.history.push({board:this.board.map(r=>r.slice()),captured:{...this.captured},turn:this.turn,koPoint:this.koPoint?{...this.koPoint}:null,hashes:new Set(this.hashes),passes:this.passes,moveHistory:this.moveHistory.slice()});
+  const internal=this._placeInternal(x,y,color,false); if(!internal.ok){ return {ok:false}; }
+  this.captured[color]+=internal.capturedCount; this.hashes.add(internal.newHash);
+  if(internal.capturedCount===1){ const cap=internal.captured[0]; if(internal.ownGroup&&internal.ownGroup.stones.length===1){ this.koPoint={x:cap[0],y:cap[1]}; } else this.koPoint=null; } else this.koPoint=null;
+  this.moveHistory.push({x,y,color,captured:internal.capturedCount,pass:false}); this.turn=3-color; this.passes=0; return {ok:true,captured:internal.captured,capturedCount:internal.capturedCount};
+ }
+ pass(){
+  this.history.push({board:this.board.map(r=>r.slice()),captured:{...this.captured},turn:this.turn,koPoint:this.koPoint?{...this.koPoint}:null,hashes:new Set(this.hashes),passes:this.passes,moveHistory:this.moveHistory.slice()});
+  this.moveHistory.push({x:-1,y:-1,color:this.turn,pass:true,captured:0}); this.turn=3-this.turn; this.passes++; this.koPoint=null; return {ok:true};
+ }
+ undo(){ if(this.history.length===0) return false; const h=this.history.pop(); this.board=h.board; this.captured=h.captured; this.turn=h.turn; this.koPoint=h.koPoint; this.hashes=h.hashes; this.passes=h.passes; this.moveHistory=h.moveHistory; return true; }
+ isGameOver(){ return this.passes>=2; }
+ score(){
+  const visited=Array.from({length:this.size},()=>Array(this.size).fill(false)); let blackTerr=0,whiteTerr=0;
+  const terrBoard=Array.from({length:this.size},()=>Array(this.size).fill(0));
+  for(let y=0;y<this.size;y++){ for(let x=0;x<this.size;x++){ if(this.board[y][x]!==0||visited[y][x]) continue;
+   const q=[[x,y]]; visited[y][x]=true; const region=[]; const borderColors=new Set();
+   while(q.length){ const [cx,cy]=q.pop(); region.push([cx,cy]); for(const [nx,ny] of this.neighbors(cx,cy)){ const v=this.board[ny][nx]; if(v===0&&!visited[ny][nx]){ visited[ny][nx]=true; q.push([nx,ny]); } else if(v!==0) borderColors.add(v); } }
+   if(borderColors.size===1){ const col=[...borderColors][0]; if(col===1){ blackTerr+=region.length; region.forEach(([rx,ry])=>terrBoard[ry][rx]=1); } else { whiteTerr+=region.length; region.forEach(([rx,ry])=>terrBoard[ry][rx]=2); } }
+  } }
+  const blackStones=this.board.flat().filter(v=>v===1).length; const whiteStones=this.board.flat().filter(v=>v===2).length;
+  const blackScore=blackTerr+this.captured[1]; const whiteScore=whiteTerr+this.captured[2]+6.5;
+  return {blackTerr,whiteTerr,blackStones,whiteStones,blackScore,whiteScore,terrBoard,winner:blackScore>whiteScore?1:2,diff:Math.abs(blackScore-whiteScore)};
+ }
+ candidateMoves(color,limit=40){
+  const size=this.size; if(this.moveHistory.length===0){ const c=Math.floor(size/2); return [[c,c],[c-1,c-1],[c+1,c+1],[c-1,c+1],[c+1,c-1]].filter(([x,y])=>this.inBounds(x,y)); }
+  const near=new Set();
+  for(let y=0;y<size;y++) for(let x=0;x<size;x++) if(this.board[y][x]!==0){ for(let dy=-2;dy<=2;dy++) for(let dx=-2;dx<=2;dx++){ const nx=x+dx,ny=y+dy; if(!this.inBounds(nx,ny)||this.board[ny][nx]!==0) continue; near.add(`${nx},${ny}`); } }
+  for(let y=0;y<size;y++) for(let x=0;x<size;x++) if(this.board[y][x]!==0){ const g=this.getGroup(x,y); if(g&&g.libCount===1){ const lib=[...g.liberties][0].split(',').map(Number); near.add(`${lib[0]},${lib[1]}`); } }
+  const scored=[]; for(const key of near){ const [x,y]=key.split(',').map(Number); if(!this.isLegal(x,y,color)) continue; let score=0; let cap=0; for(const [nx,ny] of this.neighbors(x,y)) if(this.get(nx,ny)===3-color){ const g=this.getGroup(nx,ny); if(g&&g.libCount===1) cap+=g.stones.length; } score+=cap*10;
+   for(const [nx,ny] of this.neighbors(x,y)) if(this.get(nx,ny)===color){ const g=this.getGroup(nx,ny); if(g&&g.libCount===1) score+=8; }
+   const dist=Math.hypot(x-size/2,y-size/2); score+=(size-dist)*0.05; scored.push({x,y,score}); }
+  scored.sort((a,b)=>b.score-a.score); const out=scored.slice(0,limit).map(o=>[o.x,o.y]);
+  if(out.length<5){ for(let y=0;y<size;y++) for(let x=0;x<size;x++) if(this.board[y][x]===0&&this.isLegal(x,y,color)){ if(!out.some(([ox,oy])=>ox===x&&oy===y)) out.push([x,y]); if(out.length>=limit) break; } }
+  return out;
+ }
+}
+class MCTSNode{ constructor(engine,move=null,parent=null,player=null){ this.engine=engine; this.move=move; this.parent=parent; this.children=[]; this.visits=0; this.wins=0; this.player=player; this.untried=null; } isFullyExpanded(){ return this.untried&&this.untried.length===0; } bestChild(c=1.4){ let best=null,bestVal=-Infinity; for(const child of this.children){ const winRate=child.visits===0?0:child.wins/child.visits; const ucb=winRate + c*Math.sqrt(Math.log(this.visits+1)/(child.visits+1e-6)); if(ucb>bestVal){ bestVal=ucb; best=child; } } return best; } }
+function evaluateTerminal(engine,aiColor){ const sc=engine.score(); if(aiColor===1) return sc.blackScore-sc.whiteScore; else return sc.whiteScore-sc.blackScore; }
+function mctsSearch(rootEngine,aiColor,iterations=400,timeLimitMs=2000){
+ const start=performance.now(); const rootNode=new MCTSNode(rootEngine.clone(),null,null,3-rootEngine.turn); rootNode.untried=rootEngine.candidateMoves(rootEngine.turn,35); rootNode.untried.push(null);
+ let iter=0; while(iter<iterations&&(performance.now()-start)<timeLimitMs){
+  let node=rootNode; let eng=node.engine.clone();
+  while(node.untried&&node.untried.length===0&&node.children.length>0){ node=node.bestChild(); if(node.move===null) eng.pass(); else eng.place(node.move[0],node.move[1],3-eng.turn); }
+  if(node.untried&&node.untried.length>0){ const idx=Math.floor(Math.random()*node.untried.length); const mv=node.untried.splice(idx,1)[0]; const nextEng=eng.clone(); if(mv===null) nextEng.pass(); else nextEng.place(mv[0],mv[1],nextEng.turn); const child=new MCTSNode(nextEng,mv,node,eng.turn); child.untried=nextEng.isGameOver()?[]:nextEng.candidateMoves(nextEng.turn,30); if(!nextEng.isGameOver()) child.untried.push(null); node.children.push(child); node=child; eng=nextEng; }
+  let simEng=eng.clone(); let simDepth=0; const maxSimDepth=simEng.size*simEng.size*0.6;
+  while(!simEng.isGameOver()&&simDepth<maxSimDepth){ const moves=simEng.candidateMoves(simEng.turn,18); let chosen=null; if(Math.random()<0.7){ let bestCap=-1; for(const [x,y] of moves){ let cap=0; for(const [nx,ny] of simEng.neighbors(x,y)) if(simEng.get(nx,ny)===3-simEng.turn){ const g=simEng.getGroup(nx,ny); if(g&&g.libCount===1) cap+=g.stones.length; } if(cap>bestCap){ bestCap=cap; chosen=[x,y]; } } } if(!chosen){ if(moves.length>0) chosen=moves[Math.floor(Math.random()*moves.length)]; else chosen=null; } if(chosen) simEng.place(chosen[0],chosen[1]); else simEng.pass(); simDepth++; if(performance.now()-start>timeLimitMs) break; }
+  const scoreDiff=evaluateTerminal(simEng,aiColor); const win=scoreDiff>0?1:scoreDiff<0?0:0.5; while(node){ node.visits++; node.wins+=win; node=node.parent; } iter++;
+ }
+ if(rootNode.children.length===0) return null; rootNode.children.sort((a,b)=>b.visits-a.visits); return rootNode.children[0].move;
+}
+class Go3DGame{
+ constructor(container){ this.container=container; this.size=13; this.engine=new GoEngine(this.size); this.playerColor=1; this.aiColor=2; this.difficulty='medium'; this.stoneMeshes=new Map(); this.animating=[]; this.ghost=null; this.territoryMeshes=[]; this.showTerritory=false; this.initThree(); this.initBoard(); this.bindUI(); this.updateUI(); this.animate(); setTimeout(()=>{ document.getElementById('loading').style.opacity='0'; setTimeout(()=>document.getElementById('loading').style.display='none',800); },600); }
+ initThree(){
+  this.scene=new THREE.Scene(); this.scene.fog=new THREE.Fog(0x08090a,12,32);
+  this.renderer=new THREE.WebGLRenderer({antialias:true,alpha:true,powerPreference:'high-performance'}); this.renderer.setSize(this.container.clientWidth,this.container.clientHeight); this.renderer.setPixelRatio(Math.min(devicePixelRatio,2)); this.renderer.shadowMap.enabled=true; this.renderer.shadowMap.type=THREE.PCFSoftShadowMap; this.renderer.outputColorSpace=THREE.SRGBColorSpace; this.renderer.toneMapping=THREE.ACESFilmicToneMapping; this.renderer.toneMappingExposure=1.05; this.container.appendChild(this.renderer.domElement);
+  this.camera=new THREE.PerspectiveCamera(42,this.container.clientWidth/this.container.clientHeight,0.1,100); this.camera.position.set(0,10,9);
+  this.controls=new OrbitControls(this.camera,this.renderer.domElement); this.controls.enableDamping=true; this.controls.dampingFactor=0.08; this.controls.minDistance=4; this.controls.maxDistance=22; this.controls.maxPolarAngle=Math.PI*0.48; this.controls.minPolarAngle=0.1; this.controls.target.set(0,0,0); this.controls.update();
+  this.scene.add(new THREE.AmbientLight(0xfff6e5,0.55));
+  const dir=new THREE.DirectionalLight(0xfff3d6,1.2); dir.position.set(6,12,5); dir.castShadow=true; dir.shadow.mapSize.set(2048,2048); dir.shadow.camera.left=-10; dir.shadow.camera.right=10; dir.shadow.camera.top=10; dir.shadow.camera.bottom=-10; dir.shadow.bias=-0.0005; this.scene.add(dir);
+  const fill=new THREE.DirectionalLight(0x8aa8ff,0.25); fill.position.set(-6,6,-4); this.scene.add(fill);
+  const point1=new THREE.PointLight(0xffc97a,0.9,20); point1.position.set(4,5,4); this.scene.add(point1);
+  const point2=new THREE.PointLight(0x7aa8ff,0.35,18); point2.position.set(-5,3,-5); this.scene.add(point2);
+  const floorGeo=new THREE.PlaneGeometry(60,60); const floorMat=new THREE.ShadowMaterial({opacity:0.28}); const floor=new THREE.Mesh(floorGeo,floorMat); floor.rotation.x=-Math.PI/2; floor.position.y=-0.61; floor.receiveShadow=true; this.scene.add(floor);
+  window.addEventListener('resize',()=>this.onResize());
+ }
+ getHoshiPositions(n){ if(n===9) return [[2,2],[2,6],[6,2],[6,6],[4,4]]; if(n===13) return [[3,3],[3,9],[9,3],[9,9],[6,6],[3,6],[9,6],[6,3],[6,9]]; return [[3,3],[3,9],[3,15],[9,3],[9,9],[9,15],[15,3],[15,9],[15,15]]; }
+ createBoardMesh(){
+  if(this.boardGroup) this.scene.remove(this.boardGroup); this.boardGroup=new THREE.Group(); this.scene.add(this.boardGroup);
+  const boardSize=this.size; const thickness=0.6; const boxGeo=new THREE.BoxGeometry(boardSize+1.6,thickness,boardSize+1.6);
+  const woodTex=createWoodTexture(1024); const woodMat=new THREE.MeshStandardMaterial({map:woodTex,roughness:0.58,metalness:0.05}); const sideMat=new THREE.MeshStandardMaterial({color:0x9c7a4a,roughness:0.7}); const mats=[sideMat,sideMat,woodMat,sideMat,sideMat,sideMat];
+  const boardBox=new THREE.Mesh(boxGeo,mats); boardBox.position.y=-thickness/2+0.0; boardBox.castShadow=true; boardBox.receiveShadow=true; this.boardGroup.add(boardBox);
+  const lineMat=new THREE.LineBasicMaterial({color:0x1a1006,transparent:true,opacity:0.9}); const points=[]; for(let i=0;i<boardSize;i++){ const c=-(boardSize-1)/2+i; points.push(c,0.02,-(boardSize-1)/2, c,0.02,(boardSize-1)/2, -(boardSize-1)/2,0.02,c, (boardSize-1)/2,0.02,c); }
+  const lineGeo=new THREE.BufferGeometry(); lineGeo.setAttribute('position',new THREE.Float32BufferAttribute(points,3)); const gridLines=new THREE.LineSegments(lineGeo,lineMat); this.boardGroup.add(gridLines);
+  const hoshiMat=new THREE.MeshStandardMaterial({color:0x1a1206,roughness:0.8}); const starPos=this.getHoshiPositions(boardSize); starPos.forEach(([x,y])=>{ const sx=x-(boardSize-1)/2; const sy=y-(boardSize-1)/2; const dotGeo=new THREE.CylinderGeometry(0.09,0.09,0.02,16); const dot=new THREE.Mesh(dotGeo,hoshiMat); dot.position.set(sx,0.025,sy); dot.receiveShadow=true; this.boardGroup.add(dot); });
+  const planeGeo=new THREE.PlaneGeometry(boardSize+1,boardSize+1); const planeMat=new THREE.MeshBasicMaterial({visible:false}); this.rayPlane=new THREE.Mesh(planeGeo,planeMat); this.rayPlane.rotation.x=-Math.PI/2; this.rayPlane.position.y=0.02; this.boardGroup.add(this.rayPlane);
+  const stoneGeo=new THREE.SphereGeometry(0.42,32,32); stoneGeo.scale(1,0.56,1); const ghostMatB=new THREE.MeshPhysicalMaterial({color:0x0a0a0a,transparent:true,opacity:0.35,roughness:0.3,metalness:0.1,clearcoat:0.6}); const ghostMatW=new THREE.MeshPhysicalMaterial({color:0xf5f3ef,transparent:true,opacity:0.42,roughness:0.4}); this.ghostMats={1:ghostMatB,2:ghostMatW}; this.ghost=new THREE.Mesh(stoneGeo,ghostMatB); this.ghost.visible=false; this.ghost.castShadow=false; this.boardGroup.add(this.ghost);
+  const ringGeo=new THREE.TorusGeometry(0.28,0.04,12,32); const ringMat=new THREE.MeshStandardMaterial({color:0xd4a85c,emissive:0xd4a85c,emissiveIntensity:1.2,transparent:true,opacity:0.9}); this.lastMoveRing=new THREE.Mesh(ringGeo,ringMat); this.lastMoveRing.rotation.x=Math.PI/2; this.lastMoveRing.visible=false; this.boardGroup.add(this.lastMoveRing);
+ }
+ initBoard(){ this.createBoardMesh(); this.clearStones(); this.engine=new GoEngine(this.size); this.updateBoard3D(); }
+ clearStones(){ for(const m of this.stoneMeshes.values()) this.boardGroup.remove(m); this.stoneMeshes.clear(); this.animating=[]; this.territoryMeshes.forEach(m=>this.boardGroup.remove(m)); this.territoryMeshes=[]; }
+ updateBoard3D(){
+  for(const key of [...this.stoneMeshes.keys()]){ const [x,y]=key.split(',').map(Number); if(this.engine.get(x,y)===0){ const mesh=this.stoneMeshes.get(key); this.boardGroup.remove(mesh); this.stoneMeshes.delete(key); } }
+  for(let y=0;y<this.size;y++) for(let x=0;x<this.size;x++){ const v=this.engine.get(x,y); if(v!==0&&!this.stoneMeshes.has(`${x},${y}`)){ this.createStoneMesh(x,y,v,false); } }
+  const last=this.engine.moveHistory.filter(m=>!m.pass).slice(-1)[0]; if(last){ const sx=last.x-(this.size-1)/2; const sy=last.y-(this.size-1)/2; this.lastMoveRing.position.set(sx,0.06,sy); this.lastMoveRing.visible=true; } else this.lastMoveRing.visible=false;
+ }
+ createStoneMesh(x,y,color,withAnim=true){
+  const geo=new THREE.SphereGeometry(0.42,32,32); geo.scale(1,0.58,1); let mat;
+  if(color===1){ mat=new THREE.MeshPhysicalMaterial({color:0x080808,roughness:0.18,metalness:0.12,clearcoat:1.0,clearcoatRoughness:0.18}); } else { mat=new THREE.MeshPhysicalMaterial({color:0xf7f3ec,roughness:0.36,metalness:0,clearcoat:0.2,clearcoatRoughness:0.6,sheen:0.6,sheenColor:0xffffff}); }
+  const mesh=new THREE.Mesh(geo,mat); const sx=x-(this.size-1)/2; const sy=y-(this.size-1)/2; mesh.position.set(sx,withAnim?5:0.24,sy); mesh.castShadow=true; mesh.receiveShadow=true; mesh.userData={x,y,color,baseY:0.24}; this.boardGroup.add(mesh); this.stoneMeshes.set(`${x},${y}`,mesh); if(withAnim){ this.animating.push({mesh,t:0,startY:5,endY:0.24}); } return mesh;
+ }
+ bindUI(){
+  const raycaster=new THREE.Raycaster(); const mouse=new THREE.Vector2(); let isPointerDown=false; const canvas=this.renderer.domElement;
+  const getIntersect=(e)=>{ const rect=canvas.getBoundingClientRect(); const cx=(e.touches?e.touches[0].clientX:e.clientX); const cy=(e.touches?e.touches[0].clientY:e.clientY); mouse.x=((cx-rect.left)/rect.width)*2-1; mouse.y=-((cy-rect.top)/rect.height)*2+1; raycaster.setFromCamera(mouse,this.camera); const hits=raycaster.intersectObject(this.rayPlane); if(hits.length===0) return null; const p=hits[0].point; const bx=Math.round(p.x+(this.size-1)/2); const by=Math.round(p.z+(this.size-1)/2); if(!this.engine.inBounds(bx,by)) return null; return {x:bx,y:by,world:p}; };
+  canvas.addEventListener('pointermove',(e)=>{ if(isPointerDown) return; const inter=getIntersect(e); if(inter){ this.hoverPos=inter; const legal=this.engine.turn===this.playerColor&&this.engine.isLegal(inter.x,inter.y,this.engine.turn); if(legal){ this.ghost.visible=true; this.ghost.material=this.ghostMats[this.engine.turn]; this.ghost.position.set(inter.x-(this.size-1)/2,0.24,inter.y-(this.size-1)/2); if(!this._lastHover||this._lastHover.x!==inter.x||this._lastHover.y!==inter.y) playTick(); this._lastHover=inter; document.getElementById('coordText').textContent=`${String.fromCharCode(65+inter.x)}${this.size-inter.y} • legal`; } else { this.ghost.visible=false; document.getElementById('coordText').textContent=`${String.fromCharCode(65+inter.x)}${this.size-inter.y}`; } } else { this.ghost.visible=false; this.hoverPos=null; document.getElementById('coordText').textContent='—'; } });
+  canvas.addEventListener('pointerdown',()=>{ isPointerDown=true; }); canvas.addEventListener('pointerup',(e)=>{ isPointerDown=false; if(e.button!==0&&!e.touches) return; const inter=getIntersect(e); if(!inter) return; if(this.engine.turn!==this.playerColor) return; if(this.engine.isGameOver()) return; this.tryPlay(inter.x,inter.y); });
+  document.getElementById('sizeSeg').addEventListener('click',(e)=>{ if(e.target.tagName!=='BUTTON') return; const sz=parseInt(e.target.dataset.size); document.getElementById('sizeSeg').querySelectorAll('button').forEach(b=>b.classList.remove('on')); e.target.classList.add('on'); this.size=sz; this.initBoard(); this.updateUI(); });
+  document.getElementById('colorSeg').addEventListener('click',(e)=>{ if(e.target.tagName!=='BUTTON') return; const c=parseInt(e.target.dataset.color); document.getElementById('colorSeg').querySelectorAll('button').forEach(b=>b.classList.remove('on')); e.target.classList.add('on'); this.playerColor=c; this.aiColor=3-c; this.initBoard(); this.updateUI(); });
+  document.getElementById('diffSeg').addEventListener('click',(e)=>{ if(e.target.tagName!=='BUTTON') return; document.getElementById('diffSeg').querySelectorAll('button').forEach(b=>b.classList.remove('on')); e.target.classList.add('on'); this.difficulty=e.target.dataset.diff; });
+  document.getElementById('undoBtn').addEventListener('click',()=>this.undo()); document.getElementById('passBtn').addEventListener('click',()=>this.pass()); document.getElementById('newBtn').addEventListener('click',()=>this.newGame());
+  document.getElementById('soundBtn').addEventListener('click',()=>{ soundOn=!soundOn; document.getElementById('soundBtn').textContent=soundOn?'🔊':'🔇'; });
+  document.getElementById('terrBtn').addEventListener('click',()=>{ this.showTerritory=!this.showTerritory; this.renderTerritory(); });
+  document.getElementById('camBtn').addEventListener('click',()=>{ const modes=['angle','top','side']; const cur=document.getElementById('camBtn').textContent.split(': ')[1]||'angle'; const idx=modes.indexOf(cur); const next=modes[(idx+1)%modes.length]; document.getElementById('camBtn').textContent=`Camera: ${next}`; if(next==='top') this.tweenCamera(new THREE.Vector3(0,14,0.01),new THREE.Vector3(0,0,0)); else if(next==='angle') this.tweenCamera(new THREE.Vector3(0,10,9),new THREE.Vector3(0,0,0)); else this.tweenCamera(new THREE.Vector3(12,5,0),new THREE.Vector3(0,0,0)); });
+  document.getElementById('topViewBtn').addEventListener('click',()=>{ this.tweenCamera(new THREE.Vector3(0,14,0.01),new THREE.Vector3(0,0,0)); });
+  document.getElementById('hintBtn').addEventListener('click',()=>this.showHint());
+  document.getElementById('againBtn').addEventListener('click',()=>{ document.getElementById('overModal').classList.remove('show'); this.newGame(); });
+  document.getElementById('reviewBtn').addEventListener('click',()=>{ document.getElementById('overModal').classList.remove('show'); });
+ }
+ tweenCamera(pos,target){ const startPos=this.camera.position.clone(); const startTarget=this.controls.target.clone(); let t=0; const anim=()=>{ t+=0.02; if(t>=1){ this.camera.position.copy(pos); this.controls.target.copy(target); this.controls.update(); return; } const ease=1-Math.pow(1-t,3); this.camera.position.lerpVectors(startPos,pos,ease); this.controls.target.lerpVectors(startTarget,target,ease); this.controls.update(); requestAnimationFrame(anim); }; anim(); }
+ tryPlay(x,y){
+  const res=this.engine.place(x,y,this.engine.turn); if(!res.ok){ document.getElementById('statusText').textContent='Illegal move — suicide, ko, or occupied.'; return; }
+  this.createStoneMesh(x,y,3-this.engine.turn,true); res.captured.forEach(([cx,cy])=>{ const key=`${cx},${cy}`; const m=this.stoneMeshes.get(key); if(m){ this.boardGroup.remove(m); this.stoneMeshes.delete(key); } });
+  playClack((3-this.engine.turn)===1,res.capturedCount); this.updateUI(); this.checkGameOver(); if(!this.engine.isGameOver()&&this.engine.turn===this.aiColor){ setTimeout(()=>this.aiMove(),380); }
+ }
+ aiMove(){
+  if(this.engine.isGameOver()) return; document.getElementById('aiStatus').textContent='THINKING…'; document.getElementById('aiStatus').style.color='var(--gold)'; document.getElementById('statusText').textContent=`AI (${this.difficulty}) thinking…`;
+  setTimeout(()=>{ const iterMap={easy:120,medium:500,hard:1100}; const it=iterMap[this.difficulty]||500; const timeMap={easy:600,medium:1400,hard:2400}; const move=mctsSearch(this.engine.clone(),this.aiColor,it,timeMap[this.difficulty]); document.getElementById('aiStatus').textContent='READY'; document.getElementById('aiStatus').style.color='var(--gold)'; if(move===null){ this.engine.pass(); document.getElementById('statusText').textContent='AI passes.'; this.updateUI(); this.checkGameOver(); return; } if(move){ const [x,y]=move; const res=this.engine.place(x,y,this.aiColor); if(res.ok){ this.createStoneMesh(x,y,this.aiColor,true); res.captured.forEach(([cx,cy])=>{ const k=`${cx},${cy}`; const m=this.stoneMeshes.get(k); if(m){ this.boardGroup.remove(m); this.stoneMeshes.delete(k);} }); playClack(this.aiColor===1,res.capturedCount); this.updateUI(); this.checkGameOver(); } else { this.engine.pass(); this.updateUI(); } } },80);
+ }
+ pass(){ if(this.engine.isGameOver()) return; if(this.engine.turn!==this.playerColor) return; this.engine.pass(); document.getElementById('statusText').textContent='You passed. AI to play.'; this.updateUI(); this.checkGameOver(); if(!this.engine.isGameOver()&&this.engine.turn===this.aiColor) setTimeout(()=>this.aiMove(),400); }
+ undo(){ if(this.engine.history.length===0) return; this.engine.undo(); if(this.engine.turn!==this.playerColor&&this.engine.history.length>0) this.engine.undo(); this.clearStones(); this.updateBoard3D(); this.updateUI(); document.getElementById('statusText').textContent='Undone.'; }
+ newGame(){ this.clearStones(); this.engine=new GoEngine(this.size); this.updateBoard3D(); this.updateUI(); this.renderTerritory(true); document.getElementById('overModal').classList.remove('show'); document.getElementById('statusText').textContent='New game. Your move.'; if(this.playerColor!==1){ setTimeout(()=>this.aiMove(),500); } }
+ showHint(){ if(this.engine.isGameOver()) return; document.getElementById('statusText').textContent='Calculating hint…'; setTimeout(()=>{ const mv=mctsSearch(this.engine.clone(),this.playerColor,300,1000); if(mv){ const [x,y]=mv; this.hoverPos={x,y}; this.ghost.visible=true; this.ghost.material=this.ghostMats[this.playerColor]; this.ghost.position.set(x-(this.size-1)/2,0.24,y-(this.size-1)/2); document.getElementById('statusText').textContent=`Hint: ${String.fromCharCode(65+x)}${this.size-y}`; } else document.getElementById('statusText').textContent='Hint: pass is best.'; },100); }
+ checkGameOver(){ if(this.engine.isGameOver()){ const sc=this.engine.score(); document.getElementById('overModal').classList.add('show'); document.getElementById('overDesc').textContent=`Both passed. ${sc.winner===1?'Black':'White'} wins by ${sc.diff.toFixed(1)}.`; document.getElementById('overGrid').innerHTML=`<div class="stat"><label>Black</label><b>${sc.blackScore.toFixed(1)}</b><span style="font-size:11px;color:var(--muted)">${sc.blackTerr} terr + ${this.engine.captured[1]} cap</span></div><div class="stat"><label>White</label><b>${sc.whiteScore.toFixed(1)}</b><span style="font-size:11px;color:var(--muted)">${sc.whiteTerr} terr + ${this.engine.captured[2]} cap + 6.5 komi</span></div><div class="stat"><label>Stones</label><b>${sc.blackStones} / ${sc.whiteStones}</b></div><div class="stat"><label>Moves</label><b>${this.engine.moveHistory.length}</b></div>`; this.showTerritory=true; this.renderTerritory(); } }
+ renderTerritory(forceClear=false){ this.territoryMeshes.forEach(m=>this.boardGroup.remove(m)); this.territoryMeshes=[]; if(forceClear) return; if(!this.showTerritory&&!this.engine.isGameOver()) return; const sc=this.engine.score(); const geo=new THREE.PlaneGeometry(0.92,0.92); for(let y=0;y<this.size;y++) for(let x=0;x<this.size;x++){ if(this.engine.get(x,y)!==0) continue; const t=sc.terrBoard[y][x]; if(t===0) continue; const mat=new THREE.MeshBasicMaterial({color:t===1?0x000000:0xffffff,transparent:true,opacity:0.22}); const m=new THREE.Mesh(geo,mat); m.rotation.x=-Math.PI/2; m.position.set(x-(this.size-1)/2,0.03,y-(this.size-1)/2); this.boardGroup.add(m); this.territoryMeshes.push(m); } }
+ updateUI(){ const sc=this.engine.score(); document.getElementById('blackScore').textContent=`${this.engine.captured[1]} • ${sc.blackTerr}`; document.getElementById('whiteScore').textContent=`${this.engine.captured[2]+6.5} • ${sc.whiteTerr}`; document.getElementById('blackCard').classList.toggle('active',this.engine.turn===1); document.getElementById('whiteCard').classList.toggle('active',this.engine.turn===2); document.getElementById('turnText').textContent=this.engine.turn===1?'Black to play':'White to play'; const list=document.getElementById('movesList'); if(this.engine.moveHistory.length===0) list.innerHTML=`<div class="move-item" style="justify-content:center;color:var(--muted)">No moves yet</div>`; else { list.innerHTML=this.engine.moveHistory.slice(-22).map((m,i)=>{ const idx=this.engine.moveHistory.length-22+i+1; if(m.pass) return `<div class="move-item"><b>${idx}. ${m.color===1?'●':'○'} Pass</b><span>pass</span></div>`; const coord=`${String.fromCharCode(65+m.x)}${this.size-m.y}`; return `<div class="move-item"><b>${idx}. ${m.color===1?'●':'○'} ${coord}</b><span>${m.captured?`x${m.captured}`:''}</span></div>`; }).join(''); list.scrollTop=list.scrollHeight; } document.getElementById('undoBtn').disabled=this.engine.history.length===0; document.getElementById('passBtn').disabled=this.engine.isGameOver()||this.engine.turn!==this.playerColor; }
+ onResize(){ this.camera.aspect=this.container.clientWidth/this.container.clientHeight; this.camera.updateProjectionMatrix(); this.renderer.setSize(this.container.clientWidth,this.container.clientHeight); }
+ animate(){ requestAnimationFrame(()=>this.animate()); const dt=0.016; this.animating=this.animating.filter(a=>{ a.t+=dt*4.5; if(a.t>=1){ a.mesh.position.y=a.endY; a.mesh.position.x+=a.vx*0.1; return false; } const t=a.t; let y; if(t<0.6) y=THREE.MathUtils.lerp(a.startY,a.endY,t/0.6); else if(t<0.8) y=a.endY+Math.sin((t-0.6)/0.2*Math.PI)*0.18; else y=a.endY+Math.sin((t-0.8)/0.2*Math.PI)*0.06; a.mesh.position.y=y; a.mesh.rotation.z=Math.sin(t*Math.PI*2)*0.08; return true; }); if(this.lastMoveRing.visible){ this.lastMoveRing.material.opacity=0.7+Math.sin(performance.now()*0.004)*0.3; this.lastMoveRing.scale.setScalar(1+Math.sin(performance.now()*0.003)*0.06); } this.controls.update(); this.renderer.render(this.scene,this.camera); }
+}
+const container=document.getElementById('canvas-wrap'); new Go3DGame(container);
+</script>
+</body>
+</html>

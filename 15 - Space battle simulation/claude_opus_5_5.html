@@ -1,0 +1,1426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fleet engagement — Babylon.js space battle</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Saira+Semi+Condensed:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --azure: #5ab8ff;
+    --crimson: #ff5a47;
+    --ink: #dfe7f2;
+    --muted: #8a96ab;
+    --glass: rgba(8, 12, 22, 0.55);
+  }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
+  canvas { width: 100%; height: 100%; display: block; touch-action: none; outline: none; }
+  #hud {
+    position: fixed; inset: 0; pointer-events: none;
+    font-family: 'Saira Semi Condensed', 'Bahnschrift', 'Arial Narrow', system-ui, sans-serif;
+    color: var(--ink);
+    text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+  }
+  .fleet { position: absolute; top: 18px; max-width: 42vw; }
+  .fleet.azure { left: 22px; }
+  .fleet.crimson { right: 22px; text-align: right; }
+  .fleet h2 { margin: 0; font-weight: 700; font-size: 22px; line-height: 1.1; letter-spacing: 0.01em; }
+  .azure h2 { color: var(--azure); }
+  .crimson h2 { color: var(--crimson); }
+  .fleet p { margin: 2px 0 10px; font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .pips { display: flex; gap: 4px; align-items: flex-end; height: 34px; }
+  .crimson .pips { justify-content: flex-end; }
+  .pip { width: 7px; height: 24px; position: relative; background: rgba(255,255,255,0.08); }
+  .pip.flag { width: 14px; height: 34px; }
+  .pip i { position: absolute; left: 0; right: 0; bottom: 0; background: currentColor; box-shadow: 0 0 8px currentColor; }
+  .azure .pip { color: var(--azure); }
+  .crimson .pip { color: var(--crimson); }
+  .pip.dead { background: transparent; outline: 1px solid rgba(255,255,255,0.14); outline-offset: -1px; }
+  .pip.dead i { display: none; }
+  #feed { position: absolute; left: 22px; bottom: 52px; margin: 0; padding: 0; list-style: none; font-size: 14px; line-height: 1.55; max-width: 52ch; }
+  #feed li { transition: opacity 1.2s ease; }
+  #feed .a { color: var(--azure); font-weight: 600; }
+  #feed .c { color: var(--crimson); font-weight: 600; }
+  #feed .chain { color: #ffc47a; }
+  #controls { position: absolute; right: 22px; bottom: 20px; display: flex; gap: 8px; pointer-events: auto; flex-wrap: wrap; justify-content: flex-end; }
+  #controls button {
+    font: inherit; font-size: 14px; font-weight: 600; color: var(--ink);
+    background: var(--glass); border: 1px solid rgba(160,180,210,0.28);
+    padding: 7px 13px; border-radius: 3px; cursor: pointer;
+    -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  }
+  #controls button:hover { border-color: rgba(200,215,240,0.65); }
+  #controls button:focus-visible { outline: 2px solid var(--azure); outline-offset: 2px; }
+  #hint { position: absolute; left: 22px; bottom: 20px; margin: 0; font-size: 13px; color: var(--muted); }
+  #banner { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 0 20px; }
+  #banner h1 { font-size: clamp(28px, 5vw, 64px); font-weight: 700; margin: 0; text-shadow: 0 0 28px currentColor, 0 2px 4px #000; }
+  #banner p { margin: 10px 0 0; color: var(--ink); font-size: 16px; opacity: 0.8; }
+  #error { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--ink); font: 16px system-ui, sans-serif; text-align: center; padding: 20px; }
+  @media (max-width: 700px) {
+    .fleet h2 { font-size: 16px; }
+    .fleet p { font-size: 12px; }
+    .pip { width: 5px; height: 18px; } .pip.flag { width: 10px; height: 26px; }
+    #hint { display: none; }
+    #feed { bottom: 64px; font-size: 12px; }
+    #controls button { font-size: 12px; padding: 6px 9px; }
+  }
+</style>
+<script src="https://cdn.babylonjs.com/babylon.js"></script>
+</head>
+<body>
+<canvas id="c" aria-label="3D space battle between two fleets"></canvas>
+
+<div id="hud">
+  <header class="fleet azure">
+    <h2>Azure Coalition</h2>
+    <p id="c0">10 of 10 ships</p>
+    <div class="pips" id="p0"></div>
+  </header>
+  <header class="fleet crimson">
+    <h2>Crimson Dominion</h2>
+    <p id="c1">10 of 10 ships</p>
+    <div class="pips" id="p1"></div>
+  </header>
+  <ol id="feed" aria-live="polite"></ol>
+  <p id="hint">Drag to orbit, scroll to zoom. Keys: C cycles the camera, R restarts.</p>
+  <div id="controls">
+    <button id="bCam" type="button">Camera: battle view</button>
+    <button id="bOrbit" type="button">Auto-orbit: on</button>
+    <button id="bRestart" type="button">Restart battle</button>
+  </div>
+  <div id="banner" hidden>
+    <h1 id="bannerTitle"></h1>
+    <p id="bannerSub"></p>
+  </div>
+</div>
+
+<script>
+(() => {
+'use strict';
+
+if (typeof BABYLON === 'undefined') {
+  const e = document.createElement('div');
+  e.id = 'error';
+  e.textContent = 'Babylon.js could not be loaded from cdn.babylonjs.com. Check your internet connection and reload the page.';
+  document.body.appendChild(e);
+  return;
+}
+
+/* ------------------------------------------------------------------ *
+ *  Setup
+ * ------------------------------------------------------------------ */
+const $ = id => document.getElementById(id);
+const V3 = BABYLON.Vector3, C3 = BABYLON.Color3, C4 = BABYLON.Color4, Q = BABYLON.Quaternion;
+const HALF = Math.PI / 2;
+const rand = (a, b) => a + Math.random() * (b - a);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+function mulberry32(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function randUnit(out) {
+  out = out || new V3();
+  const z = Math.random() * 2 - 1, a = Math.random() * Math.PI * 2, r = Math.sqrt(1 - z * z);
+  return out.set(r * Math.cos(a), z, r * Math.sin(a));
+}
+
+const canvas = $('c');
+const engine = new BABYLON.Engine(canvas, true, { stencil: true, antialias: true }, false);
+engine.setHardwareScalingLevel(1 / Math.min(window.devicePixelRatio || 1, 1.5));
+const scene = new BABYLON.Scene(engine);
+scene.clearColor = new C4(0.004, 0.005, 0.014, 1);
+
+const P_SPEED = 130, P_LIFE = 3.3, RANGE = 380, ARENA = 290, FIRE_INTERVAL = 3;
+
+const TEAM = [
+  { name: 'Azure Coalition', cls: 'a', color: new C3(0.2, 0.6, 1.0), bright: new C3(0.6, 0.88, 1.0),
+    hull: [178, 190, 208], accent: new C3(0.1, 0.42, 1.0), escort: 'Kestrel', flag: 'Vigilant' },
+  { name: 'Crimson Dominion', cls: 'c', color: new C3(1.0, 0.2, 0.1), bright: new C3(1.0, 0.62, 0.45),
+    hull: [112, 104, 106], accent: new C3(0.9, 0.1, 0.06), escort: 'Viper', flag: 'Harrow' }
+];
+
+/* Camera */
+const camera = new BABYLON.ArcRotateCamera('cam', -Math.PI * 0.72, Math.PI * 0.39, 340, V3.Zero(), scene);
+camera.attachControl(canvas, true);
+camera.lowerRadiusLimit = 40;
+camera.upperRadiusLimit = 950;
+camera.wheelDeltaPercentage = 0.02;
+camera.pinchDeltaPercentage = 0.004;
+camera.panningSensibility = 0;
+camera.minZ = 1;
+camera.maxZ = 20000;
+camera.fov = 0.9;
+camera.useAutoRotationBehavior = true;
+camera.autoRotationBehavior.idleRotationSpeed = 0.06;
+camera.autoRotationBehavior.idleRotationWaitTime = 4000;
+camera.autoRotationBehavior.idleRotationSpinupTime = 3000;
+
+/* Lights (creation order = priority order for materials) */
+const sunDir = new V3(-1, -0.25, 0.35).normalize();
+const sun = new BABYLON.DirectionalLight('sun', sunDir, scene);
+sun.intensity = 1.7; sun.diffuse = new C3(1, 0.93, 0.82); sun.specular = new C3(1, 0.95, 0.85);
+const hemi = new BABYLON.HemisphericLight('hemi', new V3(0.2, 1, -0.3), scene);
+hemi.intensity = 0.38; hemi.diffuse = new C3(0.4, 0.48, 0.8); hemi.groundColor = new C3(0.3, 0.08, 0.14); hemi.specular = C3.Black();
+const rim = new BABYLON.DirectionalLight('rim', new V3(0.5, 0.3, -0.8).normalize(), scene);
+rim.intensity = 0.55; rim.diffuse = new C3(0.55, 0.35, 0.9); rim.specular = new C3(0.4, 0.3, 0.7);
+
+const xLights = [];
+for (let i = 0; i < 4; i++) {
+  const L = new BABYLON.PointLight('xlight' + i, new V3(0, -99999, 0), scene);
+  L.intensity = 0; L.range = 100;
+  L.diffuse = new C3(1, 0.62, 0.28); L.specular = new C3(1, 0.7, 0.4);
+  xLights.push({ L, t: 1, dur: 1, peak: 0 });
+}
+
+/* Post-processing */
+const glow = new BABYLON.GlowLayer('glow', scene, { mainTextureRatio: 0.5, blurKernelSize: 48 });
+glow.intensity = 0.95;
+glow.customEmissiveColorSelector = (mesh, subMesh, material, result) => {
+  const g = mesh.metadata && mesh.metadata.glow;
+  if (g) result.set(g.r, g.g, g.b, 1);
+  else if (material && material.emissiveColor) result.set(material.emissiveColor.r, material.emissiveColor.g, material.emissiveColor.b, 1);
+  else result.set(0, 0, 0, 1);
+};
+
+const pipeline = new BABYLON.DefaultRenderingPipeline('pipe', true, scene, [camera]);
+pipeline.samples = 4;
+pipeline.bloomEnabled = true;
+pipeline.bloomThreshold = 0.72;
+pipeline.bloomWeight = 0.35;
+pipeline.bloomKernel = 64;
+pipeline.bloomScale = 0.5;
+pipeline.imageProcessingEnabled = true;
+pipeline.imageProcessing.toneMappingEnabled = true;
+pipeline.imageProcessing.toneMappingType = BABYLON.ImageProcessingConfiguration.TONEMAPPING_ACES;
+pipeline.imageProcessing.exposure = 1.25;
+pipeline.imageProcessing.contrast = 1.2;
+pipeline.imageProcessing.vignetteEnabled = true;
+pipeline.imageProcessing.vignetteWeight = 2.2;
+pipeline.imageProcessing.vignetteColor = new C4(0, 0, 0, 0);
+pipeline.chromaticAberrationEnabled = true;
+pipeline.chromaticAberration.aberrationAmount = 3;
+pipeline.chromaticAberration.radialIntensity = 0.8;
+pipeline.grainEnabled = false;
+pipeline.grain.intensity = 5;
+pipeline.grain.animated = true;
+
+/* ------------------------------------------------------------------ *
+ *  Procedural textures
+ * ------------------------------------------------------------------ */
+function canvasTex(name, w, h, draw, opts) {
+  opts = opts || {};
+  const t = new BABYLON.DynamicTexture(name, { width: w, height: h }, scene, opts.mipmaps !== false, BABYLON.Texture.TRILINEAR_SAMPLINGMODE);
+  draw(t.getContext(), w, h);
+  t.update(true);
+  t.hasAlpha = !!opts.alpha;
+  return t;
+}
+const TEX = {};
+TEX.flare = canvasTex('flare', 128, 128, (c, w, h) => {
+  c.fillStyle = '#000'; c.fillRect(0, 0, w, h);
+  const g = c.createRadialGradient(64, 64, 0, 64, 64, 64);
+  g.addColorStop(0, '#fff'); g.addColorStop(0.18, '#e8e8e8'); g.addColorStop(0.45, '#555'); g.addColorStop(1, '#000');
+  c.fillStyle = g; c.fillRect(0, 0, w, h);
+});
+TEX.smoke = canvasTex('smoke', 128, 128, (c, w, h) => {
+  const R = mulberry32(5);
+  c.clearRect(0, 0, w, h);
+  for (let i = 0; i < 14; i++) {
+    const x = 64 + (R() - 0.5) * 40, y = 64 + (R() - 0.5) * 40, r = 18 + R() * 30;
+    const g = c.createRadialGradient(x, y, 0, x, y, r);
+    const v = 150 + R() * 80 | 0;
+    g.addColorStop(0, `rgba(${v},${v},${v},0.35)`); g.addColorStop(1, `rgba(${v},${v},${v},0)`);
+    c.fillStyle = g; c.fillRect(0, 0, w, h);
+  }
+}, { alpha: true });
+TEX.ring = canvasTex('ring', 256, 256, (c, w, h) => {
+  c.fillStyle = '#000'; c.fillRect(0, 0, w, h);
+  const g = c.createRadialGradient(128, 128, 0, 128, 128, 128);
+  g.addColorStop(0, '#000'); g.addColorStop(0.55, '#140800'); g.addColorStop(0.8, '#ff9a48');
+  g.addColorStop(0.87, '#fff2d8'); g.addColorStop(0.93, '#ff8830'); g.addColorStop(1, '#000');
+  c.fillStyle = g; c.fillRect(0, 0, w, h);
+});
+TEX.sun = canvasTex('sun', 256, 256, (c, w, h) => {
+  c.fillStyle = '#000'; c.fillRect(0, 0, w, h);
+  const g = c.createRadialGradient(128, 128, 0, 128, 128, 128);
+  g.addColorStop(0, '#ffffff'); g.addColorStop(0.07, '#fff8e8'); g.addColorStop(0.14, '#ffc98a');
+  g.addColorStop(0.35, '#4a2a18'); g.addColorStop(1, '#000');
+  c.fillStyle = g; c.fillRect(0, 0, w, h);
+});
+
+function panelTexture(name, base, seed) {
+  return canvasTex(name, 512, 512, (c, w, h) => {
+    const R = mulberry32(seed);
+    const rgb = (k) => `rgb(${clamp(base[0] * k, 0, 255) | 0},${clamp(base[1] * k, 0, 255) | 0},${clamp(base[2] * k, 0, 255) | 0})`;
+    c.fillStyle = rgb(1); c.fillRect(0, 0, w, h);
+    for (let i = 0; i < 150; i++) {
+      const x = (R() * 32 | 0) * 16, y = (R() * 32 | 0) * 16;
+      const pw = (2 + (R() * 9 | 0)) * 16, ph = (2 + (R() * 9 | 0)) * 16;
+      c.fillStyle = rgb(0.84 + R() * 0.3); c.fillRect(x, y, pw, ph);
+      c.strokeStyle = 'rgba(0,0,0,0.38)'; c.lineWidth = 2; c.strokeRect(x + 1, y + 1, pw - 2, ph - 2);
+    }
+    for (let i = 0; i < 90; i++) {
+      const x = R() * w, y = R() * h, s = 3 + R() * 9;
+      c.fillStyle = R() < 0.5 ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.14)';
+      c.fillRect(x, y, s, s * (0.5 + R()));
+    }
+    c.fillStyle = 'rgba(0,0,0,0.25)';
+    for (let i = 0; i < 40; i++) { const x = R() * w, y = R() * h; for (let k = 0; k < 6; k++) c.fillRect(x + k * 6, y, 2, 2); }
+  });
+}
+
+/* ------------------------------------------------------------------ *
+ *  Background: nebula sky, stars, sun and ringed gas giant
+ * ------------------------------------------------------------------ */
+function drawSky(c, w, h) {
+  const R = mulberry32(1337);
+  const bg = c.createLinearGradient(0, 0, 0, h);
+  bg.addColorStop(0, '#02030b'); bg.addColorStop(0.5, '#070819'); bg.addColorStop(1, '#02030b');
+  c.fillStyle = bg; c.fillRect(0, 0, w, h);
+  const blob = (x, y, r, col, a) => {
+    for (const ox of [-w, 0, w]) {
+      const cx = x + ox; if (cx + r < 0 || cx - r > w) continue;
+      const g = c.createRadialGradient(cx, y, 0, cx, y, r);
+      g.addColorStop(0, `rgba(${col},${a})`); g.addColorStop(0.5, `rgba(${col},${a * 0.45})`); g.addColorStop(1, `rgba(${col},0)`);
+      c.fillStyle = g; c.fillRect(cx - r, y - r, r * 2, r * 2);
+    }
+  };
+  const band = x => h * 0.5 + Math.sin(x / w * Math.PI * 2 + 0.8) * h * 0.12;
+  const pal = ['70,50,170', '40,90,200', '170,50,150', '30,150,170', '210,90,60', '120,60,200'];
+  c.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < 360; i++) {
+    const x = R() * w, y = band(x) + (R() + R() + R() - 1.5) * h * 0.14;
+    blob(x, y, 30 + R() * R() * 230, pal[(R() * pal.length) | 0], 0.015 + R() * 0.045);
+  }
+  for (let i = 0; i < 130; i++) {
+    const x = w * 0.62 + (R() - 0.5) * w * 0.18, y = band(x) + (R() - 0.5) * h * 0.2;
+    blob(x, y, 20 + R() * 120, R() < 0.5 ? '230,70,140' : '255,140,90', 0.02 + R() * 0.05);
+  }
+  for (let i = 0; i < 100; i++) {
+    const x = w * 0.2 + (R() - 0.5) * w * 0.16, y = band(x) + (R() - 0.5) * h * 0.18;
+    blob(x, y, 20 + R() * 110, R() < 0.5 ? '60,170,230' : '90,120,255', 0.02 + R() * 0.05);
+  }
+  c.globalCompositeOperation = 'source-over';
+  for (let i = 0; i < 170; i++) {
+    const x = R() * w, y = band(x) + (R() - 0.5) * h * 0.07;
+    blob(x, y, 10 + R() * 60, '2,2,8', 0.12 + R() * 0.2);
+  }
+  c.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < 5000; i++) {
+    const x = R() * w, y = R() * h, b = R();
+    c.fillStyle = `rgba(${200 + R() * 55 | 0},${200 + R() * 55 | 0},255,${0.12 + b * b * 0.55})`;
+    c.fillRect(x, y, 1, 1);
+  }
+  c.globalCompositeOperation = 'source-over';
+}
+const sky = BABYLON.MeshBuilder.CreateSphere('sky', { diameter: 16000, segments: 48, sideOrientation: BABYLON.Mesh.BACKSIDE }, scene);
+const skyMat = new BABYLON.StandardMaterial('skyMat', scene);
+skyMat.disableLighting = true;
+skyMat.diffuseColor = C3.Black(); skyMat.specularColor = C3.Black();
+skyMat.emissiveTexture = canvasTex('skyTex', 2048, 1024, drawSky);
+sky.material = skyMat; sky.infiniteDistance = true; sky.isPickable = false;
+glow.addExcludedMesh(sky);
+
+function makeStars(n, size, seed) {
+  const R = mulberry32(seed);
+  const pos = [], col = [], idx = [];
+  for (let i = 0; i < n; i++) {
+    const z = R() * 2 - 1, a = R() * Math.PI * 2, r = Math.sqrt(1 - z * z);
+    pos.push(r * Math.cos(a) * 7000, z * 7000, r * Math.sin(a) * 7000);
+    const b = 0.35 + Math.pow(R(), 3) * 0.65, t = R();
+    col.push(b * (t < 0.2 ? 1 : 0.8 + t * 0.2), b * (0.85 + R() * 0.15), b * (t > 0.7 ? 1 : 0.85), 1);
+    idx.push(i);
+  }
+  const m = new BABYLON.Mesh('stars' + seed, scene);
+  const vd = new BABYLON.VertexData();
+  vd.positions = pos; vd.colors = col; vd.indices = idx;
+  vd.applyToMesh(m);
+  const mat = new BABYLON.StandardMaterial('starMat' + seed, scene);
+  mat.disableLighting = true; mat.emissiveColor = C3.White(); mat.pointsCloud = true; mat.pointSize = size;
+  m.material = mat; m.infiniteDistance = true; m.isPickable = false; m.alwaysSelectAsActiveMesh = true;
+  glow.addExcludedMesh(m);
+}
+makeStars(3500, 1.3, 11);
+makeStars(350, 2.4, 23);
+
+const sunDisc = BABYLON.MeshBuilder.CreatePlane('sunDisc', { size: 2200 }, scene);
+const sunMat = new BABYLON.StandardMaterial('sunMat', scene);
+sunMat.disableLighting = true; sunMat.emissiveTexture = TEX.sun; sunMat.diffuseColor = C3.Black();
+sunMat.alphaMode = BABYLON.Engine.ALPHA_ADD; sunMat.alpha = 0.99; sunMat.disableDepthWrite = true;
+sunDisc.material = sunMat; sunDisc.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
+sunDisc.position = sunDir.scale(-7000); sunDisc.infiniteDistance = true;
+glow.addExcludedMesh(sunDisc);
+
+(function buildPlanet() {
+  const sys = new BABYLON.TransformNode('planetSys', scene);
+  sys.position.set(2300, -1100, 1400);
+  sys.rotation.set(0.14, 0, 0.35);
+  const planet = BABYLON.MeshBuilder.CreateSphere('planet', { diameter: 1400, segments: 64 }, scene);
+  planet.parent = sys;
+  const pm = new BABYLON.StandardMaterial('planetMat', scene);
+  pm.diffuseTexture = canvasTex('planetTex', 1024, 512, (c, w, h) => {
+    const R = mulberry32(99);
+    const A = [38, 52, 102], B = [96, 124, 176], Cc = [178, 168, 196], D = [206, 150, 118];
+    for (let y = 0; y < h; y++) {
+      const v = y / h;
+      const n = Math.sin(v * 42 + Math.sin(v * 9) * 3) * 0.5 + 0.5, n2 = Math.sin(v * 113 + 1.3) * 0.5 + 0.5;
+      const warm = Math.max(0, Math.sin(v * 7 + 0.4) - 0.6) * 1.6;
+      const col = [0, 1, 2].map(k => {
+        let x = A[k] + (B[k] - A[k]) * n; x += (Cc[k] - x) * n2 * 0.35; x += (D[k] - x) * warm * 0.5; return x | 0;
+      });
+      c.fillStyle = `rgb(${col[0]},${col[1]},${col[2]})`; c.fillRect(0, y, w, 1);
+    }
+    for (let i = 0; i < 500; i++) {
+      c.fillStyle = R() < 0.5 ? `rgba(255,255,255,${0.04 + R() * 0.1})` : `rgba(10,15,40,${0.05 + R() * 0.12})`;
+      c.beginPath(); c.ellipse(R() * w, R() * h, 20 + R() * 150, 1.5 + R() * 5, 0, 0, Math.PI * 2); c.fill();
+    }
+    c.fillStyle = 'rgba(220,150,120,0.45)'; c.beginPath(); c.ellipse(w * 0.3, h * 0.62, 50, 18, 0, 0, Math.PI * 2); c.fill();
+  });
+  pm.specularColor = C3.Black();
+  pm.emissiveFresnelParameters = new BABYLON.FresnelParameters();
+  pm.emissiveFresnelParameters.leftColor = new C3(0.22, 0.4, 0.85);
+  pm.emissiveFresnelParameters.rightColor = C3.Black();
+  pm.emissiveFresnelParameters.power = 3;
+  pm.emissiveFresnelParameters.bias = 0.05;
+  planet.material = pm;
+  scene.onBeforeRenderObservable.add(() => { planet.rotation.y += 0.00004 * engine.getDeltaTime(); });
+
+  const ring = BABYLON.MeshBuilder.CreateDisc('ring', { radius: 1, tessellation: 128, sideOrientation: BABYLON.Mesh.DOUBLESIDE }, scene);
+  ring.parent = sys; ring.rotation.x = HALF; ring.scaling.setAll(1500);
+  const ringTex = canvasTex('ringTex', 512, 512, (c, w, h) => {
+    const R = mulberry32(4);
+    c.clearRect(0, 0, w, h);
+    for (let r = 256; r > 0; r--) {
+      const f = r / 256;
+      if (f < 0.56) break;
+      const a = (f > 0.6 && f < 0.98) ? (0.15 + 0.5 * R()) * (f > 0.8 && f < 0.83 ? 0.1 : 1) : 0;
+      c.strokeStyle = `rgba(${190 + R() * 50 | 0},${175 + R() * 40 | 0},${170 + R() * 40 | 0},${a})`;
+      c.lineWidth = 1.5; c.beginPath(); c.arc(256, 256, r, 0, Math.PI * 2); c.stroke();
+    }
+  }, { alpha: true });
+  const rm = new BABYLON.StandardMaterial('ringMat', scene);
+  rm.diffuseTexture = ringTex; rm.useAlphaFromDiffuseTexture = true; rm.opacityTexture = ringTex;
+  rm.specularColor = C3.Black(); rm.backFaceCulling = false; rm.emissiveColor = new C3(0.12, 0.12, 0.16);
+  ring.material = rm;
+  [planet, ring].forEach(m => glow.addExcludedMesh(m));
+})();
+
+/* ------------------------------------------------------------------ *
+ *  Shared FX meshes and materials
+ * ------------------------------------------------------------------ */
+function paint(mesh, fn) {
+  const p = mesh.getVerticesData(BABYLON.VertexBuffer.PositionKind);
+  const n = p.length / 3, c = new Float32Array(n * 4);
+  for (let i = 0; i < n; i++) {
+    const col = fn(p[i * 3], p[i * 3 + 1], p[i * 3 + 2]);
+    c[i * 4] = col[0]; c[i * 4 + 1] = col[1]; c[i * 4 + 2] = col[2]; c[i * 4 + 3] = 1;
+  }
+  mesh.setVerticesData(BABYLON.VertexBuffer.ColorKind, c);
+}
+function additiveMat(name, soft) {
+  const m = new BABYLON.StandardMaterial(name, scene);
+  m.disableLighting = true; m.emissiveColor = C3.White(); m.diffuseColor = C3.Black(); m.specularColor = C3.Black();
+  m.alphaMode = BABYLON.Engine.ALPHA_ADD; m.disableDepthWrite = true; m.backFaceCulling = false;
+  if (soft) {
+    m.opacityFresnelParameters = new BABYLON.FresnelParameters();
+    m.opacityFresnelParameters.leftColor = C3.Black();
+    m.opacityFresnelParameters.rightColor = C3.White();
+    m.opacityFresnelParameters.power = 1.6;
+    m.opacityFresnelParameters.bias = 0;
+    m.backFaceCulling = true;
+  } else m.alpha = 0.99;
+  return m;
+}
+const MAT_SOFT = additiveMat('softAdd', true);
+const MAT_ADD = additiveMat('add', false);
+
+function unitCone(name) {
+  const m = BABYLON.MeshBuilder.CreateCylinder(name, { height: 1, diameterTop: 0.04, diameterBottom: 1, tessellation: 12, cap: BABYLON.Mesh.NO_CAP }, scene);
+  m.position.y = 0.5; m.bakeCurrentTransformIntoVertices();
+  m.rotation.x = -HALF; m.bakeCurrentTransformIntoVertices(); // base at z=0, tip at z=-1
+  return m;
+}
+const mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+const arr = c => [c.r, c.g, c.b];
+
+const MAX_P = 400, MAX_FLASH = 200;
+const FX = [0, 1].map(t => {
+  const T = TEAM[t];
+  const tb = arr(T.bright), tc = arr(T.color);
+  // Projectile bolt: hot white core + coloured halo
+  const core = BABYLON.MeshBuilder.CreateSphere('core', { diameter: 1, segments: 8 }, scene);
+  core.scaling.set(0.55, 0.55, 2.6); core.bakeCurrentTransformIntoVertices();
+  paint(core, () => [1, 1, 1]);
+  const halo = BABYLON.MeshBuilder.CreateSphere('halo', { diameter: 1, segments: 12 }, scene);
+  halo.scaling.set(1.7, 1.7, 4.4); halo.bakeCurrentTransformIntoVertices();
+  paint(halo, () => mix(tc, tb, 0.3));
+  const bolt = BABYLON.Mesh.MergeMeshes([core, halo], true, true);
+  bolt.name = 'bolt' + t; bolt.material = MAT_SOFT;
+  bolt.metadata = { glow: T.color.scale(1.6) };
+  // Trail
+  const tail = unitCone('tail' + t);
+  paint(tail, (x, y, z) => { const k = clamp(-z, 0, 1); return mix(mix([0, 0, 0], tc, Math.pow(1 - k, 1.4)), [1, 1, 1], Math.pow(1 - k, 7) * 0.5); });
+  tail.material = MAT_ADD; tail.metadata = { glow: T.color.scale(0.55) };
+  // Engine flame template
+  const flame = unitCone('flame' + t);
+  paint(flame, (x, y, z) => { const k = clamp(-z, 0, 1); const c = mix(tb, tc, Math.min(1, k * 1.6)); return mix(mix([0, 0, 0], c, Math.pow(1 - k, 1.3)), [1, 1, 1], Math.pow(1 - k, 5) * 0.8); });
+  flame.material = MAT_ADD; flame.setEnabled(false);
+  // Flash sphere (muzzle / impact)
+  const flash = BABYLON.MeshBuilder.CreateSphere('flash' + t, { diameter: 1, segments: 12 }, scene);
+  paint(flash, () => mix([1, 1, 1], tb, 0.45));
+  flash.material = MAT_SOFT; flash.metadata = { glow: T.bright.clone() };
+
+  const thin = (mesh, cap) => {
+    const buf = new Float32Array(cap * 16);
+    mesh.thinInstanceSetBuffer('matrix', buf, 16, false);
+    mesh.alwaysSelectAsActiveMesh = true;
+    mesh.isPickable = false;
+    mesh.thinInstanceCount = 0; mesh.isVisible = false;
+    return buf;
+  };
+  return { bolt, tail, flame, flash, boltBuf: thin(bolt, MAX_P), tailBuf: thin(tail, MAX_P), flashBuf: thin(flash, MAX_FLASH) };
+});
+
+/* Team ship materials */
+const MATS = [0, 1].map(t => {
+  const T = TEAM[t];
+  const hull = new BABYLON.StandardMaterial('hull' + t, scene);
+  hull.diffuseTexture = panelTexture('panel' + t, T.hull, 17 + t);
+  hull.diffuseTexture.uScale = 1.5; hull.diffuseTexture.vScale = 1.5;
+  hull.specularColor = new C3(0.32, 0.34, 0.38); hull.specularPower = 42;
+  const dark = new BABYLON.StandardMaterial('dark' + t, scene);
+  dark.diffuseColor = new C3(0.12, 0.13, 0.15); dark.specularColor = new C3(0.6, 0.6, 0.66); dark.specularPower = 90;
+  const accent = new BABYLON.StandardMaterial('accent' + t, scene);
+  accent.diffuseColor = T.accent; accent.emissiveColor = T.accent.scale(0.28); accent.specularColor = new C3(0.5, 0.5, 0.5);
+  const glowM = new BABYLON.StandardMaterial('glowM' + t, scene);
+  glowM.disableLighting = true; glowM.emissiveColor = T.bright; glowM.diffuseColor = C3.Black();
+  const canopy = new BABYLON.StandardMaterial('canopy' + t, scene);
+  canopy.diffuseColor = new C3(0.02, 0.03, 0.05); canopy.emissiveColor = T.color.scale(0.35);
+  canopy.specularColor = C3.White(); canopy.specularPower = 180;
+  [hull, dark, accent, canopy].forEach(m => { m.maxSimultaneousLights = 8; });
+  return { hull, dark, accent, glow: glowM, canopy };
+});
+const MAT_HOT = new BABYLON.StandardMaterial('hot', scene);
+MAT_HOT.disableLighting = true; MAT_HOT.emissiveColor = new C3(1, 0.5, 0.16);
+
+const DEBRIS_T = [
+  BABYLON.MeshBuilder.CreatePolyhedron('d0', { type: 0, size: 0.5 }, scene),
+  BABYLON.MeshBuilder.CreatePolyhedron('d1', { type: 1, size: 0.5 }, scene),
+  BABYLON.MeshBuilder.CreatePolyhedron('d2', { type: 3, size: 0.5 }, scene),
+  BABYLON.MeshBuilder.CreateBox('d3', { width: 1.2, height: 0.12, depth: 0.9 }, scene)
+];
+DEBRIS_T.forEach(m => m.setEnabled(false));
+
+/* ------------------------------------------------------------------ *
+ *  Ship construction
+ * ------------------------------------------------------------------ */
+function P(list, type, opt, pos, rot, scl) {
+  let m;
+  if (type === 'box') m = BABYLON.MeshBuilder.CreateBox('p', opt, scene);
+  else if (type === 'cyl') m = BABYLON.MeshBuilder.CreateCylinder('p', opt, scene);
+  else if (type === 'sph') m = BABYLON.MeshBuilder.CreateSphere('p', opt, scene);
+  else m = BABYLON.MeshBuilder.CreateTorus('p', opt, scene);
+  if (pos) m.position.set(pos[0], pos[1], pos[2]);
+  if (rot) m.rotation.set(rot[0], rot[1], rot[2]);
+  if (scl) m.scaling.set(scl[0], scl[1], scl[2]);
+  list.push(m);
+  return m;
+}
+function mergeInto(list, mat, root, name) {
+  if (!list.length) return null;
+  const m = BABYLON.Mesh.MergeMeshes(list, true, true);
+  m.name = name; m.material = mat; m.parent = root; m.isPickable = false;
+  return m;
+}
+function addFlame(team, root, pos, d, len) {
+  const f = FX[team].flame.clone('flame');
+  f.setEnabled(true); f.isVisible = true;
+  f.parent = root; f.position.set(pos[0], pos[1], pos[2]);
+  f.scaling.set(d, d, len);
+  f.metadata = { glow: TEAM[team].color.scale(d > 1.5 ? 0.5 : 1), d, len };
+  return f;
+}
+
+function buildEscort(team, root) {
+  const M = MATS[team];
+  const hull = [], dark = [], accent = [], glowL = [], canopy = [];
+  const sweep = team === 0 ? 0.38 : -0.32;
+  P(hull, 'cyl', { height: 6.5, diameterTop: 0.45, diameterBottom: 2.1, tessellation: 8 }, [0, 0, 1.6], [HALF, 0, 0], [1, 1, 0.72]);
+  P(hull, 'box', { width: 2.0, height: 1.2, depth: 3.4 }, [0, 0, -2.6]);
+  P(hull, 'box', { width: 1.1, height: 0.55, depth: 3.2 }, [0, 0.72, -1.9]);
+  const wl = P(hull, 'box', { width: 3.8, height: 0.16, depth: 2.2 }, [-2.7, -0.1, -1.9], [0, sweep, -0.1]);
+  const wr = P(hull, 'box', { width: 3.8, height: 0.16, depth: 2.2 }, [2.7, -0.1, -1.9], [0, -sweep, 0.1]);
+  for (const [w, s] of [[wl, -1], [wr, 1]]) {
+    P(accent, 'box', { width: 1.1, height: 0.2, depth: 2.24 }, [s * 0.9, 0, 0]).parent = w;
+    P(dark, 'cyl', { height: 2.8, diameter: 0.3, tessellation: 8 }, [s * 1.95, 0, 0.5], [HALF, 0, 0]).parent = w;
+    P(glowL, 'sph', { diameter: 0.32, segments: 6 }, [s * 1.95, 0, -0.95]).parent = w;
+  }
+  if (team === 0) P(hull, 'box', { width: 0.14, height: 1.7, depth: 1.7 }, [0, 1.15, -3.2], [-0.3, 0, 0]);
+  else for (const s of [-1, 1]) P(hull, 'box', { width: 0.14, height: 1.5, depth: 1.6 }, [s * 0.8, 1.0, -3.3], [0, 0, -s * 0.4]);
+  for (const s of [-1, 1]) {
+    P(dark, 'cyl', { height: 2.4, diameter: 0.95, tessellation: 12 }, [s * 0.62, 0, -4.0], [HALF, 0, 0]);
+    P(glowL, 'cyl', { height: 0.12, diameter: 0.8, tessellation: 12 }, [s * 0.62, 0, -5.22], [HALF, 0, 0]);
+    P(dark, 'box', { width: 0.5, height: 0.62, depth: 1.3 }, [s * 1.2, 0, -0.5]);
+  }
+  P(canopy, 'sph', { diameter: 1, segments: 12 }, [0, 0.42, 1.0], null, [0.72, 0.55, 1.8]);
+  // children (on wings) must be merged before their parents
+  mergeInto(accent, M.accent, root, 'accent');
+  mergeInto(glowL, M.glow, root, 'lights');
+  mergeInto(dark, M.dark, root, 'dark');
+  mergeInto(canopy, M.canopy, root, 'canopy');
+  mergeInto(hull, M.hull, root, 'hull');
+  const flames = [-1, 1].map(s => addFlame(team, root, [s * 0.62, 0, -5.28], 0.72, 4.4));
+  return {
+    flames, width: 9, segA: -5, segB: 4.8, hitR: 3, barY: 4.8, barW: 7,
+    exhaustAt: [0, 0, -5.5], exBox: [0.62, 0.05], lightAt: [0, 1.2, -7.5], lightRange: 14, lightI: 2.2,
+    dmgBox: [0.8, 0.4, 2]
+  };
+}
+
+function buildFlagship(team, root) {
+  const M = MATS[team];
+  const hull = [], dark = [], accent = [], glowL = [];
+  const R = mulberry32(77);
+  P(hull, 'box', { width: 5.5, height: 3.8, depth: 22 }, [0, 0, 0]);
+  P(hull, 'cyl', { height: 11, diameterTop: 0.8, diameterBottom: 7.2, tessellation: 4 }, [0, -0.1, 16.5], [HALF, 0, 0], [1, 1, 0.55]);
+  P(hull, 'box', { width: 3.2, height: 1.6, depth: 20 }, [0, -2.6, -1]);
+  P(hull, 'box', { width: 4, height: 1, depth: 12 }, [0, 2.3, 2]);
+  P(hull, 'box', { width: 2.6, height: 3.2, depth: 4.5 }, [0, 3.8, -6]);
+  P(hull, 'box', { width: 5, height: 1.3, depth: 2.6 }, [0, 5.9, -5.4]);
+  P(hull, 'box', { width: 9, height: 5.4, depth: 5 }, [0, 0, -12.5]);
+  P(hull, 'box', { width: 0.35, height: 3.2, depth: 5 }, [0, 4.1, -12.8]);
+  P(hull, 'box', { width: 0.35, height: 2.6, depth: 4.5 }, [0, -3.8, -12.8]);
+  for (const s of [-1, 1]) {
+    P(hull, 'cyl', { height: 18, diameter: 3.2, tessellation: 16 }, [s * 5.6, -0.4, -2], [HALF, 0, 0]);
+    P(hull, 'sph', { diameter: 3.2, segments: 16 }, [s * 5.6, -0.4, 7], null, [1, 1, 1.6]);
+    P(hull, 'box', { width: 2.4, height: 0.9, depth: 8 }, [s * 3.9, -0.4, -3]);
+    P(hull, 'box', { width: 0.5, height: 2.8, depth: 10 }, [s * 3.0, 0.3, 5], [0, s * 0.06, 0]);
+    P(dark, 'cyl', { height: 6, diameter: 0.75, tessellation: 12 }, [s * 5.6, -0.4, 10.5], [HALF, 0, 0]);
+    P(dark, 'cyl', { height: 1.2, diameter: 1.1, tessellation: 12 }, [s * 5.6, -0.4, 12.9], [HALF, 0, 0]);
+    P(dark, 'cyl', { height: 2, diameterTop: 2.6, diameterBottom: 3.0, tessellation: 16 }, [s * 5.6, -0.4, -12], [HALF, 0, 0]);
+    P(glowL, 'cyl', { height: 0.12, diameter: 2.5, tessellation: 16 }, [s * 5.6, -0.4, -13.06], [HALF, 0, 0]);
+    for (const z of [3, -3, -8]) P(accent, 'tor', { diameter: 3.35, thickness: 0.3, tessellation: 24 }, [s * 5.6, -0.4, z], [HALF, 0, 0]);
+    P(glowL, 'sph', { diameter: 0.5, segments: 8 }, [s * 5.6, 1.3, 4]);
+    for (let i = 0; i < 14; i++) P(glowL, 'box', { width: 0.12, height: 0.2, depth: 0.55 }, [s * 2.78, -0.9, -9 + i * 1.35]);
+    for (let i = 0; i < 3; i++) P(glowL, 'box', { width: 0.12, height: 0.3, depth: 0.9 }, [s * 4.53, -1.2 + i * 1.1, -12.5]);
+    for (const sy of [-1, 1]) {
+      P(dark, 'cyl', { height: 2.4, diameterTop: 1.7, diameterBottom: 2.3, tessellation: 16 }, [s * 2.2, sy * 1.4, -16.2], [HALF, 0, 0]);
+      P(glowL, 'cyl', { height: 0.12, diameter: 1.95, tessellation: 16 }, [s * 2.2, sy * 1.4, -17.46], [HALF, 0, 0]);
+    }
+    // ventral guns
+    P(dark, 'cyl', { height: 0.6, diameter: 1.6, tessellation: 12 }, [s * 1.0, -3.7, 5]);
+    P(dark, 'cyl', { height: 2.6, diameter: 0.22, tessellation: 8 }, [s * 1.0, -3.9, 6.5], [HALF, 0, 0]);
+  }
+  // dorsal turrets (rear one super-firing)
+  for (const [z, base] of [[6.5, 0.7], [0.5, 1.4]]) {
+    const by = 2.8 + base / 2;
+    P(dark, 'cyl', { height: base, diameter: 2.2, tessellation: 14 }, [0, by, z]);
+    P(hull, 'box', { width: 1.6, height: 0.8, depth: 1.9 }, [0, 2.8 + base + 0.4, z]);
+    for (const s of [-1, 1]) P(dark, 'cyl', { height: 3.4, diameter: 0.26, tessellation: 8 }, [s * 0.38, 2.8 + base + 0.45, z + 2.3], [HALF, 0, 0]);
+  }
+  // antennas and dish
+  P(dark, 'cyl', { height: 4, diameter: 0.12, tessellation: 6 }, [0.9, 8.5, -5.6]);
+  P(dark, 'cyl', { height: 2.8, diameter: 0.1, tessellation: 6 }, [-1.0, 7.9, -5.9]);
+  P(dark, 'cyl', { height: 0.6, diameter: 0.15, tessellation: 6 }, [0, 6.8, -4.6]);
+  P(dark, 'cyl', { height: 0.2, diameterTop: 1.8, diameterBottom: 0.3, tessellation: 16 }, [0, 7.15, -4.6], [-0.5, 0, 0]);
+  // greebles
+  for (let i = 0; i < 34; i++) {
+    const s = R() < 0.5 ? -1 : 1, list = R() < 0.5 ? dark : hull;
+    if (i < 22) P(list, 'box', { width: 0.3 + R() * 0.4, height: 0.3 + R() * 0.8, depth: 0.6 + R() * 1.8 }, [s * 2.8, -1.5 + R() * 3, -10 + R() * 20]);
+    else P(list, 'box', { width: 0.4 + R() * 1.2, height: 0.25 + R() * 0.4, depth: 0.4 + R() * 1.2 }, [(R() - 0.5) * 7, 2.8, -14.5 + R() * 4]);
+  }
+  P(accent, 'box', { width: 5.62, height: 0.45, depth: 18 }, [0, 1.0, -1]);
+  P(accent, 'box', { width: 9.1, height: 0.5, depth: 5.1 }, [0, 1.8, -12.5]);
+  P(accent, 'box', { width: 4.1, height: 0.2, depth: 1.2 }, [0, 2.85, 7.5]);
+  P(glowL, 'box', { width: 5.06, height: 0.32, depth: 2.66 }, [0, 6.05, -5.4]);
+  P(glowL, 'sph', { diameter: 0.45, segments: 8 }, [0, 10.6, -5.6]);
+  mergeInto(accent, M.accent, root, 'accent');
+  mergeInto(glowL, M.glow, root, 'lights');
+  mergeInto(dark, M.dark, root, 'dark');
+  mergeInto(hull, M.hull, root, 'hull');
+  const flames = [];
+  for (const s of [-1, 1]) {
+    for (const sy of [-1, 1]) flames.push(addFlame(team, root, [s * 2.2, sy * 1.4, -17.5], 1.75, 12));
+    flames.push(addFlame(team, root, [s * 5.6, -0.4, -13.12], 2.3, 9));
+  }
+  return {
+    flames, width: 14.5, segA: -16, segB: 20, hitR: 5.5, barY: 12, barW: 16,
+    exhaustAt: [0, 0, -17.8], exBox: [2.2, 1.4], lightAt: [0, 3, -23], lightRange: 45, lightI: 3.2,
+    dmgBox: [3, 2, 12]
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ *  State
+ * ------------------------------------------------------------------ */
+const S = {
+  time: 0, ships: [], alive: [[], []], proj: [[], []], flashes: [[], []], debris: [],
+  over: false, shake: 0, camMode: 0, hudT: 0
+};
+const anims = [];
+function tween(dur, update, end) { anims.push({ t: 0, dur, update, end, cleanup: true }); }
+function later(delay, fn) { anims.push({ t: 0, dur: delay, update: null, end: fn, cleanup: false }); }
+function disposeLater(ps, t) { tween(t, null, () => ps.dispose(false)); }
+
+const BAR_BACK = new BABYLON.StandardMaterial('barBack', scene);
+BAR_BACK.disableLighting = true; BAR_BACK.emissiveColor = new C3(0.03, 0.04, 0.06);
+const BAR_FRAME = [0, 1].map(t => {
+  const m = new BABYLON.StandardMaterial('barFrame' + t, scene);
+  m.disableLighting = true; m.emissiveColor = TEAM[t].color.scale(0.55);
+  return m;
+});
+
+function makeBar(sh, W) {
+  const H = sh.flag ? 1.0 : 0.62;
+  const frame = BABYLON.MeshBuilder.CreatePlane('barFrame', { width: W + 0.5, height: H + 0.5 }, scene);
+  frame.material = BAR_FRAME[sh.team];
+  const back = BABYLON.MeshBuilder.CreatePlane('barBack', { width: W, height: H }, scene);
+  back.material = BAR_BACK; back.parent = frame; back.position.z = -0.02;
+  const fill = BABYLON.MeshBuilder.CreatePlane('barFill', { width: W, height: H }, scene);
+  const fm = new BABYLON.StandardMaterial('barFillMat', scene);
+  fm.disableLighting = true; fm.emissiveColor = new C3(0.3, 1, 0.45);
+  fill.material = fm; fill.parent = back; fill.position.z = -0.02;
+  frame.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
+  for (const m of [frame, back, fill]) { m.renderingGroupId = 1; m.isPickable = false; glow.addExcludedMesh(m); }
+  sh.bar = frame; sh.barFill = fill; sh.barMat = fm; sh.barW = W; sh.barShown = 1;
+}
+
+function createShip(team, flag, index, pos, fwd) {
+  const T = TEAM[team];
+  const root = new BABYLON.Mesh((flag ? 'flag' : 'escort') + team + '_' + index, scene);
+  root.rotationQuaternion = new Q();
+  root.position.copyFrom(pos);
+  const spec = flag ? buildFlagship(team, root) : buildEscort(team, root);
+  const sh = Object.assign({
+    team, flag, root, pos: root.position, fwd: fwd.clone(), up: V3.Up(), right: V3.Right(), vel: V3.Zero(),
+    roll: 0, maxBank: flag ? 0.12 : 1.05,
+    maxSpeed: flag ? rand(8, 9.5) : rand(33, 40), accel: flag ? 3 : 20, turn: flag ? rand(0.26, 0.32) : rand(1.35, 1.7),
+    hp: flag ? 450 : 100, maxHp: flag ? 450 : 100, alive: true, dying: false,
+    fireT: rand(0.4, FIRE_INTERVAL), target: null, retarget: 0, state: 'attack', stateT: 0, breakDir: null,
+    phase: Math.random() * 10, orbitSide: Math.random() < 0.5 ? -1 : 1,
+    label: flag ? T.flag : `${T.escort} ${index}`
+  }, spec);
+  sh.speed = sh.maxSpeed * 0.6;
+  sh.vel.copyFrom(sh.fwd).scaleInPlace(sh.speed);
+  sh.reach = Math.max(-sh.segA, sh.segB) + sh.hitR;
+
+  // Engine light: only illuminates its own ship, so it can move freely without shader churn
+  const L = new BABYLON.PointLight('engineLight', new V3(...spec.lightAt), scene);
+  L.parent = root; L.range = spec.lightRange; L.diffuse = T.bright.clone(); L.specular = T.color.clone();
+  L.intensity = spec.lightI;
+  L.includedOnlyMeshes = root.getChildMeshes(false);
+  sh.eLight = L;
+
+  // Exhaust particles
+  const anchor = new BABYLON.Mesh('exAnchor', scene);
+  anchor.parent = root; anchor.position.set(...spec.exhaustAt);
+  sh.anchor = anchor;
+  const ex = new BABYLON.ParticleSystem('exhaust', flag ? 600 : 160, scene);
+  ex.particleTexture = TEX.flare; ex.emitter = anchor;
+  ex.minEmitBox = new V3(-spec.exBox[0], -spec.exBox[1], 0); ex.maxEmitBox = new V3(spec.exBox[0], spec.exBox[1], 0);
+  ex.direction1 = new V3(-0.12, -0.12, -1); ex.direction2 = new V3(0.12, 0.12, -1);
+  ex.minEmitPower = flag ? 12 : 10; ex.maxEmitPower = flag ? 22 : 18;
+  ex.minLifeTime = flag ? 0.4 : 0.22; ex.maxLifeTime = flag ? 0.9 : 0.5;
+  ex.minSize = flag ? 1.0 : 0.45; ex.maxSize = flag ? 2.0 : 1.1;
+  const exK = flag ? 0.55 : 0.8;
+  ex.color1 = new C4(T.bright.r * exK, T.bright.g * exK, T.bright.b * exK, 1);
+  ex.color2 = new C4(T.color.r * exK * 0.8, T.color.g * exK * 0.8, T.color.b * exK * 0.8, 1);
+  ex.colorDead = new C4(0, 0, 0, 0);
+  ex.blendMode = BABYLON.ParticleSystem.BLENDMODE_ONEONE;
+  ex.updateSpeed = 1 / 60;
+  ex.emitRate = sh.exBase = flag ? 120 : 90;
+  ex.start();
+  sh.exhaust = ex;
+
+  makeBar(sh, spec.barW);
+  orient(sh);
+  S.ships.push(sh);
+  return sh;
+}
+
+const FORMATION = [[0, 6, 28], [-18, 2, 18], [18, 2, 18], [-32, -4, 6], [32, -4, 6], [-16, -14, -4], [16, -14, -4], [-22, 14, -10], [22, 14, -10]];
+function spawnFleets() {
+  for (let team = 0; team < 2; team++) {
+    const dirZ = team === 0 ? 1 : -1;
+    const base = new V3(0, team === 0 ? -6 : 6, team === 0 ? -150 : 150);
+    const fwd = new V3(0, 0, dirZ);
+    const escorts = FORMATION.map(([x, y, z], i) => createShip(team, false, i + 1, base.add(new V3(x * dirZ, y, z * dirZ)), fwd));
+    const flag = createShip(team, true, 0, base, fwd);
+    S.order = S.order || [[], []];
+    S.order[team] = [...escorts.slice(0, 4), flag, ...escorts.slice(4)];
+  }
+  buildPips();
+}
+
+/* ------------------------------------------------------------------ *
+ *  Flight model and AI
+ * ------------------------------------------------------------------ */
+const TMP = new V3(), TMP2 = new V3(), TR = new V3(), TU = new V3();
+
+function closestOnAxis(sh, p, out) {
+  const ax = sh.fwd;
+  const t = clamp(V3.Dot(p.subtract(sh.pos), ax), sh.segA, sh.segB);
+  out.copyFrom(ax).scaleInPlace(t).addInPlace(sh.pos);
+  return out;
+}
+
+function orient(sh) {
+  const f = sh.fwd, up = sh.up;
+  up.addInPlace(new V3(0, sh.flag ? 0.05 : 0.004, 0));
+  V3.CrossToRef(up, f, sh.right);
+  if (sh.right.lengthSquared() < 1e-8) sh.right.set(1, 0, 0);
+  sh.right.normalize();
+  V3.CrossToRef(f, sh.right, up); up.normalize();
+  const c = Math.cos(sh.roll), s = Math.sin(sh.roll);
+  TR.set(sh.right.x * c + up.x * s, sh.right.y * c + up.y * s, sh.right.z * c + up.z * s);
+  V3.CrossToRef(f, TR, TU);
+  Q.RotationQuaternionFromAxisToRef(TR, TU, f, sh.root.rotationQuaternion);
+  sh.root.computeWorldMatrix(true);
+}
+
+function turnToward(f, d, maxAng, fallbackAxis) {
+  const dot = clamp(V3.Dot(f, d), -1, 1), ang = Math.acos(dot);
+  if (ang < 1e-4) return;
+  const axis = V3.Cross(f, d);
+  if (axis.lengthSquared() < 1e-8) axis.copyFrom(fallbackAxis);
+  axis.normalize();
+  const q = Q.RotationAxis(axis, Math.min(ang, maxAng));
+  f.rotateByQuaternionToRef(q, f); f.normalize();
+}
+
+function nearest(sh, list) {
+  let best = null, bd = Infinity;
+  for (const e of list) { const d = V3.DistanceSquared(sh.pos, e.pos); if (d < bd) { bd = d; best = e; } }
+  return best;
+}
+function pickTarget(sh, enemies) {
+  let best = null, bs = Infinity;
+  for (const e of enemies) {
+    const sc = V3.Distance(sh.pos, e.pos) + (e.flag ? 70 : 0) + Math.random() * 90;
+    if (sc < bs) { bs = sc; best = e; }
+  }
+  return best;
+}
+
+function escortAI(sh, enemies, dt) {
+  sh.retarget -= dt;
+  if (!sh.target || !sh.target.alive || sh.retarget < 0) { sh.target = pickTarget(sh, enemies); sh.retarget = rand(5, 9); }
+  const tg = sh.target, d = new V3();
+  if (sh.state === 'break') {
+    d.copyFrom(sh.breakDir);
+    sh.stateT -= dt;
+    if (sh.stateT <= 0) sh.state = 'attack';
+  } else if (tg) {
+    const to = tg.pos.subtract(sh.pos), dist = to.length();
+    const lead = tg.pos.add(tg.vel.scale(Math.min(dist / P_SPEED, 2)));
+    d.copyFrom(lead.subtractInPlace(sh.pos)).normalize();
+    d.addInPlace(sh.right.scale(Math.sin(S.time * 1.3 + sh.phase) * 0.18));
+    if (dist < (tg.flag ? 50 : 24)) {
+      sh.state = 'break'; sh.stateT = rand(1.4, 2.6);
+      sh.breakDir = sh.fwd.scale(1.2).addInPlace(randUnit()).addInPlace(to.normalize().scale(-0.4)).normalize();
+    }
+  } else d.copyFrom(sh.pos).scaleInPlace(-1).normalize();
+  return d;
+}
+
+function flagAI(sh, enemies) {
+  let foe = null;
+  for (const e of enemies) if (e.flag) foe = e;
+  if (!foe) foe = nearest(sh, enemies);
+  sh.target = foe;
+  const d = new V3();
+  if (foe) {
+    const to = foe.pos.subtract(sh.pos), dist = to.length();
+    to.scaleInPlace(1 / Math.max(dist, 1e-3));
+    if (dist > 165) d.copyFrom(to);
+    else {
+      V3.CrossToRef(to, V3.Up(), d);
+      d.normalize().scaleInPlace(sh.orbitSide).addInPlace(to.scale(dist < 95 ? -0.6 : 0.25));
+    }
+  } else d.copyFrom(sh.fwd);
+  d.y += Math.sin(S.time * 0.17 + sh.phase) * 0.25 - sh.pos.y * 0.006;
+  return d.normalize();
+}
+
+function avoidance(sh, out) {
+  for (const o of S.ships) {
+    if (o === sh || !o.alive) continue;
+    if (o.flag) {
+      closestOnAxis(o, sh.pos, TMP);
+      const dv = sh.pos.subtract(TMP), dist = dv.length(), R = sh.flag ? 48 : 20;
+      if (dist < R) out.addInPlace(dv.scaleInPlace((R - dist) / R * 3.5 / Math.max(dist, 0.1)));
+    } else if (!sh.flag) {
+      const dv = sh.pos.subtract(o.pos), dist = dv.length(), R = 13;
+      if (dist < R) out.addInPlace(dv.scaleInPlace((R - dist) / R * 2 / Math.max(dist, 0.1)));
+    }
+  }
+  const L = sh.pos.length();
+  if (L > ARENA) out.addInPlace(sh.pos.scale(-(L - ARENA) / (L * 35)));
+}
+
+function updateShip(sh, dt) {
+  const enemies = S.alive[1 - sh.team];
+  const d = sh.flag ? flagAI(sh, enemies) : escortAI(sh, enemies, dt);
+  avoidance(sh, d);
+  if (d.lengthSquared() < 1e-8) d.copyFrom(sh.fwd);
+  d.normalize();
+
+  const lat = V3.Dot(d, sh.right);
+  turnToward(sh.fwd, d, sh.turn * dt, sh.up);
+  const targetRoll = -clamp(lat * 2.2, -1, 1) * sh.maxBank;
+  sh.roll += (targetRoll - sh.roll) * Math.min(1, dt * 3);
+
+  const align = Math.max(0, V3.Dot(sh.fwd, d));
+  const thr = sh.flag ? 0.6 + 0.4 * align : (sh.state === 'break' ? 1 : 0.55 + 0.45 * align);
+  sh.speed += clamp(sh.maxSpeed * thr - sh.speed, -sh.accel * dt, sh.accel * dt);
+  sh.vel.copyFrom(sh.fwd).scaleInPlace(sh.speed);
+  sh.pos.addInPlace(sh.vel.scale(dt));
+  orient(sh);
+
+  // Engines respond to throttle
+  const th = sh.speed / sh.maxSpeed;
+  for (const f of sh.flames) {
+    const g = f.metadata, j = 0.85 + Math.random() * 0.3;
+    f.scaling.set(g.d * (0.92 + Math.random() * 0.14), g.d * (0.92 + Math.random() * 0.14), g.len * (0.35 + 0.75 * th) * j);
+  }
+  sh.eLight.intensity = sh.lightI * (0.5 + 0.7 * th) * (0.88 + Math.random() * 0.24);
+  sh.exhaust.emitRate = sh.exBase * (0.3 + 0.9 * th);
+
+  // Weapons: fixed cadence of one volley every 3 s
+  sh.fireT -= dt;
+  if (sh.fireT <= 0) {
+    if (fire(sh)) sh.fireT += FIRE_INTERVAL;
+    else sh.fireT = 0;
+  }
+
+  // Health bar (billboard, scaled with distance to stay legible)
+  const dist = V3.Distance(camera.position, sh.pos);
+  const bs = clamp(dist / 230, 0.75, 2.8);
+  sh.bar.scaling.setAll(bs);
+  sh.bar.position.set(sh.pos.x, sh.pos.y + sh.barY * Math.max(1, bs * 0.75), sh.pos.z);
+  const h = sh.hp / sh.maxHp;
+  if (Math.abs(h - sh.barShown) > 0.001) {
+    sh.barShown += (h - sh.barShown) * Math.min(1, dt * 8);
+    const k = Math.max(sh.barShown, 0.001);
+    sh.barFill.scaling.x = k;
+    sh.barFill.position.x = -(1 - k) * sh.barW / 2;
+    const c = sh.barMat.emissiveColor;
+    if (k > 0.5) c.set(0.3 + (1 - k) * 1.4, 1, 0.45 - (1 - k) * 0.6);
+    else c.set(1, 0.3 + k * 1.4, 0.15);
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ *  Weapons
+ * ------------------------------------------------------------------ */
+function localPoint(sh, x, y, z) { return V3.TransformCoordinates(new V3(x, y, z), sh.root.getWorldMatrix()); }
+
+function fire(sh) {
+  const enemies = S.alive[1 - sh.team];
+  if (!enemies.length) return false;
+  let tg = sh.target && sh.target.alive ? sh.target : null;
+  if (!tg || V3.Distance(tg.pos, sh.pos) > RANGE) tg = nearest(sh, enemies);
+  if (!tg || V3.Distance(tg.pos, sh.pos) > RANGE) return false;
+  if (sh.flag) for (const s of [-1, 1]) launch(sh, localPoint(sh, s * 5.6, -0.4, 14), tg, 18);
+  else launch(sh, localPoint(sh, 0, 0, 5.4), tg, 12);
+  return true;
+}
+
+function launch(sh, from, tg, dmg) {
+  let aim = tg.pos.clone();
+  for (let i = 0; i < 2; i++) aim = tg.pos.add(tg.vel.scale(V3.Distance(from, aim) / P_SPEED));
+  const dir = aim.subtract(from).normalize();
+  dir.addInPlace(randUnit().scale(sh.flag ? 0.012 : 0.03)).normalize();
+  S.proj[sh.team].push({ pos: from, dir, vel: dir.scale(P_SPEED), age: 0, dmg, owner: sh });
+  addFlash(sh.team, from, sh.flag ? 5.5 : 2.8, 0.2);
+}
+
+function addFlash(team, pos, size, dur) {
+  const l = S.flashes[team];
+  if (l.length < MAX_FLASH) l.push({ pos: pos.clone(), size, dur, t: 0 });
+}
+
+function updateProjectiles(dt) {
+  for (let t = 0; t < 2; t++) {
+    const list = S.proj[t], foes = S.alive[1 - t];
+    for (let i = list.length - 1; i >= 0; i--) {
+      const p = list[i];
+      p.age += dt;
+      let hit = null;
+      for (let k = 0; k < 2 && !hit; k++) {
+        p.pos.addInPlace(p.vel.scale(dt * 0.5));
+        for (const e of foes) {
+          if (!e.alive) continue;
+          if (V3.DistanceSquared(e.pos, p.pos) > e.reach * e.reach) continue;
+          closestOnAxis(e, p.pos, TMP);
+          if (V3.DistanceSquared(TMP, p.pos) < e.hitR * e.hitR) { hit = e; break; }
+        }
+      }
+      if (hit) {
+        spawnHit(p.pos, t);
+        damage(hit, p.dmg, p.owner);
+      }
+      if (hit || p.age > P_LIFE || list.length > MAX_P) { list[i] = list[list.length - 1]; list.pop(); }
+    }
+  }
+}
+
+function damage(sh, amt, by) {
+  if (!sh.alive || sh.dying) return;
+  sh.hp -= amt;
+  if (sh.hp < sh.maxHp * 0.45 && !sh.dmgFx) addDamageFx(sh);
+  if (sh.hp <= 0) { sh.hp = 0; destroyShip(sh, by, null); }
+}
+
+function addDamageFx(sh) {
+  const b = sh.dmgBox;
+  const f = new BABYLON.ParticleSystem('damage', sh.flag ? 500 : 180, scene);
+  f.particleTexture = TEX.flare; f.emitter = sh.root;
+  f.minEmitBox = new V3(-b[0], -b[1], -b[2]); f.maxEmitBox = new V3(b[0], b[1], b[2]);
+  f.direction1 = new V3(-1, 0.3, -1); f.direction2 = new V3(1, 1, 0);
+  f.minEmitPower = 1; f.maxEmitPower = 4;
+  f.minLifeTime = sh.flag ? 0.6 : 0.4; f.maxLifeTime = sh.flag ? 1.4 : 1.0;
+  f.minSize = sh.flag ? 1.5 : 0.6; f.maxSize = sh.flag ? 3.5 : 1.6;
+  f.color1 = new C4(1, 0.62, 0.22, 1); f.color2 = new C4(1, 0.35, 0.08, 1); f.colorDead = new C4(0.03, 0.03, 0.03, 0);
+  f.blendMode = BABYLON.ParticleSystem.BLENDMODE_ONEONE;
+  f.updateSpeed = 1 / 60; f.emitRate = sh.flag ? 110 : 50;
+  f.start();
+  sh.dmgFx = f;
+}
+
+/* ------------------------------------------------------------------ *
+ *  Explosions
+ * ------------------------------------------------------------------ */
+function burst(name, count, tex, pos, cfg) {
+  const ps = new BABYLON.ParticleSystem(name, count, scene);
+  ps.particleTexture = tex; ps.emitter = pos.clone();
+  ps.createSphereEmitter(cfg.radius, 1);
+  ps.minEmitPower = cfg.power[0]; ps.maxEmitPower = cfg.power[1];
+  ps.minLifeTime = cfg.life[0]; ps.maxLifeTime = cfg.life[1];
+  if (cfg.sizes) cfg.sizes.forEach(s => ps.addSizeGradient(s[0], s[1], s[2]));
+  else { ps.minSize = cfg.size[0]; ps.maxSize = cfg.size[1]; }
+  cfg.colors.forEach(c => ps.addColorGradient(c[0], c[1]));
+  if (cfg.drag) cfg.drag.forEach(d => ps.addDragGradient(d[0], d[1]));
+  ps.blendMode = cfg.blend !== undefined ? cfg.blend : BABYLON.ParticleSystem.BLENDMODE_ONEONE;
+  if (cfg.stretched) ps.billboardMode = BABYLON.ParticleSystem.BILLBOARDMODE_STRETCHED;
+  ps.minInitialRotation = 0; ps.maxInitialRotation = Math.PI * 2;
+  ps.minAngularSpeed = -1; ps.maxAngularSpeed = 1;
+  ps.updateSpeed = 1 / 60;
+  ps.manualEmitCount = count;
+  ps.start(cfg.delay || 0);
+  disposeLater(ps, cfg.life[1] + (cfg.delay || 0) / 1000 + 0.6);
+  return ps;
+}
+
+function fxMesh(mesh, mat, glowColor) {
+  mesh.material = mat; mesh.isPickable = false;
+  mesh.metadata = { glow: glowColor };
+  return mesh;
+}
+
+function spawnExplosion(pos, s, team, normal) {
+  const T = TEAM[team];
+  const tb = T.bright;
+  const sq = Math.sqrt(s);
+
+  // Smoke first so the additive fire renders over it
+  burst('smoke', s > 1 ? 150 : 60, TEX.smoke, pos, {
+    radius: 1.5 * s, power: [1.5 * s, 7 * s], life: [1.6, 3.6], delay: 120,
+    sizes: [[0, 3 * s, 5 * s], [1, 10 * s, 17 * s]],
+    colors: [[0, new C4(0.2, 0.18, 0.17, 0)], [0.1, new C4(0.17, 0.15, 0.14, 0.5)], [1, new C4(0.04, 0.04, 0.05, 0)]],
+    drag: [[0, 0], [1, 0.6]], blend: BABYLON.ParticleSystem.BLENDMODE_STANDARD
+  });
+  burst('fire', s > 1 ? 650 : 240, TEX.flare, pos, {
+    radius: 1.2 * s, power: [3 * s, 22 * s], life: [0.5, s > 1 ? 2.0 : 1.4],
+    sizes: [[0, 1.5 * s, 3 * s], [0.35, 4 * s, 7 * s], [1, 6 * s, 10 * s]],
+    colors: [[0, new C4(1, 1, 0.9, 1)], [0.15, new C4(1, 0.78, 0.32, 1)], [0.45, new C4(0.95, 0.36, 0.08, 1)], [0.8, new C4(0.32, 0.07, 0.03, 1)], [1, new C4(0, 0, 0, 1)]],
+    drag: [[0, 0], [1, 0.85]]
+  });
+  burst('sparks', s > 1 ? 450 : 170, TEX.flare, pos, {
+    radius: 0.6 * s, power: [30 * sq, 115 * sq], life: [0.4, 1.4], size: [0.25 * sq, 0.65 * sq], stretched: true,
+    colors: [[0, new C4(1, 1, 0.92, 1)], [0.3, new C4(1, 0.82, 0.42, 1)], [0.7, new C4(tb.r * 0.8, tb.g * 0.8, tb.b * 0.8, 1)], [1, new C4(0, 0, 0, 1)]],
+    drag: [[0, 0], [1, 0.92]]
+  });
+  burst('embers', s > 1 ? 160 : 60, TEX.flare, pos, {
+    radius: 0.8 * s, power: [8 * sq, 40 * sq], life: [1.0, 2.6], size: [0.3 * sq, 0.8 * sq],
+    colors: [[0, new C4(tb.r, tb.g, tb.b, 1)], [0.5, new C4(T.color.r, T.color.g, T.color.b, 1)], [1, new C4(0, 0, 0, 1)]],
+    drag: [[0, 0], [1, 0.7]]
+  });
+
+  // Blinding flash
+  const flash = fxMesh(BABYLON.MeshBuilder.CreateSphere('xflash', { diameter: 1, segments: 16 }, scene), null, new C3(1, 0.8, 0.5));
+  const fm = additiveMat('xflashMat', true); fm.emissiveColor = new C3(1, 0.88, 0.65); flash.material = fm;
+  flash.position.copyFrom(pos);
+  tween(0.6, k => {
+    flash.scaling.setAll(Math.max(0.01, 18 * s * (k < 0.25 ? k / 0.25 : 1 - (k - 0.25) * 0.4)));
+    fm.alpha = Math.pow(1 - k, 2);
+    flash.metadata.glow.set(fm.alpha, fm.alpha * 0.8, fm.alpha * 0.5);
+  }, () => { flash.dispose(); fm.dispose(); });
+
+  // Spherical shockwave shell
+  const shell = fxMesh(BABYLON.MeshBuilder.CreateSphere('shell', { diameter: 1, segments: 24 }, scene), null, tb.clone());
+  const sm = additiveMat('shellMat', false);
+  const mc = mix(arr(tb), [1, 0.85, 0.6], 0.5);
+  sm.emissiveColor = new C3(mc[0], mc[1], mc[2]);
+  sm.opacityFresnelParameters = new BABYLON.FresnelParameters();
+  sm.opacityFresnelParameters.leftColor = C3.White(); sm.opacityFresnelParameters.rightColor = C3.Black();
+  sm.opacityFresnelParameters.power = 2.5; sm.opacityFresnelParameters.bias = 0;
+  shell.material = sm; shell.position.copyFrom(pos);
+  const shellDur = s > 1 ? 1.2 : 0.8;
+  tween(shellDur, k => {
+    const e = 1 - Math.pow(1 - k, 3);
+    shell.scaling.setAll(Math.max(0.01, (4 + 52 * e) * s));
+    sm.alpha = Math.pow(1 - k, 1.5) * 0.95;
+    shell.metadata.glow = sm.emissiveColor.scale(sm.alpha * 0.6);
+  }, () => { shell.dispose(); sm.dispose(); });
+
+  // Flat shock rings
+  const rings = s > 1 ? 2 : 1;
+  for (let r = 0; r < rings; r++) {
+    const ring = fxMesh(BABYLON.MeshBuilder.CreatePlane('ring', { size: 1 }, scene), null, new C3(1, 0.6, 0.3));
+    const rm = additiveMat('ringMat', false); rm.emissiveTexture = TEX.ring; rm.emissiveColor = C3.Black();
+    ring.material = rm; ring.position.copyFrom(pos);
+    const n = (normal && r === 0) ? normal.clone() : randUnit();
+    ring.lookAt(pos.add(n));
+    const dur = 1.3 + r * 0.3, delay = r * 0.12;
+    rm.alpha = 0; ring.scaling.setAll(0.01);
+    tween(dur + delay, k0 => {
+      const k = clamp((k0 * (dur + delay) - delay) / dur, 0, 1);
+      const e = 1 - Math.pow(1 - k, 2.5);
+      ring.scaling.setAll(Math.max(0.01, (6 + 70 * e) * s * (r ? 0.8 : 1)));
+      rm.alpha = k > 0 ? Math.pow(1 - k, 1.8) : 0;
+      ring.metadata.glow.set(rm.alpha, rm.alpha * 0.6, rm.alpha * 0.3);
+    }, () => { ring.dispose(); rm.dispose(); });
+  }
+
+  // Dynamic light from the blast
+  let slot = xLights[0];
+  for (const x of xLights) if (x.t / x.dur > slot.t / slot.dur) slot = x;
+  slot.L.position.copyFrom(pos); slot.L.range = 70 * s + 50;
+  slot.peak = 5 * s; slot.dur = 0.8 + 0.35 * s; slot.t = 0;
+
+  // Camera shake based on proximity
+  const cd = V3.Distance(camera.position, pos);
+  S.shake = Math.min(3.5, S.shake + s * s * 70 / Math.max(70, cd));
+}
+
+function spawnHit(pos, team) {
+  const T = TEAM[team];
+  burst('hit', 30, TEX.flare, pos, {
+    radius: 0.3, power: [8, 42], life: [0.15, 0.45], size: [0.2, 0.5], stretched: true,
+    colors: [[0, new C4(1, 1, 1, 1)], [0.4, new C4(T.bright.r, T.bright.g, T.bright.b, 1)], [1, new C4(0, 0, 0, 1)]]
+  });
+  addFlash(team, pos, 4.2, 0.22);
+}
+
+function spawnDebris(sh) {
+  const n = sh.flag ? 34 : 13;
+  for (let i = 0; i < n; i++) {
+    const hot = Math.random() < 0.3;
+    const m = DEBRIS_T[(Math.random() * 4) | 0].clone('debris');
+    m.setEnabled(true); m.isVisible = true; m.isPickable = false;
+    m.material = hot ? MAT_HOT : MATS[sh.team][Math.random() < 0.7 ? 'hull' : 'dark'];
+    const size = sh.flag ? rand(0.8, 2.6) : rand(0.3, 1.0);
+    m.scaling.set(size * rand(0.6, 1.4), size * rand(0.4, 1), size * rand(0.6, 1.6));
+    m.position.copyFrom(sh.pos).addInPlace(randUnit().scaleInPlace(rand(0, sh.flag ? 10 : 2)));
+    m.rotation.set(rand(0, 6), rand(0, 6), rand(0, 6));
+    if (hot) m.metadata = { glow: new C3(1, 0.45, 0.12) };
+    const d = {
+      m, vel: randUnit().scaleInPlace(rand(8, sh.flag ? 40 : 32)).addInPlace(sh.vel.scale(0.4)),
+      spin: new V3(rand(-4, 4), rand(-4, 4), rand(-4, 4)), life: 0, max: rand(3.2, 6.5), base: m.scaling.clone(), trail: null
+    };
+    if (i < (sh.flag ? 9 : 3)) {
+      const tr = new BABYLON.ParticleSystem('debrisTrail', 150, scene);
+      tr.particleTexture = TEX.flare; tr.emitter = m;
+      tr.minEmitBox = V3.Zero(); tr.maxEmitBox = V3.Zero();
+      tr.direction1 = new V3(-1, -1, -1); tr.direction2 = new V3(1, 1, 1);
+      tr.minEmitPower = 0.3; tr.maxEmitPower = 1.5;
+      tr.minLifeTime = 0.3; tr.maxLifeTime = 0.8;
+      tr.minSize = 0.6 * (sh.flag ? 1.8 : 1); tr.maxSize = 1.4 * (sh.flag ? 1.8 : 1);
+      tr.color1 = new C4(1, 0.72, 0.3, 1); tr.color2 = new C4(1, 0.42, 0.1, 1); tr.colorDead = new C4(0, 0, 0, 0);
+      tr.blendMode = BABYLON.ParticleSystem.BLENDMODE_ONEONE; tr.updateSpeed = 1 / 60; tr.emitRate = 80;
+      tr.start();
+      d.trail = tr; d.trailStop = rand(1.3, 2.5);
+    }
+    S.debris.push(d);
+  }
+}
+
+function updateDebris(dt) {
+  for (let i = S.debris.length - 1; i >= 0; i--) {
+    const d = S.debris[i];
+    d.life += dt;
+    d.m.position.addInPlace(d.vel.scale(dt));
+    d.vel.scaleInPlace(1 - 0.12 * dt);
+    d.m.rotation.addInPlace(d.spin.scale(dt));
+    const rem = d.max - d.life;
+    const f = clamp(rem / (d.max * 0.3), 0, 1);
+    d.m.scaling.copyFrom(d.base).scaleInPlace(Math.max(f, 0.001));
+    if (d.trail && d.life > d.trailStop && d.trail.isStarted()) d.trail.stop();
+    if (rem <= 0) {
+      if (d.trail) d.trail.dispose(false);
+      d.m.dispose();
+      S.debris.splice(i, 1);
+    }
+  }
+}
+
+function destroyShip(sh, by, chainFrom) {
+  if (!sh.alive) return;
+  sh.alive = false;
+  const pos = sh.pos.clone(), vel = sh.vel.clone(), fwd = sh.fwd.clone(), up = sh.up.clone();
+  const s = sh.flag ? 2.6 : 1;
+  spawnExplosion(pos, s, sh.team, sh.flag ? up : null);
+  if (sh.flag) {
+    // rolling secondary detonations along the hull
+    for (let i = 0; i < 7; i++) {
+      const at = pos.add(fwd.scale(rand(-16, 18))).addInPlace(randUnit().scaleInPlace(rand(2, 7))).addInPlace(vel.scale(0.3 * i * 0.17));
+      later(0.12 + i * 0.16, () => spawnExplosion(at, rand(0.6, 0.95), sh.team, null));
+    }
+  }
+  spawnDebris(sh);
+
+  // detach particle emitters before the ship's meshes go away
+  sh.exhaust.emitter = sh.anchor.getAbsolutePosition().clone(); sh.exhaust.stop(); disposeLater(sh.exhaust, 1.2);
+  if (sh.dmgFx) { sh.dmgFx.emitter = pos.clone(); sh.dmgFx.stop(); disposeLater(sh.dmgFx, 1.6); }
+  sh.eLight.dispose();
+  sh.root.dispose();
+  sh.bar.dispose();
+  sh.barMat.dispose();
+
+  const name = x => `<span class="${TEAM[x.team].cls}">${x.label}</span>`;
+  if (chainFrom) logFeed(`${name(sh)} <span class="chain">caught in the blast of</span> ${name(chainFrom)}`);
+  else if (by) logFeed(`${name(by)} destroyed ${name(sh)}`);
+  else logFeed(`${name(sh)} destroyed`);
+
+  // Chain reaction: anything within roughly one ship-width of the blast detonates too
+  for (const o of S.ships) {
+    if (!o.alive || o.dying || o === sh) continue;
+    closestOnAxis(o, pos, TMP2);
+    if (V3.Distance(TMP2, pos) < sh.width + o.hitR * 0.5) {
+      o.dying = true;
+      later(rand(0.14, 0.32), () => destroyShip(o, null, sh));
+    }
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ *  Instanced rendering of projectiles and flashes
+ * ------------------------------------------------------------------ */
+const QI = Q.Identity(), MQ = new Q(), MM = new BABYLON.Matrix(), MS = new V3(), AX = new V3(), AY = new V3();
+function dirQuat(dir, out) {
+  const up = Math.abs(dir.y) < 0.99 ? V3.Up() : V3.Right();
+  V3.CrossToRef(up, dir, AX); AX.normalize();
+  V3.CrossToRef(dir, AX, AY);
+  Q.RotationQuaternionFromAxisToRef(AX, AY, dir, out);
+  return out;
+}
+function commit(mesh, buf, n) {
+  mesh.isVisible = n > 0;
+  if (n > 0) { mesh.thinInstanceCount = n; mesh.thinInstanceBufferUpdated('matrix'); }
+}
+function renderInstances(dt) {
+  for (let t = 0; t < 2; t++) {
+    const fx = FX[t], list = S.proj[t];
+    let n = 0;
+    for (const p of list) {
+      if (n >= MAX_P) break;
+      dirQuat(p.dir, MQ);
+      MS.set(1, 1, 1);
+      BABYLON.Matrix.ComposeToRef(MS, MQ, p.pos, MM); MM.copyToArray(fx.boltBuf, n * 16);
+      MS.set(0.8, 0.8, 16 * Math.min(1, p.age / 0.14) + 0.01);
+      BABYLON.Matrix.ComposeToRef(MS, MQ, p.pos, MM); MM.copyToArray(fx.tailBuf, n * 16);
+      n++;
+    }
+    commit(fx.bolt, fx.boltBuf, n);
+    commit(fx.tail, fx.tailBuf, n);
+
+    const fl = S.flashes[t];
+    let m = 0;
+    for (let i = fl.length - 1; i >= 0; i--) {
+      const f = fl[i];
+      f.t += dt;
+      const k = f.t / f.dur;
+      if (k >= 1) { fl[i] = fl[fl.length - 1]; fl.pop(); continue; }
+      const sc = f.size * (k < 0.25 ? k / 0.25 : 1 - (k - 0.25) / 0.75) + 0.01;
+      MS.set(sc, sc, sc);
+      BABYLON.Matrix.ComposeToRef(MS, QI, f.pos, MM); MM.copyToArray(fx.flashBuf, m * 16);
+      m++;
+    }
+    commit(fx.flash, fx.flashBuf, m);
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ *  Lights, camera, HUD
+ * ------------------------------------------------------------------ */
+function updateLights(dt) {
+  for (const x of xLights) {
+    x.t += dt;
+    const k = x.t / x.dur;
+    x.L.intensity = k < 1 ? x.peak * (k < 0.08 ? k / 0.08 : Math.pow(1 - (k - 0.08) / 0.92, 2)) : 0;
+  }
+}
+
+const CAM_MODES = ['battle view', 'follow Vigilant', 'follow Harrow', 'free'];
+function setCamMode(i) {
+  S.camMode = i % CAM_MODES.length;
+  $('bCam').textContent = 'Camera: ' + CAM_MODES[S.camMode];
+  camera.panningSensibility = S.camMode === 3 ? 60 : 0;
+}
+function updateCamera(dt) {
+  let goal = null;
+  if (S.camMode === 1 || S.camMode === 2) {
+    const f = S.ships.find(s => s.flag && s.team === S.camMode - 1 && s.alive);
+    if (f) goal = f.pos; else setCamMode(0);
+  }
+  if (S.camMode === 0) {
+    const c = new V3(); let w = 0;
+    for (const s of S.ships) if (s.alive) { const k = s.flag ? 3 : 1; c.addInPlace(s.pos.scale(k)); w += k; }
+    if (w > 0) goal = c.scaleInPlace(1 / w);
+  }
+  if (goal) {
+    const k = 1 - Math.exp(-dt * (S.camMode === 0 ? 1.2 : 3));
+    camera.target.addInPlace(goal.subtract(camera.target).scaleInPlace(k));
+  }
+  S.shake *= Math.exp(-dt * 4);
+  const a = S.shake * camera.radius * 0.004;
+  camera.targetScreenOffset.set((Math.random() - 0.5) * a, (Math.random() - 0.5) * a);
+}
+
+function buildPips() {
+  for (let t = 0; t < 2; t++) {
+    const el = $('p' + t);
+    el.innerHTML = '';
+    S.order[t].forEach(sh => {
+      const p = document.createElement('div');
+      p.className = 'pip' + (sh.flag ? ' flag' : '');
+      p.title = sh.label;
+      const i = document.createElement('i');
+      p.appendChild(i);
+      el.appendChild(p);
+      sh.pip = p; sh.pipFill = i;
+    });
+  }
+}
+function updateHud() {
+  for (let t = 0; t < 2; t++) {
+    let alive = 0;
+    for (const sh of S.order[t]) {
+      if (sh.alive) { alive++; sh.pipFill.style.height = (sh.hp / sh.maxHp * 100).toFixed(1) + '%'; }
+      else sh.pip.classList.add('dead');
+    }
+    $('c' + t).textContent = `${alive} of 10 ships`;
+  }
+}
+function logFeed(html) {
+  const feed = $('feed');
+  const li = document.createElement('li');
+  li.innerHTML = html;
+  feed.appendChild(li);
+  while (feed.children.length > 6) feed.removeChild(feed.firstChild);
+  setTimeout(() => { li.style.opacity = '0'; }, 7000);
+  setTimeout(() => { li.remove(); }, 8300);
+}
+
+function checkVictory() {
+  if (S.over) return;
+  const a = S.ships.some(s => s.alive && s.team === 0), b = S.ships.some(s => s.alive && s.team === 1);
+  if (a && b) return;
+  S.over = true;
+  later(2.8, () => {
+    const title = $('bannerTitle');
+    if (a) { title.textContent = 'Azure Coalition holds the field'; title.style.color = 'var(--azure)'; }
+    else if (b) { title.textContent = 'Crimson Dominion holds the field'; title.style.color = 'var(--crimson)'; }
+    else { title.textContent = 'Both fleets destroyed'; title.style.color = '#ffc47a'; }
+    $('banner').hidden = false;
+    let n = 8;
+    const tick = () => { $('bannerSub').textContent = `A new engagement begins in ${n} s`; };
+    tick();
+    S.countdown = setInterval(() => { n--; if (n <= 0) { restart(); } else tick(); }, 1000);
+  });
+}
+
+/* ------------------------------------------------------------------ *
+ *  Lifecycle
+ * ------------------------------------------------------------------ */
+function clearBattle() {
+  clearInterval(S.countdown);
+  $('banner').hidden = true;
+  const old = anims.splice(0);
+  for (const a of old) if (a.cleanup) { if (a.update) a.update(1, 0); if (a.end) a.end(); }
+  for (const sh of S.ships) {
+    if (!sh.alive) continue;
+    sh.exhaust.dispose(false);
+    if (sh.dmgFx) sh.dmgFx.dispose(false);
+    sh.eLight.dispose(); sh.root.dispose(); sh.bar.dispose(); sh.barMat.dispose();
+  }
+  for (const d of S.debris) { if (d.trail) d.trail.dispose(false); d.m.dispose(); }
+  S.ships = []; S.debris = []; S.proj = [[], []]; S.flashes = [[], []]; S.alive = [[], []];
+  for (const x of xLights) { x.t = x.dur; x.L.intensity = 0; }
+  S.over = false; S.shake = 0; S.time = 0;
+  $('feed').innerHTML = '';
+}
+function restart() {
+  clearBattle();
+  spawnFleets();
+  logFeed('Fleets closing to engagement range');
+}
+
+// Warm up every effect shader once (invisibly small) so the first real explosion does not stutter.
+spawnExplosion(new V3(0, 0, 0), 0.0005, 0, null);
+spawnHit(new V3(0, 0, 0), 1);
+xLights.forEach(x => { x.peak = 0; });
+S.shake = 0;
+
+spawnFleets();
+logFeed('Fleets closing to engagement range');
+
+scene.onBeforeRenderObservable.add(() => {
+  const dt = Math.min(engine.getDeltaTime() / 1000, 1 / 20);
+  S.time += dt;
+  S.alive[0] = S.ships.filter(s => s.alive && s.team === 0);
+  S.alive[1] = S.ships.filter(s => s.alive && s.team === 1);
+  for (const sh of S.ships) if (sh.alive) updateShip(sh, dt);
+  updateProjectiles(dt);
+  for (let i = anims.length - 1; i >= 0; i--) {
+    const a = anims[i];
+    if (!a) continue;
+    a.t += dt;
+    const k = Math.min(1, a.t / a.dur);
+    if (a.update) a.update(k, dt);
+    if (k >= 1) { anims.splice(i, 1); if (a.end) a.end(); }
+  }
+  updateDebris(dt);
+  renderInstances(dt);
+  updateLights(dt);
+  updateCamera(dt);
+  checkVictory();
+  S.hudT -= dt;
+  if (S.hudT <= 0) { S.hudT = 0.1; updateHud(); }
+});
+
+engine.runRenderLoop(() => scene.render());
+window.addEventListener('resize', () => engine.resize());
+
+/* Controls */
+setCamMode(0);
+$('bCam').addEventListener('click', () => setCamMode(S.camMode + 1));
+$('bOrbit').addEventListener('click', () => {
+  camera.useAutoRotationBehavior = !camera.useAutoRotationBehavior;
+  if (camera.useAutoRotationBehavior) {
+    camera.autoRotationBehavior.idleRotationSpeed = 0.06;
+    camera.autoRotationBehavior.idleRotationWaitTime = 4000;
+  }
+  $('bOrbit').textContent = 'Auto-orbit: ' + (camera.useAutoRotationBehavior ? 'on' : 'off');
+});
+$('bRestart').addEventListener('click', restart);
+window.addEventListener('keydown', e => {
+  if (e.target && e.target.tagName === 'BUTTON' && (e.key === ' ' || e.key === 'Enter')) return;
+  if (e.key === 'c' || e.key === 'C') setCamMode(S.camMode + 1);
+  if (e.key === 'r' || e.key === 'R') restart();
+});
+})();
+</script>
+</body>
+</html>
