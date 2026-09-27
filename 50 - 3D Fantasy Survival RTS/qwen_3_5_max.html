@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Kingdom of Prism: Survival RTS</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;700&display=swap');
+
+        body { margin: 0; overflow: hidden; background-color: #222; font-family: 'Nunito', sans-serif; user-select: none; }
+        canvas { display: block; }
+        
+        #ui-layer {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+        }
+
+        .hud-panel {
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 12px;
+            padding: 10px 15px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            pointer-events: auto;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            font-family: 'Fredoka One', cursive;
+            color: #444;
+        }
+
+        #top-bar {
+            position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+            flex-direction: row; gap: 20px;
+        }
+
+        .resource-item { display: flex; align-items: center; gap: 8px; font-size: 18px; }
+        .res-icon { width: 24px; height: 24px; border-radius: 50%; display: inline-block; }
+        
+        #bottom-bar {
+            position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+            height: 120px; display: flex; flex-direction: column; align-items: center;
+        }
+
+        .build-menu {
+            display: flex; gap: 10px;
+            background: rgba(255, 255, 255, 0.8);
+            padding: 10px; border-radius: 15px;
+            gap: 15px;
+            margin-bottom: 10px;
+        }
+
+        .build-btn {
+            width: 80px; height: 80px;
+            background: #f0f0f0;
+            border: 2px solid #ccc;
+            border-radius: 10px;
+            cursor: pointer;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            transition: all 0.2s;
+            position: relative;
+        }
+        .build-btn:hover { transform: translateY(-5px); border-color: #4a90e2; background: #fff; }
+        .build-btn:active { transform: scale(0.95); }
+        .build-btn.disabled { opacity: 0.5; filter: grayscale(1); cursor: not-allowed; }
+
+        .btn-icon { width: 32px; height: 32px; margin-bottom: 5px; }
+        .btn-name { font-size: 12px; font-weight: bold; text-align: center; }
+        .btn-cost { font-size: 10px; color: #666; }
+
+        #unit-panel {
+            position: absolute; bottom: 140px; right: 20px;
+            width: 200px;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 12px;
+            padding: 15px;
+            pointer-events: auto;
+            display: none; /* Hidden by default */
+            flex-direction: column; gap: 10px;
+        }
+
+        .panel-title { font-family: 'Fredoka One'; color: #333; margin-bottom: 5px; }
+        .action-btn {
+            background: #4a90e2; color: white; border: none;
+            padding: 8px; border-radius: 6px; font-weight: bold; cursor: pointer;
+            font-family: 'Nunito', sans-serif;
+        }
+        .action-btn:hover { background: #357abd; }
+        .action-btn:disabled { background: #ccc; cursor: not-allowed; }
+
+        #game-over {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8);
+            display: flex; flex-direction: column;
+            justify-content: center; align-items: center;
+            color: white; font-family: 'Fredoka One'; font-size: 40px;
+            pointer-events: auto; z-index: 100;
+            display: none;
+        }
+        #restart-btn { margin-top: 20px; padding: 15px 30px; font-size: 20px; cursor: pointer; }
+
+        /* Tooltip */
+        .tooltip {
+            position: absolute; background: rgba(0,0,0,0.7); color: white;
+            padding: 5px 10px; border-radius: 4px; font-size: 12px; pointer-events: none;
+            display: none; z-index: 50;
+        }
+    </style>
+    <!-- Import Three.js -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+
+<div id="ui-layer">
+    <div id="top-bar" class="hud-panel">
+        <div class="resource-item"><span class="res-icon" style="background:#8B4513;">&#127969;</span><span id="wood-count">0</span></div>
+        <div class="resource-item"><span class="res-icon" style="background:#FFD700;">&#9830;</span><span id="gold-count">0</span></div>
+        <div class="resource-item"><span class="res-icon" style="background:#E03E3E;">&#9986;</span><span id="pop-count">0</span>/<span id="pop-max">10</span></div>
+        <div class="resource-item" style="margin-left: 20px; font-family: 'Nunito'">Wave: <span id="wave-count" style="color:#E03E3E; font-weight:bold;">1</span></div>
+    </div>
+
+    <div id="unit-panel">
+        <div class="panel-title">Unit Actions</div>
+        <button id="btn-attack" class="action-btn">Attack Move</button>
+        <button id="btn-stop" class="action-btn" style="background:#666;">Stop</button>
+    </div>
+
+    <div id="bottom-bar">
+        <div class="build-menu" id="build-menu">
+            <!-- Populated by JS -->
+        </div>
+        <div class="hud-panel" style="background: rgba(0,0,0,0.1); color: #aaa; font-size: 12px; pointer-events: none;">
+            Click resources to select | Click empty ground to build
+        </div>
+    </div>
+
+    <div class="tooltip" id="tooltip"></div>
+
+    <div id="game-over">
+        <div id="go-title">VICTORY</div>
+        <button id="restart-btn">Play Again</button>
+    </div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { SimplexNoise } from 'three/addons/math/SimplexNoise.js';
+
+// ==========================================
+// CONFIGURATION & CONSTANTS
+// ==========================================
+const COLORS = {
+    player: 0x4a90e2,
+    playerDark: 0x2c5aa0,
+    enemy: 0xe03e3e,
+    enemyDark: 0x8a1c1c,
+    wood: 0x8B4513,
+    gold: 0xFFD700,
+    grass: 0x56ab68,
+    highlight: 0xffffff,
+    fog: 0xeef2f5
+};
+
+const BUILDINGS = {
+    keep: { name: "Royal Keep", cost: { wood: 0, gold: 0 }, hp: 5000, radius: 15, color: COLORS.player, type: 'base' },
+    farm: { name: "Farm", cost: { wood: 150, gold: 50 }, hp: 300, radius: 5, color: 0x8FBC8F, type: 'economy', pop: 5,产出: 'wood' }, // Fixed typo in key
+    mine: { name: "Gold Mine", cost: { wood: 200, gold: 100 }, hp: 400, radius: 6, color: 0xDAA520, type: 'economy', pop: 8,产出: 'gold' },
+    barracks: { name: "Barracks", cost: { wood: 300, gold: 100 }, hp: 600, radius: 8, color: 0x556B2F, type: 'military', pop: 0 }
+};
+
+const UNITS = {
+    worker: { name: "Peon", cost: { wood: 50, gold: 20 }, hp: 20, damage: 0, speed: 0.08, radius: 0.8, color: 0x888888, type: 'worker' },
+    warrior: { name: "Guard", cost: { wood: 100, gold: 50 }, hp: 80, damage: 15, speed: 0.12, radius: 1.0, color: 0x228B22, type: 'military', range: 1.5 },
+    knight: { name: "Knight", cost: { wood: 200, gold: 150 }, hp: 200, damage: 35, speed: 0.15, radius: 1.2, color: 0xFF8C00, type: 'elite', range: 2.0 }
+};
+
+// ==========================================
+// GAME STATE
+// ==========================================
+const state = {
+    resources: { wood: 300, gold: 150, pop: 0, maxPop: 10 },
+    buildings: [],
+    units: [],
+    resources: [], // Trees, rocks
+    enemies: [],
+    particles: [],
+    wave: 1,
+    waveTimer: 0,
+    gameOver: false,
+    selectedEntity: null,
+    buildMode: null, // 'keep', 'farm', etc.
+    cameraPos: { x: 0, y: 30, z: 30 },
+    raycaster: new THREE.Raycaster(),
+    mouse: new THREE.Vector2()
+};
+
+// ==========================================
+// SCENE SETUP
+// ==========================================
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(COLORS.fog);
+scene.fog = new THREE.Fog(COLORS.fog, 40, 90);
+
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+camera.position.set(state.cameraPos.x, state.cameraPos.y, state.cameraPos.z);
+camera.lookAt(0, 0, 0);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.maxPolarAngle = Math.PI / 2.2; // Don't go below ground
+controls.minDistance = 15;
+controls.maxDistance = 60;
+
+// Lighting
+const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
+scene.add(hemiLight);
+
+const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+dirLight.position.set(20, 50, 20);
+dirLight.castShadow = true;
+dirLight.shadow.mapSize.width = 2048;
+dirLight.shadow.mapSize.height = 2048;
+dirLight.shadow.camera.near = 0.5;
+dirLight.shadow.camera.far = 100;
+dirLight.shadow.camera.left = -50;
+dirLight.shadow.camera.right = 50;
+dirLight.shadow.camera.top = 50;
+dirLight.shadow.camera.bottom = -50;
+scene.add(dirLight);
+
+// Ground Plane
+const planeGeometry = new THREE.PlaneGeometry(200, 200);
+const planeMaterial = new THREE.MeshStandardMaterial({ color: COLORS.grass, roughness: 1 });
+const plane = new THREE.Mesh(planeGeometry, planeMaterial);
+plane.rotation.x = -Math.PI / 2;
+plane.receiveShadow = true;
+scene.add(plane);
+
+// ==========================================
+// ASSET GENERATORS (Procedural)
+// ==========================================
+function createBuildingMesh(type, color) {
+    const group = new THREE.Group();
+    
+    if (type === 'keep') {
+        const main = new THREE.Mesh(new THREE.BoxGeometry(10, 12, 10), new THREE.MeshStandardMaterial({ color: color }));
+        main.position.y = 6; main.castShadow = true; main.receiveShadow = true;
+        const roof = new THREE.Mesh(new THREE.ConeGeometry(8, 4, 4), new THREE.MeshStandardMaterial({ color: 0x555555 }));
+        roof.position.y = 14; roof.rotation.y = Math.PI/4; roof.castShadow = true;
+        group.add(main, roof);
+    } else if (type === 'farm') {
+        const base = new THREE.Mesh(new THREE.BoxGeometry(6, 4, 6), new THREE.MeshStandardMaterial({ color: color }));
+        base.position.y = 2; base.castShadow = true; base.receiveShadow = true;
+        const roof = new THREE.Mesh(new THREE.ConeGeometry(5, 3, 3), new THREE.MeshStandardMaterial({ color: 0x8B4513 }));
+        roof.position.y = 5.5; roof.castShadow = true;
+        group.add(base, roof);
+    } else if (type === 'mine') {
+        const base = new THREE.Mesh(new THREE.BoxGeometry(5, 5, 5), new THREE.MeshStandardMaterial({ color: color }));
+        base.position.y = 2.5; base.castShadow = true; base.receiveShadow = true;
+        const top = new THREE.Mesh(new THREE.CylinderGeometry(3, 5, 2, 6), new THREE.MeshStandardMaterial({ color: 0x333333 }));
+        top.position.y = 6; top.castShadow = true;
+        group.add(base, top);
+    } else if (type === 'barracks') {
+        const base = new THREE.Mesh(new THREE.BoxGeometry(8, 5, 8), new THREE.MeshStandardMaterial({ color: color }));
+        base.position.y = 2.5; base.castShadow = true; base.receiveShadow = true;
+        const roof = new THREE.Mesh(new THREE.CylinderGeometry(6, 6, 3, 4), new THREE.MeshStandardMaterial({ color: 0x333333 }));
+        roof.position.y = 6.5; roof.castShadow = true;
+        group.add(base, roof);
+    }
+    return group;
+}
+
+function createUnitMesh(type) {
+    const geo = new THREE.CapsuleGeometry(0.5, 1, 4, 8);
+    const mat = new THREE.MeshStandardMaterial({ color: UNITS[type].color });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.y = 1;
+    mesh.castShadow = true;
+    return mesh;
+}
+
+function createResourceMesh(type) {
+    const color = type === 'wood' ? 0x228B22 : 0xFFD700;
+    const geo = type === 'wood' 
+        ? new THREE.DodecahedronGeometry(1.5) 
+        : new THREE.TetrahedronGeometry(1.5);
+    const mat = new THREE.MeshStandardMaterial({ color: color, flatShading: true });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.castShadow = true;
+    return mesh;
+}
+
+function createParticle(pos, color) {
+    const geo = new THREE.BoxGeometry(0.3, 0.3, 0.3);
+    const mat = new THREE.MeshBasicMaterial({ color: color });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.copy(pos);
+    mesh.position.y += 1;
+    scene.add(mesh);
+    state.particles.push({ mesh, life: 1.0, color });
+}
+
+// ==========================================
+// GAME LOGIC
+// ==========================================
+
+function initGame() {
+    // Reset State
+    state.resources = { wood: 300, gold: 150, pop: 0, maxPop: 10 };
+    state.buildings = [];
+    state.units = [];
+    state.enemies = [];
+    state.particles = [];
+    state.wave = 1;
+    state.gameOver = false;
+    state.selectedEntity = null;
+    state.buildMode = null;
+    state.waveTimer = 0;
+
+    // Clear Scene
+    while(scene.children.length > 0){ 
+        scene.remove(scene.children[0]); 
+    }
+    scene.add(plane, hemiLight, dirLight); // Re-add ground and lights
+
+    // Create Player Base
+    spawnBuilding('keep', 0, 0);
+
+    // Create Initial Resources
+    spawnResources(15, 'wood', 20, 30);
+    spawnResources(5, 'gold', 20, 30);
+
+    // UI Reset
+    document.getElementById('game-over').style.display = 'none';
+    updateUI();
+    renderBuildMenu();
+}
+
+function spawnResources(count, type, minDist, maxDist) {
+    const geo = createResourceMesh(type);
+    const material = geo.material;
+    
+    for(let i=0; i<count; i++) {
+        const x = (Math.random() - 0.5) * 100;
+        const z = (Math.random() - 0.5) * 100;
+        if (Math.abs(x) + Math.abs(z) < minDist) continue; // Keep near base clear
+
+        const mesh = geo.clone();
+        mesh.position.set(x, 1, z);
+        
+        // Scale variation
+        const s = 0.8 + Math.random() * 0.4;
+        mesh.scale.set(s, s, s);
+        
+        scene.add(mesh);
+        
+        state.resources.push({
+            mesh: mesh,
+            type: type,
+            hp: 100,
+            x: x, z: z
+        });
+    }
+}
+
+function spawnBuilding(type, x, z) {
+    const data = BUILDINGS[type];
+    const mesh = createBuildingMesh(type, data.color);
+    mesh.position.set(x, 0, z);
+    scene.add(mesh);
+
+    state.buildings.push({
+        mesh: mesh,
+        type: type,
+        data: data,
+        hp: data.hp,
+        maxHp: data.hp,
+        x: x, z: z,
+        productionTimer: 0,
+        id: Math.random()
+    });
+
+    // Add collision radius visual
+    const rGeo = new THREE.RingGeometry(data.radius, data.radius + 0.2, 32);
+    const rMat = new THREE.MeshBasicMaterial({ color: 0xffffff, opacity: 0.2, transparent: true, side: THREE.DoubleSide });
+    const ring = new THREE.Mesh(rGeo, rMat);
+    ring.rotation.x = -Math.PI/2;
+    ring.position.set(x, 0.1, z);
+    scene.add(ring);
+    mesh.userData.ring = ring; // Link for removal
+}
+
+function spawnUnit(type, owner, x, z) {
+    const data = UNITS[type];
+    const mesh = createUnitMesh(type);
+    mesh.position.set(x, 0, z);
+    scene.add(mesh);
+
+    const unit = {
+        mesh: mesh,
+        type: type,
+        owner: owner, // 'player' or 'enemy'
+        hp: data.hp,
+        maxHp: data.hp,
+        x: x, z: z,
+        targetX: x, targetZ: z,
+        moveSpeed: data.speed,
+        range: data.range || 1.0,
+        damage: data.damage,
+        state: 'idle', // idle, move, attack
+        targetEntity: null,
+        attackCooldown: 0,
+        id: Math.random()
+    };
+    state.units.push(unit);
+}
+
+function spawnEnemy() {
+    // Spawn at edge of map
+    const angle = Math.random() * Math.PI * 2;
+    const dist = 60;
+    const x = Math.cos(angle) * dist;
+    const z = Math.sin(angle) * dist;
+
+    const type = state.wave > 3 && Math.random() > 0.7 ? 'knight' : 'warrior';
+    
+    spawnUnit(type, 'enemy', x, z);
+}
+
+function update() {
+    if (state.gameOver) return;
+
+    // --- Wave Logic ---
+    state.waveTimer++;
+    if (state.waveTimer > (120 - state.wave * 5) && state.waveTimer % 10 === 0) {
+        spawnEnemy();
+        state.waveTimer = 0;
+    }
+    if (state.wave % 5 === 0 && state.waveTimer === 0) { // Increase difficulty every 60s approx
+        state.wave++;
+        updateUI();
+    }
+
+    // --- Economy Logic ---
+    state.buildings.forEach(b => {
+        if (b.type === 'farm') {
+            b.productionTimer++;
+            if (b.productionTimer > 180) { // 3 seconds
+                state.resources.wood += 15;
+                b.productionTimer = 0;
+                createParticle({x: b.x, y: b.data.hp, z: b.z}, 0x88cc88);
+                updateUI();
+            }
+        } else if (b.type === 'mine') {
+            b.productionTimer++;
+            if (b.productionTimer > 180) {
+                state.resources.gold += 10;
+                b.productionTimer = 0;
+                createParticle({x: b.x, y: b.data.hp, z: b.z}, 0xffdd44);
+                updateUI();
+            }
+        }
+    });
+
+    // --- Units Logic ---
+    state.units.forEach(u => {
+        // Decay cooldown
+        if (u.attackCooldown > 0) u.attackCooldown--;
+
+        // Movement
+        const dx = u.targetX - u.x;
+        const dz = u.targetZ - u.z;
+        const dist = Math.sqrt(dx*dx + dz*dz);
+
+        if (dist > 0.5) {
+            // Simple collision avoidance (basic repulsion)
+            let repX = 0, repZ = 0;
+            state.units.forEach(other => {
+                if (u === other) return;
+                const d2 = (u.x - other.x)**2 + (u.z - other.z)**2;
+                if (d2 < 4) { // Collision distance
+                    const angle = Math.atan2(u.z - other.z, u.x - other.x);
+                    repX += Math.cos(angle);
+                    repZ += Math.sin(angle);
+                }
+            });
+
+            const moveX = (dx / dist) * u.moveSpeed + repX * 0.1;
+            const moveZ = (dz / dist) * u.moveSpeed + repZ * 0.1;
+            
+            u.x += moveX;
+            u.z += moveZ;
+            u.mesh.position.set(u.x, 0, u.z);
+            
+            // Visual rotation
+            u.mesh.rotation.y = Math.atan2(moveZ, moveX);
+        } else {
+            // Idle bobbing
+            if(u.mesh.position.y > 0) u.mesh.position.y -= 0.05;
+        }
+
+        // Combat Logic
+        let enemy = null;
+        let minDist = 999;
+
+        // Find target
+        const targets = u.owner === 'player' ? state.enemies : state.buildings;
+        
+        // Filter enemies within range
+        for(let t of targets) {
+            const d = Math.sqrt((u.x - t.x)**2 + (u.z - t.z)**2);
+            if (d < u.range + (t.radius || 5) && d < minDist) {
+                minDist = d;
+                enemy = t;
+            }
+        }
+
+        if (enemy) {
+            if (u.attackCooldown <= 0) {
+                // Attack!
+                u.attackCooldown = 30; // 0.5s at 60fps
+                enemy.hp -= u.damage;
+                createParticle(enemy.x, enemy.y+2, enemy.z, 0xff0000); // Red blood
+                
+                // Knockback
+                if(enemy.hp <= 0) {
+                    // Destroy
+                    if (u.owner === 'enemy') { // Enemy kills Player Unit
+                        // Handle Unit Death
+                        scene.remove(u.mesh);
+                        state.units = state.units.filter(um => um !== u);
+                        state.resources.pop -= 1; // Minor pop penalty?
+                        updateUI();
+                    } else {
+                        // Player kills Enemy
+                        scene.remove(u.mesh);
+                        state.units = state.units.filter(um => um !== u);
+                    }
+
+                    if (enemy.type === 'keep') {
+                        endGame(true);
+                    } else {
+                        // Check building
+                        if (enemy.type && enemy.type !== 'keep') { // It is a building
+                             scene.remove(enemy.mesh);
+                             if(enemy.userData && enemy.userData.ring) scene.remove(enemy.userData.ring);
+                             state.buildings = state.buildings.filter(b => b !== enemy);
+                             // Give reward?
+                        }
+                    }
+                } else {
+                    // Visual feedback (shake)
+                    enemy.mesh.rotation.z = 0.1;
+                    setTimeout(() => { if(enemy.mesh) enemy.mesh.rotation.z = 0; }, 50);
+                }
+            } else {
+                // Attack animation
+                if (u.attackCooldown % 6 < 3) {
+                    u.mesh.scale.y = 0.8;
+                } else {
+                    u.mesh.scale.y = 1;
+                }
+            }
+        } else {
+            // Move towards target
+            if (u.state === 'move') {
+                u.targetX = u.targetX; // Keep current target
+            } else {
+                // Auto-attack logic
+                // If idle, find nearest enemy and move to them
+                // (Simplified: units currently just stand still if no target)
+                u.mesh.scale.y = 1;
+            }
+        }
+    });
+
+    // Cleanup dead enemies
+    state.enemies = state.enemies.filter(e => e.hp > 0);
+
+    // Particles
+    for (let i = state.particles.length - 1; i >= 0; i--) {
+        const p = state.particles[i];
+        p.life -= 0.05;
+        p.mesh.position.y += 0.1;
+        p.mesh.rotation.x += 0.1;
+        p.mesh.scale.setScalar(p.life);
+        if (p.life <= 0) {
+            scene.remove(p.mesh);
+            state.particles.splice(i, 1);
+        }
+    }
+}
+
+// ==========================================
+// RENDERING & INTERACTION
+// ==========================================
+
+function renderBuildMenu() {
+    const menu = document.getElementById('build-menu');
+    menu.innerHTML = '';
+    
+    const bKeys = Object.keys(BUILDINGS);
+    bKeys.forEach(key => {
+        const b = BUILDINGS[key];
+        const btn = document.createElement('div');
+        btn.className = 'build-btn';
+        btn.innerHTML = `
+            <div class="btn-icon" style="background:${b.color}"></div>
+            <div class="btn-name">${b.name}</div>
+            <div class="btn-cost">W:${b.cost.wood} G:${b.cost.gold}</div>
+        `;
+        btn.onclick = () => setBuildMode(key);
+        menu.appendChild(btn);
+    });
+}
+
+function setBuildMode(key) {
+    if (state.buildMode === key) {
+        state.buildMode = null; // Deselect
+        document.querySelectorAll('.build-btn').forEach(b => b.style.borderColor = '#ccc');
+    } else {
+        state.buildMode = key;
+        // Highlight active
+        document.querySelectorAll('.build-btn').forEach(b => {
+             b.style.borderColor = key === b.querySelector('.btn-name').innerText === key ? '#4a90e2' : '#ccc'; // Simplified logic for demo
+        });
+        // Find correct button to highlight
+        const btns = document.querySelectorAll('.build-btn');
+        btns.forEach(b => {
+            if(b.querySelector('.btn-name').innerText === BUILDINGS[key].name) {
+                 b.style.borderColor = '#4a90e2';
+            } else {
+                b.style.borderColor = '#ccc';
+            }
+        });
+    }
+    updateUI();
+}
+
+function updateUI() {
+    document.getElementById('wood-count').innerText = Math.floor(state.resources.wood);
+    document.getElementById('gold-count').innerText = Math.floor(state.resources.gold);
+    document.getElementById('pop-count').innerText = state.resources.pop;
+    document.getElementById('pop-max').innerText = state.resources.maxPop;
+    document.getElementById('wave-count').innerText = state.wave;
+
+    // Check affordability
+    document.querySelectorAll('.build-btn').forEach(btn => {
+        const name = btn.querySelector('.btn-name').innerText;
+        const bKey = Object.keys(BUILDINGS).find(k => BUILDINGS[k].name === name);
+        const bData = BUILDINGS[bKey];
+        const canAfford = state.resources.wood >= bData.cost.wood && state.resources.gold >= bData.cost.gold;
+        
+        if (!canAfford) btn.classList.add('disabled');
+        else btn.classList.remove('disabled');
+    });
+}
+
+function updateSelection() {
+    const panel = document.getElementById('unit-panel');
+    if (state.selectedEntity) {
+        panel.style.display = 'flex';
+        if (state.selectedEntity.owner === 'player') {
+            document.getElementById('btn-attack').disabled = false;
+            document.getElementById('btn-stop').disabled = false;
+        } else {
+            // Enemy selected (shouldn't happen in standard RTS, but good for debug)
+            document.getElementById('btn-attack').disabled = true;
+        }
+    } else {
+        panel.style.display = 'none';
+    }
+}
+
+// Raycasting
+const planeIntersect = new THREE.Raycaster();
+const planeVector = new THREE.Vector3(0, 0, 1);
+
+function onMouseClick(event) {
+    // Normalize mouse
+    state.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+    state.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+    state.raycaster.setFromCamera(state.mouse, camera);
+
+    // Check intersections
+    const intersects = state.raycaster.intersectObjects([...scene.children], true);
+    let hit = intersects.length > 0 ? intersects[0] : null;
+
+    // 1. Build Mode
+    if (state.buildMode && hit && hit.distance < 50) {
+        const bKey = state.buildMode;
+        const bData = BUILDINGS[bKey];
+        
+        // Check cost
+        if (state.resources.wood >= bData.cost.wood && state.resources.gold >= bData.cost.gold) {
+            // Check collision with existing
+            const overlap = state.buildings.some(b => {
+                const d = Math.sqrt((hit.point.x - b.x)**2 + (hit.point.z - b.z)**2);
+                return d < (b.data.radius + bData.radius + 1);
+            });
+
+            if (!overlap) {
+                spawnBuilding(bKey, hit.point.x, hit.point.z);
+                state.resources.wood -= bData.cost.wood;
+                state.resources.gold -= bData.cost.gold;
+                
+                // Pop penalty for some buildings
+                if (bData.pop) state.resources.pop -= bData.pop;
+                
+                updateUI();
+                state.buildMode = null; // Cancel build mode
+                document.querySelectorAll('.build-btn').forEach(b => b.style.borderColor = '#ccc');
+            }
+        }
+        return;
+    }
+
+    // 2. Select Unit or Building
+    if (hit && hit.distance < 50) {
+        // Find entity
+        let entity = state.units.find(u => u.mesh === hit.object || u.mesh.parent === hit.object.parent);
+        if (!entity) entity = state.buildings.find(b => b.mesh === hit.object || b.mesh.parent === hit.object.parent);
+        
+        if (entity && entity.owner === 'player') {
+            state.selectedEntity = entity;
+            updateSelection();
+        }
+        return;
+    }
+
+    // 3. Deselect or Move Unit
+    state.raycaster.setFromCamera(state.mouse, camera);
+    const planeHit = state.raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0,1,0), 0));
+
+    if (planeHit) {
+        if (state.selectedEntity && (state.selectedEntity.type === 'worker' || state.selectedEntity.type === 'military' || state.selectedEntity.type === 'elite')) {
+            state.selectedEntity.targetX = planeHit.x;
+            state.selectedEntity.targetZ = planeHit.z;
+            state.selectedEntity.state = 'move';
+            
+            // Visual marker
+            // (Optional: add a temporary object to scene)
+        }
+    }
+
+    if (state.selectedEntity) {
+         state.selectedEntity.targetX = state.selectedEntity.x; // Stop if clicking elsewhere
+         state.selectedEntity.state = 'idle';
+    }
+}
+
+// Action Buttons
+document.getElementById('btn-stop').addEventListener('click', () => {
+    if (state.selectedEntity) {
+        state.selectedEntity.targetX = state.selectedEntity.x;
+        state.selectedEntity.targetZ = state.selectedEntity.z;
+        state.selectedEntity.state = 'idle';
+    }
+});
+
+document.getElementById('btn-attack').addEventListener('click', () => {
+    // In this simple prototype, move logic handles attack targets automatically
+    // A more complex version would set a 'target' flag
+});
+
+// Restart
+document.getElementById('restart-btn').addEventListener('click', initGame);
+
+window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+window.addEventListener('mousedown', onMouseClick);
+
+// ==========================================
+// MAIN LOOP
+// ==========================================
+function loop() {
+    requestAnimationFrame(loop);
+    
+    update();
+    controls.update();
+    renderer.render(scene, camera);
+}
+
+// Start
+initGame();
+loop();
+
+// --- Helper for particles (fixing scope issue) ---
+function createParticle(x, y, z, color) {
+    // If 3 args passed, assume x,y,z. If mixed object, handle it.
+    let posX, posY, posZ;
+    if (typeof x === 'object') {
+        posX = x.x; posY = x.y; posZ = x.z;
+    } else {
+        posX = x; posY = y; posZ = z;
+    }
+
+    const geo = new THREE.BoxGeometry(0.3, 0.3, 0.3);
+    const mat = new THREE.MeshBasicMaterial({ color: color });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(posX, posY, posZ);
+    scene.add(mesh);
+    state.particles.push({ mesh, life: 1.0, color });
+}
+
+</script>
+</body>
+</html>

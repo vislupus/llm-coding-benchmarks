@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Cinematic Japanese Garden 3D</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #f0f4f8; }
+        canvas { display: block; }
+        #loading {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            font-family: sans-serif; color: #555; font-size: 24px; pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="loading">Building the Garden...</div>
+
+    <!-- Load Three.js from CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <script>
+        // --- CONFIGURATION ---
+        const COLORS = {
+            roof: 0x3b3e42,
+            wood: 0xb43c3c,
+            wall: 0xf4f1ea,
+            grass: 0x9bbd7d,
+            path: 0xdcdcdc,
+            pond: 0x89c2d2,
+            bridge: 0xcc3333,
+            cherryBlossom: 0xffb7c5,
+            bamboo: 0x88b04b,
+            stone: 0x9e9e9e,
+            koiOrange: 0xff9900,
+            koiWhite: 0xffffff,
+            koiBlack: 0x222222,
+            skin: 0xffdbac
+        };
+
+        // --- SCENE SETUP ---
+        const scene = new THREE.Scene();
+        // Soft background color
+        scene.background = new THREE.Color(0xf0f4f8);
+        scene.fog = new THREE.Fog(0xf0f4f8, 20, 60);
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(25, 25, 25);
+        camera.lookAt(0, 0, 0);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.outputEncoding = THREE.sRGBEncoding;
+        document.body.appendChild(renderer.domElement);
+
+        // --- LIGHTING ---
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+
+        const sunLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        sunLight.position.set(20, 40, 20);
+        sunLight.castShadow = true;
+        sunLight.shadow.mapSize.width = 2048;
+        sunLight.shadow.mapSize.height = 2048;
+        sunLight.shadow.camera.near = 0.5;
+        sunLight.shadow.camera.far = 100;
+        sunLight.shadow.camera.left = -20;
+        sunLight.shadow.camera.right = 20;
+        sunLight.shadow.camera.top = 20;
+        sunLight.shadow.camera.bottom = -20;
+        scene.add(sunLight);
+
+        // --- GROUPS ---
+        const gardenGroup = new THREE.Group();
+        scene.add(gardenGroup);
+
+        // --- MATERIALS ---
+        const matRoof = new THREE.MeshLambertMaterial({ color: COLORS.roof, flatShading: true });
+        const matWood = new THREE.MeshLambertMaterial({ color: COLORS.wood, flatShading: true });
+        const matWall = new THREE.MeshLambertMaterial({ color: COLORS.wall, flatShading: true });
+        const matGrass = new THREE.MeshLambertMaterial({ color: COLORS.grass, flatShading: true });
+        const matPath = new THREE.MeshLambertMaterial({ color: COLORS.path, flatShading: true });
+        const matPond = new THREE.MeshPhongMaterial({ color: COLORS.pond, shininess: 30 });
+        const matBridge = new THREE.MeshLambertMaterial({ color: COLORS.bridge, flatShading: true });
+        const matBlossom = new THREE.MeshLambertMaterial({ color: COLORS.cherryBlossom });
+        const matBamboo = new THREE.MeshLambertMaterial({ color: COLORS.bamboo, flatShading: true });
+        const matStone = new THREE.MeshLambertMaterial({ color: COLORS.stone, flatShading: true });
+
+        // --- OBJECTS ---
+
+        // 1. Ground (Grass Island)
+        const grassGeo = new THREE.CircleGeometry(18, 64);
+        const grass = new THREE.Mesh(grassGeo, matGrass);
+        grass.rotation.x = -Math.PI / 2;
+        grass.receiveShadow = true;
+        gardenGroup.add(grass);
+
+        // 2. Path
+        const pathGroup = new THREE.Group();
+        pathGroup.position.set(-4, 0.05, 0);
+        
+        // Helper to create path segments
+        function createPathSegment() {
+            const geom = new THREE.CircleGeometry(1.2, 7);
+            const mesh = new THREE.Mesh(geom, matPath);
+            mesh.rotation.x = -Math.PI / 2;
+            mesh.receiveShadow = true;
+            return mesh;
+        }
+
+        const p1 = createPathSegment(); p1.position.set(4, 0, 4); p1.rotation.z = Math.PI / 6;
+        const p2 = createPathSegment(); p2.position.set(0, 0, 8);
+        const p3 = createPathSegment(); p3.position.set(-5, 0, 4); p3.rotation.z = -Math.PI / 6;
+        const p4 = createPathSegment(); p4.position.set(-2, 0, -6);
+        const p5 = createPathSegment(); p5.position.set(5, 0, -5);
+        
+        pathGroup.add(p1, p2, p3, p4, p5);
+        gardenGroup.add(pathGroup);
+
+        // 3. Pagoda
+        function createPagoda() {
+            const pagoda = new THREE.Group();
+            
+            // Base
+            const base = new THREE.Mesh(new THREE.BoxGeometry(5, 1.5, 5), matWood);
+            base.position.y = 0.75;
+            base.castShadow = true;
+            pagoda.add(base);
+
+            // Tiers
+            for(let i=0; i<3; i++) {
+                const tierY = 1.5 + (i * 2.5);
+                const roofSize = 6 - (i * 1.5);
+                
+                // Walls/Pillars
+                const walls = new THREE.Mesh(new THREE.BoxGeometry(roofSize - 0.2, 1.4, roofSize - 0.2), matWood);
+                walls.position.y = tierY + 0.7;
+                walls.castShadow = true;
+                pagoda.add(walls);
+
+                // Roof
+                const roofGeo = new THREE.ConeGeometry(roofSize, 0.8, 4);
+                const roof = new THREE.Mesh(roofGeo, matRoof);
+                roof.position.y = tierY + 1.6;
+                roof.rotation.y = Math.PI / 4;
+                roof.castShadow = true;
+                pagoda.add(roof);
+
+                // Gold tip
+                if(i===0) {
+                    const tip = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.5, 4), new THREE.MeshBasicMaterial({color: 0xffd700}));
+                    tip.position.y = tierY + 2.5;
+                    pagoda.add(tip);
+                }
+            }
+            return pagoda;
+        }
+        const pagoda = createPagoda();
+        pagoda.position.set(0, 0, -4);
+        gardenGroup.add(pagoda);
+
+        // 4. Bridge
+        function createBridge() {
+            const bridge = new THREE.Group();
+            // Arch
+            const archGeo = new THREE.TorusGeometry(3.5, 0.4, 8, 20, Math.PI);
+            const arch = new THREE.Mesh(archGeo, matBridge);
+            arch.rotation.y = Math.PI / 2;
+            arch.position.set(6, 1, -5);
+            bridge.add(arch);
+            // Floor
+            const floor = new THREE.Mesh(new THREE.BoxGeometry(5, 0.2, 2), matBridge);
+            floor.position.y = -0.3;
+            floor.position.set(6, 1, -5);
+            floor.rotation.x = -0.2;
+            bridge.add(floor);
+            // Railings
+            const railingGeo = new THREE.BoxGeometry(5, 0.4, 0.2);
+            const r1 = new THREE.Mesh(railingGeo, matBridge);
+            r1.position.set(6, 1.1, -5.9);
+            const r2 = new THREE.Mesh(railingGeo, matBridge);
+            r2.position.set(6, 1.1, -4.1);
+            bridge.add(r1, r2);
+            return bridge;
+        }
+        gardenGroup.add(createBridge());
+
+        // 5. Pond
+        const pondShape = new THREE.Shape();
+        pondShape.moveTo(5, -8);
+        pondShape.lineTo(5, 8);
+        pondShape.quadraticCurveTo(5, 12, 0, 12);
+        pondShape.lineTo(-5, 8);
+        pondShape.lineTo(-5, -8);
+        pondShape.quadraticCurveTo(-5, -12, 0, -12);
+        pondShape.lineTo(5, -8);
+        
+        const pondGeo = new THREE.ShapeGeometry(pondShape);
+        const pond = new THREE.Mesh(pondGeo, matPond);
+        pond.rotation.x = -Math.PI / 2;
+        pond.position.set(0, 0.06, 6);
+        pond.receiveShadow = true;
+        gardenGroup.add(pond);
+
+        // Koi Fish
+        function createKoi() {
+            const fish = new THREE.Group();
+            const body = new THREE.Mesh(new THREE.BoxGeometry(1, 0.4, 0.6), new THREE.MeshLambertMaterial({color: COLORS.koiOrange}));
+            const tail = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.6, 4), new THREE.MeshLambertMaterial({color: COLORS.koiOrange}));
+            tail.position.set(0, 0, -0.5);
+            tail.rotation.x = Math.PI / 4;
+            tail.rotation.z = Math.PI / 4;
+            fish.add(body, tail);
+            return fish;
+        }
+        
+        const fishes = [];
+        for(let i=0; i<8; i++) {
+            const fish = createKoi();
+            fish.position.set((Math.random() - 0.5) * 8, 0.08, -4 + (Math.random() * 10));
+            fish.rotation.y = Math.random() * Math.PI * 2;
+            gardenGroup.add(fish);
+            fishes.push(fish);
+        }
+
+        // 6. Cherry Blossom Trees
+        function createTree(x, z) {
+            const tree = new THREE.Group();
+            // Trunk
+            const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.5, 4, 6), matWood);
+            trunk.position.y = 2;
+            tree.add(trunk);
+            // Leaves
+            const leaves = new THREE.Mesh(new THREE.DodecahedronGeometry(2.5), matBlossom);
+            leaves.position.y = 4;
+            tree.add(leaves);
+            
+            // Scattered petals
+            for(let i=0; i<3; i++) {
+                const leaf = new THREE.Mesh(new THREE.DodecahedronGeometry(1.5), matBlossom);
+                leaf.position.set((Math.random()-0.5)*3, 4 + Math.random()*2, (Math.random()-0.5)*3);
+                tree.add(leaf);
+            }
+            tree.position.set(x, 0, z);
+            return tree;
+        }
+        
+        gardenGroup.add(createTree(-6, -4));
+        gardenGroup.add(createTree(7, -5));
+        gardenGroup.add(createTree(7, 6));
+
+        // 7. Bamboo
+        function createBamboo(x, z) {
+            const stalk = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 5, 6), matBamboo);
+            stalk.position.y = 2.5;
+            const leaves = new THREE.Mesh(new THREE.ConeGeometry(0.8, 3, 4), matBamboo);
+            leaves.position.y = 5;
+            const group = new THREE.Group();
+            group.add(stalk, leaves);
+            group.position.set(x, 0, z);
+            group.rotation.y = Math.random() * Math.PI;
+            return group;
+        }
+        
+        for(let i=0; i<6; i++) {
+            gardenGroup.add(createBamboo(-8 - Math.random()*2, -3 + Math.random()*2));
+            gardenGroup.add(createBamboo(8 + Math.random()*2, 3 + Math.random()*2));
+        }
+
+        // 8. Stone Lanterns
+        function createLantern(x, z) {
+            const base = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.2, 0.6), matStone);
+            base.position.y = 0.1;
+            const mid = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.8, 0.4), matStone);
+            mid.position.y = 0.6;
+            const top = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.1, 0.5), matStone);
+            top.position.y = 1.0;
+            const light = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.2), new THREE.MeshBasicMaterial({color: 0xffaa00}));
+            light.position.y = 1.0;
+            
+            const group = new THREE.Group();
+            group.add(base, mid, top, light);
+            group.position.set(x, 0, z);
+            return group;
+        }
+        gardenGroup.add(createLantern(2, 12));
+        gardenGroup.add(createLantern(-3, 10));
+        gardenGroup.add(createLantern(-8, -2));
+
+        // 9. Bushes
+        function createBush(x, z) {
+            const bush = new THREE.Mesh(new THREE.DodecahedronGeometry(1), matGrass);
+            bush.position.set(x, 0.5, z);
+            bush.castShadow = true;
+            return bush;
+        }
+        gardenGroup.add(createBush(-3, 2));
+        gardenGroup.add(createBush(2, 4));
+        gardenGroup.add(createBush(-6, 3));
+
+        // 10. People (Abstract)
+        function createPerson(x, z, color) {
+            const group = new THREE.Group();
+            group.position.set(x, 0, z);
+            
+            // Body
+            const body = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 1), new THREE.MeshLambertMaterial({color: color}));
+            body.position.y = 0.5;
+            
+            // Head
+            const head = new THREE.Mesh(new THREE.SphereGeometry(0.2), new THREE.MeshLambertMaterial({color: COLORS.skin}));
+            head.position.y = 1.1;
+            
+            group.add(body, head);
+            return group;
+        }
+        
+        gardenGroup.add(createPerson(-2.5, 4, 0x555555));
+        gardenGroup.add(createPerson(-1.5, 4, 0x44aa44));
+        gardenGroup.add(createPerson(6.5, -5, 0x3344cc));
+
+        // 11. Floating Petals (Particles)
+        const petalCount = 100;
+        const petalGeo = new THREE.PlaneGeometry(0.2, 0.2);
+        const petalMat = new THREE.MeshLambertMaterial({ color: 0xffe0e6, side: THREE.DoubleSide });
+        const petalGroup = new THREE.Group();
+        
+        const petalData = [];
+        for(let i=0; i<petalCount; i++) {
+            const petal = new THREE.Mesh(petalGeo, petalMat);
+            petal.position.set(
+                (Math.random() - 0.5) * 30,
+                Math.random() * 10 + 5,
+                (Math.random() - 0.5) * 30
+            );
+            petal.rotation.z = Math.random() * Math.PI;
+            petalGroup.add(petal);
+            petalData.push({
+                speed: 0.01 + Math.random() * 0.02,
+                sway: Math.random() * Math.PI
+            });
+        }
+        scene.add(petalGroup);
+
+        // Remove loading text
+        document.getElementById('loading').style.display = 'none';
+
+        // --- ANIMATION ---
+        const clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            const time = clock.getElapsedTime();
+
+            // Rotate entire garden slowly
+            gardenGroup.rotation.y = Math.sin(time * 0.1) * 0.1;
+
+            // Animate Fish (Sine wave swimming)
+            fishes.forEach((fish, i) => {
+                fish.position.y = 0.08 + Math.sin(time + i) * 0.1;
+                fish.rotation.y += 0.01;
+            });
+
+            // Animate Petals
+            petalData.forEach((data, i) => {
+                const p = petalGroup.children[i];
+                p.position.y -= data.speed;
+                if(p.position.y < 0) p.position.y = 15;
+                p.position.x += Math.sin(time * 2 + data.sway) * 0.01;
+                p.rotation.z = Math.sin(time + i) * 0.5;
+            });
+
+            // Smooth Camera movement
+            const camX = 25 * Math.sin(time * 0.3);
+            const camZ = 25 * Math.cos(time * 0.3);
+            camera.position.x += (camX - camera.position.x) * 0.05;
+            camera.position.z += (camZ - camera.position.z) * 0.05;
+            camera.lookAt(0, 0, 0);
+
+            renderer.render(scene, camera);
+        }
+
+        animate();
+
+        // Handle Resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+    </script>
+</body>
+</html>

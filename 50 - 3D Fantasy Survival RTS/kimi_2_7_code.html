@@ -1,0 +1,2530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aetherhold: Twilight Survival RTS</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Lato:wght@400;700&display=swap');
+        
+        * { box-sizing: border-box; }
+        body { margin: 0; overflow: hidden; background: #0a0e17; font-family: 'Lato', sans-serif; user-select: none; }
+        #gameCanvas { display: block; width: 100vw; height: 100vh; }
+        
+        .fantasy-font { font-family: 'Cinzel', serif; }
+        
+        .panel {
+            background: rgba(12, 18, 32, 0.92);
+            border: 2px solid rgba(168, 162, 104, 0.4);
+            backdrop-filter: blur(8px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255,255,255,0.1);
+        }
+        
+        .btn-primary {
+            background: linear-gradient(180deg, rgba(78, 128, 168, 0.9), rgba(46, 86, 128, 0.95));
+            border: 1px solid rgba(120, 180, 220, 0.5);
+            color: #e8f4fc;
+            transition: all 0.15s;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+        }
+        .btn-primary:hover { background: linear-gradient(180deg, rgba(98, 158, 208, 0.95), rgba(56, 106, 158, 1)); transform: translateY(-1px); }
+        .btn-primary:active { transform: translateY(1px); }
+        .btn-primary:disabled { opacity: 0.45; cursor: not-allowed; transform: none; filter: grayscale(0.6); }
+        
+        .btn-danger {
+            background: linear-gradient(180deg, rgba(168, 64, 64, 0.9), rgba(128, 38, 38, 0.95));
+            border: 1px solid rgba(220, 120, 120, 0.5);
+        }
+        .btn-danger:hover { background: linear-gradient(180deg, rgba(198, 78, 78, 0.95), rgba(158, 48, 48, 1)); }
+        
+        .resource-pill {
+            background: rgba(8, 12, 22, 0.85);
+            border: 1px solid rgba(168, 162, 104, 0.35);
+        }
+        
+        .unit-card {
+            background: rgba(16, 24, 42, 0.85);
+            border: 1px solid rgba(168, 162, 104, 0.25);
+            transition: all 0.12s;
+        }
+        .unit-card:hover { border-color: rgba(168, 162, 104, 0.7); background: rgba(24, 36, 60, 0.9); }
+        .unit-card.selected { border-color: #e8c85a; box-shadow: 0 0 12px rgba(232, 200, 90, 0.35); }
+        
+        .health-bar { background: rgba(0,0,0,0.6); border-radius: 2px; overflow: hidden; }
+        .health-fill { background: linear-gradient(90deg, #c0392b, #e74c3c); height: 100%; transition: width 0.1s; }
+        .health-fill.friendly { background: linear-gradient(90deg, #27ae60, #2ecc71); }
+        .health-fill.hero { background: linear-gradient(90deg, #9b59b6, #d980fa); }
+        
+        #selectionBox { position: absolute; border: 1px solid rgba(232, 200, 90, 0.8); background: rgba(232, 200, 90, 0.12); pointer-events: none; display: none; z-index: 20; }
+        
+        .floating-text {
+            position: absolute;
+            pointer-events: none;
+            font-weight: 700;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+            animation: floatUp 1.2s ease-out forwards;
+            z-index: 50;
+        }
+        @keyframes floatUp {
+            0% { opacity: 1; transform: translateY(0) scale(1); }
+            100% { opacity: 0; transform: translateY(-45px) scale(0.85); }
+        }
+        
+        .notification {
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            top: 90px;
+            padding: 10px 24px;
+            border-radius: 6px;
+            font-weight: 700;
+            pointer-events: none;
+            animation: notifyIn 0.4s ease-out, notifyOut 0.4s ease-in 2.6s forwards;
+            z-index: 60;
+        }
+        @keyframes notifyIn { from { opacity: 0; transform: translateX(-50%) translateY(-20px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+        @keyframes notifyOut { to { opacity: 0; transform: translateX(-50%) translateY(-20px); } }
+        
+        .cooldown-overlay { position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,0.65); transition: height 0.1s linear; }
+        
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: rgba(8,12,22,0.8); }
+        ::-webkit-scrollbar-thumb { background: rgba(168,162,104,0.4); border-radius: 4px; }
+        
+        .tooltip {
+            position: absolute;
+            background: rgba(6, 10, 18, 0.95);
+            border: 1px solid rgba(168, 162, 104, 0.5);
+            padding: 10px 14px;
+            border-radius: 6px;
+            max-width: 280px;
+            pointer-events: none;
+            z-index: 70;
+            display: none;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+        }
+        
+        .modal {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.75);
+            display: flex; align-items: center; justify-content: center;
+            z-index: 100;
+        }
+        .modal-content {
+            background: linear-gradient(180deg, #141c2e, #0c1220);
+            border: 2px solid rgba(168, 162, 104, 0.5);
+            border-radius: 12px;
+            padding: 36px 48px;
+            max-width: 640px;
+            text-align: center;
+            box-shadow: 0 20px 80px rgba(0,0,0,0.8);
+        }
+        
+        .ability-btn {
+            width: 52px; height: 52px;
+            border-radius: 8px;
+            border: 2px solid rgba(168, 162, 104, 0.5);
+            background: rgba(16, 24, 42, 0.9);
+            color: #e8f4fc;
+            display: flex; align-items: center; justify-content: center;
+            position: relative;
+            cursor: pointer;
+            transition: all 0.12s;
+        }
+        .ability-btn:hover { border-color: #e8c85a; transform: scale(1.05); }
+        .ability-btn.on-cooldown { opacity: 0.5; cursor: not-allowed; }
+        .key-hint { position: absolute; bottom: 2px; right: 4px; font-size: 10px; color: #a8a8a8; }
+        
+        .minimap-container {
+            position: absolute;
+            bottom: 160px;
+            right: 16px;
+            width: 200px;
+            height: 200px;
+            background: rgba(8, 12, 22, 0.9);
+            border: 2px solid rgba(168, 162, 104, 0.4);
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+        }
+        #minimap { width: 100%; height: 100%; }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    <div id="selectionBox"></div>
+    <div id="tooltip" class="tooltip"></div>
+    <div id="notifications"></div>
+
+    <!-- Top UI -->
+    <div id="topUI" class="absolute top-0 left-0 right-0 p-3 flex justify-between items-start pointer-events-none" style="z-index: 30;">
+        <div class="flex gap-3 pointer-events-auto">
+            <div class="resource-pill px-3 py-1.5 rounded-lg flex items-center gap-2 text-amber-100">
+                <span class="text-lg">🪵</span>
+                <div>
+                    <div class="text-xs text-amber-300/70 uppercase tracking-wider">Wood</div>
+                    <div class="font-bold text-sm" id="resWood">0</div>
+                </div>
+                <div class="text-xs text-green-400 ml-1" id="incomeWood">+0</div>
+            </div>
+            <div class="resource-pill px-3 py-1.5 rounded-lg flex items-center gap-2 text-stone-100">
+                <span class="text-lg">🪨</span>
+                <div>
+                    <div class="text-xs text-stone-300/70 uppercase tracking-wider">Stone</div>
+                    <div class="font-bold text-sm" id="resStone">0</div>
+                </div>
+                <div class="text-xs text-green-400 ml-1" id="incomeStone">+0</div>
+            </div>
+            <div class="resource-pill px-3 py-1.5 rounded-lg flex items-center gap-2 text-yellow-100">
+                <span class="text-lg">🪙</span>
+                <div>
+                    <div class="text-xs text-yellow-300/70 uppercase tracking-wider">Gold</div>
+                    <div class="font-bold text-sm" id="resGold">0</div>
+                </div>
+                <div class="text-xs text-green-400 ml-1" id="incomeGold">+0</div>
+            </div>
+            <div class="resource-pill px-3 py-1.5 rounded-lg flex items-center gap-2 text-emerald-100">
+                <span class="text-lg">🌾</span>
+                <div>
+                    <div class="text-xs text-emerald-300/70 uppercase tracking-wider">Food</div>
+                    <div class="font-bold text-sm" id="resFood">0</div>
+                </div>
+                <div class="text-xs text-green-400 ml-1" id="incomeFood">+0</div>
+            </div>
+        </div>
+        
+        <div class="flex gap-3 pointer-events-auto">
+            <div class="resource-pill px-3 py-1.5 rounded-lg text-center">
+                <div class="text-xs text-blue-300/70 uppercase tracking-wider">Population</div>
+                <div class="font-bold text-sm text-blue-100"><span id="popCurrent">0</span>/<span id="popCap">0</span></div>
+            </div>
+            <div class="resource-pill px-3 py-1.5 rounded-lg text-center min-w-[90px]">
+                <div class="text-xs text-purple-300/70 uppercase tracking-wider">Day <span id="dayNum">1</span></div>
+                <div class="font-bold text-sm" id="timeDisplay">12:00</div>
+            </div>
+            <button id="pauseBtn" class="btn-primary px-3 py-1.5 rounded-lg font-bold text-sm">⏸ Pause</button>
+        </div>
+    </div>
+
+    <!-- Left Build/Train Panel -->
+    <div id="leftPanel" class="absolute left-3 top-24 w-64 panel rounded-xl p-4" style="z-index: 30;">
+        <div class="flex gap-2 mb-3">
+            <button id="tabBuild" class="flex-1 btn-primary py-1.5 rounded text-xs font-bold">Build</button>
+            <button id="tabTrain" class="flex-1 btn-primary py-1.5 rounded text-xs font-bold opacity-60">Train</button>
+            <button id="tabResearch" class="flex-1 btn-primary py-1.5 rounded text-xs font-bold opacity-60">Research</button>
+        </div>
+        
+        <div id="buildPanel" class="space-y-2">
+            <h3 class="fantasy-font text-amber-200 text-sm font-bold mb-2">🏗️ Construction</h3>
+            <div class="grid grid-cols-2 gap-2" id="buildGrid"></div>
+        </div>
+        
+        <div id="trainPanel" class="space-y-2 hidden">
+            <h3 class="fantasy-font text-amber-200 text-sm font-bold mb-2">⚔️ Recruit Units</h3>
+            <div class="space-y-2" id="trainList"></div>
+        </div>
+        
+        <div id="researchPanel" class="space-y-2 hidden">
+            <h3 class="fantasy-font text-amber-200 text-sm font-bold mb-2">📜 Research</h3>
+            <div class="space-y-2" id="researchList"></div>
+        </div>
+    </div>
+
+    <!-- Wave Warning -->
+    <div id="waveWarning" class="absolute top-24 left-1/2 -translate-x-1/2 hidden pointer-events-none" style="z-index: 35;">
+        <div class="bg-red-900/80 border border-red-500/60 text-red-100 px-6 py-3 rounded-lg text-center">
+            <div class="fantasy-font text-xl font-bold">⚠️ ENEMY WAVE APPROACHING</div>
+            <div class="text-sm" id="waveText">Nightfall brings the Veil...</div>
+        </div>
+    </div>
+
+    <!-- Bottom Unit/Selection Panel -->
+    <div id="bottomPanel" class="absolute bottom-3 left-3 right-3 panel rounded-xl p-3 flex gap-4" style="z-index: 30; min-height: 140px;">
+        <div class="w-64 border-r border-amber-100/20 pr-4">
+            <h3 class="fantasy-font text-amber-200 text-sm font-bold mb-2">Selected</h3>
+            <div id="selectionInfo" class="text-amber-100/80 text-sm">
+                <div class="italic text-amber-100/50">Click units or drag to select</div>
+            </div>
+        </div>
+        <div class="flex-1" id="selectionDetails">
+            <div class="text-amber-100/60 text-sm italic">No selection</div>
+        </div>
+        <div class="w-72 border-l border-amber-100/20 pl-4">
+            <h3 class="fantasy-font text-amber-200 text-sm font-bold mb-2">Command Abilities</h3>
+            <div class="grid grid-cols-4 gap-2" id="abilityGrid">
+                <div class="ability-btn" data-ability="hold" title="Hold Position (H)"><span>🛡️</span><span class="key-hint">H</span></div>
+                <div class="ability-btn" data-ability="attack" title="Attack Move (A)"><span>⚔️</span><span class="key-hint">A</span></div>
+                <div class="ability-btn" data-ability="formation" title="Toggle Formation (F)"><span>📐</span><span class="key-hint">F</span></div>
+                <div class="ability-btn" data-ability="retreat" title="Retreat (R)"><span>🏃</span><span class="key-hint">R</span></div>
+            </div>
+            <div class="mt-2 text-xs text-amber-100/50">Right-click to move/attack. Right-click resource to gather, building to build/repair.</div>
+        </div>
+    </div>
+
+    <!-- Minimap -->
+    <div class="minimap-container">
+        <canvas id="minimap"></canvas>
+    </div>
+
+    <!-- Start Screen -->
+    <div id="startScreen" class="modal">
+        <div class="modal-content">
+            <h1 class="fantasy-font text-4xl font-bold text-amber-300 mb-2">Aetherhold</h1>
+            <h2 class="text-blue-200 text-lg mb-6">Twilight Survival RTS</h2>
+            <p class="text-amber-100/80 mb-4 leading-relaxed">
+                Build the last luminous kingdom, gather resources, train armies, and survive the endless night against the Veil.
+            </p>
+            <div class="text-left text-sm text-amber-100/70 mb-6 space-y-1 bg-black/30 p-4 rounded-lg">
+                <p>🖱️ <b>Left Click</b> — Select unit / building</p>
+                <p>🖱️ <b>Right Click</b> — Move, gather, attack, build</p>
+                <p>⌨️ <b>Q/E</b> — Rotate camera &nbsp; <b>WASD</b> — Pan camera</p>
+                <p>⌨️ <b>Ctrl+Click</b> — Add to selection &nbsp; <b>Shift+Click</b> — Queue</p>
+                <p>⌨️ <b>1-9</b> — Train/Build shortcuts &nbsp; <b>Space</b> — Center on hero</p>
+            </div>
+            <div class="flex justify-center gap-3 mb-6">
+                <button class="difficulty-btn btn-primary px-5 py-2 rounded-lg font-bold" data-diff="0">Apprentice</button>
+                <button class="difficulty-btn btn-primary px-5 py-2 rounded-lg font-bold opacity-80" data-diff="1">Knight</button>
+                <button class="difficulty-btn btn-danger px-5 py-2 rounded-lg font-bold opacity-80" data-diff="2">Nightmare</button>
+            </div>
+            <button id="startBtn" class="btn-primary px-10 py-3 rounded-lg text-lg font-bold fantasy-font">Begin Defense</button>
+        </div>
+    </div>
+
+    <!-- Game Over Screen -->
+    <div id="gameOverScreen" class="modal hidden">
+        <div class="modal-content">
+            <h1 id="gameOverTitle" class="fantasy-font text-4xl font-bold mb-2">Victory!</h1>
+            <p id="gameOverText" class="text-amber-100/80 mb-6">The Veil has been banished.</p>
+            <div class="text-left text-sm text-amber-100/70 mb-6 space-y-1 bg-black/30 p-4 rounded-lg">
+                <p>Days Survived: <span id="endDays" class="text-amber-200">0</span></p>
+                <p>Units Lost: <span id="endUnitsLost" class="text-red-300">0</span></p>
+                <p>Enemies Slain: <span id="endKills" class="text-green-300">0</span></p>
+                <p>Resources Gathered: <span id="endResources" class="text-amber-200">0</span></p>
+            </div>
+            <button id="restartBtn" class="btn-primary px-10 py-3 rounded-lg text-lg font-bold fantasy-font">Play Again</button>
+        </div>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
+
+        // ============================================================
+        // AETHERHOLD: TWILIGHT SURVIVAL RTS
+        // ============================================================
+
+        // --- Configuration ---
+        const CONFIG = {
+            mapSize: 160,
+            chunkSize: 16,
+            dayDuration: 180, // seconds for full day/night cycle
+            startResources: { wood: 350, stone: 180, gold: 120, food: 200 },
+            difficulty: 1,
+            camera: { fov: 45, minHeight: 18, maxHeight: 70, rotSpeed: 0.004 },
+            colors: {
+                ground: 0x3d7a4a,
+                groundDark: 0x2d5a36,
+                groundNight: 0x1a2e22,
+                cliff: 0x6b5c4a,
+                water: 0x3a7ca5,
+                friendly: 0x4aa8ff,
+                enemy: 0xd94f4f,
+                neutral: 0xaaaaaa,
+                highlight: 0xffd54f,
+                selection: 0xffd54f
+            }
+        };
+
+        const DIFFICULTY = [
+            { name: 'Apprentice', waveMult: 0.7, incomeMult: 1.25, hpMult: 0.85, dmgMult: 0.8 },
+            { name: 'Knight', waveMult: 1.0, incomeMult: 1.0, hpMult: 1.0, dmgMult: 1.0 },
+            { name: 'Nightmare', waveMult: 1.5, incomeMult: 0.85, hpMult: 1.25, dmgMult: 1.3 }
+        ];
+
+        // --- Game State ---
+        const state = {
+            resources: { ...CONFIG.startResources },
+            income: { wood: 0, stone: 0, gold: 0, food: 0 },
+            population: { current: 0, cap: 0 },
+            day: 1,
+            timeOfDay: 0.3, // 0-1, 0.25=dawn, 0.5=noon, 0.75=dusk, 0/1=midnight
+            gameTime: 0,
+            paused: false,
+            gameOver: false,
+            won: false,
+            units: [],
+            buildings: [],
+            projectiles: [],
+            particles: [],
+            resourceNodes: [],
+            enemies: [],
+            waveActive: false,
+            waveTimer: 0,
+            nextWaveTime: 90,
+            waveNumber: 0,
+            selected: new Set(),
+            hoverEntity: null,
+            placementBuilding: null,
+            cameraMode: 'normal',
+            formationMode: true,
+            attackMoveMode: false,
+            stats: { unitsLost: 0, kills: 0, resourcesGathered: 0, buildingsBuilt: 0 },
+            researched: new Set(),
+            abilityCooldowns: {}
+        };
+
+        // --- Building Definitions ---
+        const BUILDINGS = {
+            townhall: {
+                name: 'Luminara Spire', icon: '🏰', type: 'townhall', size: 4,
+                cost: { wood: 0, stone: 0, gold: 0, food: 0 },
+                hp: 1200, buildTime: 0, popCap: 10,
+                desc: 'Heart of your kingdom. Provides population and storage.'
+            },
+            house: {
+                name: 'Dawn Cottage', icon: '🏠', type: 'house', size: 2,
+                cost: { wood: 60, stone: 10, gold: 0, food: 0 },
+                hp: 200, buildTime: 8, popCap: 5,
+                desc: 'Increases population capacity by 5.'
+            },
+            lumbermill: {
+                name: 'Timber Shrine', icon: '🪵', type: 'lumbermill', size: 3,
+                cost: { wood: 120, stone: 20, gold: 0, food: 0 },
+                hp: 350, buildTime: 12, income: { wood: 8 },
+                desc: 'Produces wood over time. +8 wood/min.'
+            },
+            quarry: {
+                name: 'Stone Sanctum', icon: '🪨', type: 'quarry', size: 3,
+                cost: { wood: 100, stone: 40, gold: 0, food: 0 },
+                hp: 400, buildTime: 14, income: { stone: 6 },
+                desc: 'Produces stone over time. +6 stone/min.'
+            },
+            farm: {
+                name: 'Sunbloom Farm', icon: '🌾', type: 'farm', size: 3,
+                cost: { wood: 80, stone: 10, gold: 0, food: 0 },
+                hp: 280, buildTime: 10, income: { food: 10 },
+                desc: 'Produces food over time. +10 food/min.'
+            },
+            mine: {
+                name: 'Gilded Vein', icon: '🪙', type: 'mine', size: 3,
+                cost: { wood: 150, stone: 80, gold: 0, food: 0 },
+                hp: 450, buildTime: 18, income: { gold: 5 },
+                desc: 'Produces gold over time. +5 gold/min.'
+            },
+            barracks: {
+                name: 'Astral Barracks', icon: '⚔️', type: 'barracks', size: 3,
+                cost: { wood: 150, stone: 60, gold: 40, food: 0 },
+                hp: 500, buildTime: 16,
+                desc: 'Trains melee and ranged units.'
+            },
+            archery: {
+                name: 'Moonspire Range', icon: '🏹', type: 'archery', size: 3,
+                cost: { wood: 120, stone: 40, gold: 60, food: 0 },
+                hp: 420, buildTime: 15,
+                desc: 'Trains elite archers and musketeers.'
+            },
+            mage: {
+                name: 'Celestial Athenaeum', icon: '🔮', type: 'mage', size: 3,
+                cost: { wood: 100, stone: 100, gold: 120, food: 0 },
+                hp: 380, buildTime: 20,
+                desc: 'Trains arcane casters and researches magic.'
+            },
+            tower: {
+                name: 'Sentinel Tower', icon: '🗼', type: 'tower', size: 2,
+                cost: { wood: 80, stone: 120, gold: 30, food: 0 },
+                hp: 600, buildTime: 16, range: 22, damage: 18, attackSpeed: 1.2,
+                desc: 'Defensive tower that attacks nearby enemies.'
+            },
+            wall: {
+                name: 'Aether Wall', icon: '🧱', type: 'wall', size: 1,
+                cost: { wood: 30, stone: 30, gold: 0, food: 0 },
+                hp: 800, buildTime: 6,
+                desc: 'Blocks enemy movement.'
+            }
+        };
+
+        // --- Unit Definitions ---
+        const UNITS = {
+            worker: {
+                name: 'Aetherbound Worker', icon: '🔨', type: 'worker',
+                cost: { food: 30, wood: 10 }, pop: 1, buildTime: 8,
+                hp: 70, damage: 6, range: 2, speed: 4.2, attackSpeed: 1.0, armor: 0,
+                desc: 'Gathers resources, constructs buildings, repairs.'
+            },
+            swordsman: {
+                name: 'Dawnblade', icon: '⚔️', type: 'swordsman',
+                cost: { food: 40, gold: 15 }, pop: 1, buildTime: 10,
+                hp: 160, damage: 16, range: 2.2, speed: 3.6, attackSpeed: 1.1, armor: 3,
+                desc: 'Sturdy frontline melee warrior.'
+            },
+            spearman: {
+                name: 'Halberdier', icon: '🔱', type: 'spearman',
+                cost: { food: 50, wood: 20 }, pop: 1, buildTime: 12,
+                hp: 140, damage: 14, range: 3.0, speed: 3.3, attackSpeed: 1.0, armor: 2,
+                desc: 'Anti-cavalry melee with longer reach.'
+            },
+            archer: {
+                name: 'Moonwhisper Archer', icon: '🏹', type: 'archer',
+                cost: { food: 35, wood: 30, gold: 10 }, pop: 1, buildTime: 12,
+                hp: 80, damage: 14, range: 14, speed: 3.4, attackSpeed: 1.3, armor: 0,
+                desc: 'Ranged damage dealer.'
+            },
+            mage: {
+                name: 'Starweaver', icon: '🔮', type: 'mage',
+                cost: { food: 40, gold: 60 }, pop: 2, buildTime: 18,
+                hp: 90, damage: 28, range: 16, speed: 2.9, attackSpeed: 1.6, armor: 0,
+                desc: 'High magical damage with area splash.'
+            },
+            knight: {
+                name: 'Sunforged Knight', icon: '🛡️', type: 'knight',
+                cost: { food: 80, gold: 80, stone: 40 }, pop: 2, buildTime: 22,
+                hp: 320, damage: 22, range: 2.3, speed: 4.0, attackSpeed: 1.0, armor: 6,
+                desc: 'Heavy cavalry, fast and devastating.'
+            },
+            cleric: {
+                name: 'Luminary Cleric', icon: '✨', type: 'cleric',
+                cost: { food: 45, gold: 50 }, pop: 2, buildTime: 16,
+                hp: 100, damage: 10, range: 12, speed: 3.0, attackSpeed: 1.4, armor: 1,
+                desc: 'Heals allies and banishes undead.'
+            }
+        };
+
+        // --- Enemy Definitions ---
+        const ENEMIES = {
+            shade: { name: 'Shade', hp: 60, damage: 10, range: 2, speed: 3.2, attackSpeed: 1.0, armor: 0, size: 0.7 },
+            reaver: { name: 'Veil Reaver', hp: 140, damage: 18, range: 2.2, speed: 3.0, attackSpeed: 1.1, armor: 2, size: 0.9 },
+            wraith: { name: 'Shadow Wraith', hp: 90, damage: 14, range: 10, speed: 3.4, attackSpeed: 1.3, armor: 0, size: 0.75 },
+            brute: { name: 'Night Brute', hp: 500, damage: 35, range: 2.5, speed: 2.4, attackSpeed: 0.9, armor: 5, size: 1.4 },
+            elite: { name: 'Dread Lord', hp: 1500, damage: 55, range: 3, speed: 2.8, attackSpeed: 1.0, armor: 8, size: 1.8 }
+        };
+
+        // --- Research Definitions ---
+        const RESEARCH = {
+            sharpening: { name: 'Aether Edge', icon: '⚔️', cost: { wood: 150, gold: 100 }, time: 30, effect: 'meleeDamage', value: 1.2, desc: '+20% melee damage.' },
+            fletching: { name: 'Star Fletching', icon: '🏹', cost: { wood: 150, gold: 100 }, time: 30, effect: 'rangedDamage', value: 1.2, desc: '+20% ranged damage.' },
+            masonry: { name: 'Runed Masonry', icon: '🧱', cost: { stone: 250, gold: 80 }, time: 40, effect: 'buildingHp', value: 1.3, desc: '+30% building health.' },
+            husbandry: { name: 'Swift Hooves', icon: '🐎', cost: { food: 200, gold: 120 }, time: 35, effect: 'moveSpeed', value: 1.15, desc: '+15% unit movement speed.' },
+            alchemy: { name: 'Sunfire Alchemy', icon: '🔥', cost: { gold: 250, stone: 100 }, time: 50, effect: 'splash', value: 1, desc: 'Mage attacks deal splash damage.' },
+            fortification: { name: 'Twilight Fortification', icon: '🏰', cost: { stone: 400, wood: 200, gold: 200 }, time: 60, effect: 'towerRange', value: 1.25, desc: '+25% tower range and damage.' }
+        };
+
+        // --- Three.js Setup ---
+        const canvas = document.getElementById('gameCanvas');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87CEEB);
+        scene.fog = new THREE.Fog(0x87CEEB, 30, 120);
+
+        const camera = new THREE.PerspectiveCamera(CONFIG.camera.fov, window.innerWidth / window.innerHeight, 0.1, 300);
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+
+        // --- Camera Controls ---
+        const cam = {
+            x: 0, y: 45, z: 55,
+            targetX: 0, targetZ: 0,
+            angle: -Math.PI / 4,
+            height: 45,
+            zoom: 1,
+            rotating: false,
+            panning: false,
+            lastMouseX: 0,
+            lastMouseY: 0
+        };
+        camera.position.set(cam.x, cam.y, cam.z);
+        camera.lookAt(0, 0, 0);
+
+        // --- Lighting ---
+        const ambientLight = new THREE.AmbientLight(0x404060, 0.5);
+        scene.add(ambientLight);
+
+        const sunLight = new THREE.DirectionalLight(0xfff4e0, 1.2);
+        sunLight.position.set(60, 80, 40);
+        sunLight.castShadow = true;
+        sunLight.shadow.mapSize.set(2048, 2048);
+        sunLight.shadow.camera.left = -100;
+        sunLight.shadow.camera.right = 100;
+        sunLight.shadow.camera.top = 100;
+        sunLight.shadow.camera.bottom = -100;
+        sunLight.shadow.camera.near = 0.5;
+        sunLight.shadow.camera.far = 250;
+        scene.add(sunLight);
+
+        const moonLight = new THREE.DirectionalLight(0x6b8cff, 0.3);
+        moonLight.position.set(-40, 60, -40);
+        scene.add(moonLight);
+
+        // --- Materials ---
+        const MAT = {
+            ground: new THREE.MeshStandardMaterial({ color: CONFIG.colors.ground, roughness: 0.9, metalness: 0.0 }),
+            cliff: new THREE.MeshStandardMaterial({ color: CONFIG.colors.cliff, roughness: 0.95 }),
+            water: new THREE.MeshStandardMaterial({ color: CONFIG.colors.water, transparent: true, opacity: 0.75, roughness: 0.2 }),
+            friendly: new THREE.MeshStandardMaterial({ color: CONFIG.colors.friendly, roughness: 0.5 }),
+            enemy: new THREE.MeshStandardMaterial({ color: CONFIG.colors.enemy, roughness: 0.5 }),
+            neutral: new THREE.MeshStandardMaterial({ color: CONFIG.colors.neutral, roughness: 0.6 }),
+            highlight: new THREE.MeshBasicMaterial({ color: CONFIG.colors.highlight, transparent: true, opacity: 0.4 }),
+            selection: new THREE.MeshBasicMaterial({ color: CONFIG.colors.selection, transparent: true, opacity: 0.25, depthTest: false }),
+            ghostValid: new THREE.MeshBasicMaterial({ color: 0x4aff4a, transparent: true, opacity: 0.35 }),
+            ghostInvalid: new THREE.MeshBasicMaterial({ color: 0xff4a4a, transparent: true, opacity: 0.35 })
+        };
+
+        // --- Geometry Cache ---
+        const GEOM = {};
+        function initGeometries() {
+            GEOM.circle = new THREE.CircleGeometry(1, 24);
+            GEOM.box = new THREE.BoxGeometry(1, 1, 1);
+            GEOM.cylinder = new THREE.CylinderGeometry(1, 1, 1, 12);
+            GEOM.cone = new THREE.ConeGeometry(1, 1, 12);
+            GEOM.sphere = new THREE.SphereGeometry(1, 12, 10);
+            GEOM.tree = new THREE.ConeGeometry(1.2, 3.5, 7);
+            GEOM.rock = new THREE.DodecahedronGeometry(1, 0);
+            GEOM.flag = new THREE.BoxGeometry(0.15, 0.8, 0.05);
+        }
+        initGeometries();
+
+        // --- Procedural Terrain ---
+        const terrainGroup = new THREE.Group();
+        scene.add(terrainGroup);
+
+        function createTerrain() {
+            const size = CONFIG.mapSize;
+            const segments = 64;
+            const geo = new THREE.PlaneGeometry(size, size, segments, segments);
+            geo.rotateX(-Math.PI / 2);
+            const pos = geo.attributes.position;
+            const heights = [];
+            for (let i = 0; i < pos.count; i++) {
+                const x = pos.getX(i), z = pos.getZ(i);
+                let h = Math.sin(x * 0.04) * 2 + Math.cos(z * 0.04) * 2;
+                h += Math.sin(x * 0.12 + z * 0.08) * 1.2;
+                h += Math.sin(x * 0.025) * Math.cos(z * 0.025) * 3;
+                // Flatten center for base
+                const d = Math.sqrt(x * x + z * z);
+                const flatten = Math.max(0, 1 - d / 28);
+                h *= (1 - flatten * 0.7);
+                pos.setY(i, h);
+                heights.push(h);
+            }
+            geo.computeVertexNormals();
+            const ground = new THREE.Mesh(geo, MAT.ground);
+            ground.receiveShadow = true;
+            ground.name = 'ground';
+            terrainGroup.add(ground);
+
+            // Water
+            const water = new THREE.Mesh(new THREE.PlaneGeometry(size * 1.5, size * 1.5).rotateX(-Math.PI / 2), MAT.water);
+            water.position.y = -2.5;
+            water.name = 'water';
+            terrainGroup.add(water);
+
+            // Decorative cliffs/rocks
+            for (let i = 0; i < 45; i++) {
+                const x = (Math.random() - 0.5) * size * 0.85;
+                const z = (Math.random() - 0.5) * size * 0.85;
+                const d = Math.sqrt(x*x + z*z);
+                if (d < 20) continue;
+                const h = sampleHeight(x, z);
+                if (h < -1) continue;
+                const rock = new THREE.Mesh(GEOM.rock, MAT.cliff);
+                rock.position.set(x, h + Math.random() * 1.5 + 0.5, z);
+                rock.scale.set(Math.random() * 2 + 1, Math.random() * 1.5 + 0.8, Math.random() * 2 + 1);
+                rock.rotation.set(Math.random()*Math.PI, Math.random()*Math.PI, Math.random()*Math.PI);
+                rock.castShadow = true;
+                rock.receiveShadow = true;
+                terrainGroup.add(rock);
+            }
+
+            // Trees
+            for (let i = 0; i < 120; i++) {
+                const x = (Math.random() - 0.5) * size * 0.9;
+                const z = (Math.random() - 0.5) * size * 0.9;
+                const d = Math.sqrt(x*x + z*z);
+                if (d < 18) continue;
+                const h = sampleHeight(x, z);
+                if (h < -0.5) continue;
+                createTree(x, h, z);
+            }
+        }
+
+        function sampleHeight(x, z) {
+            let h = Math.sin(x * 0.04) * 2 + Math.cos(z * 0.04) * 2;
+            h += Math.sin(x * 0.12 + z * 0.08) * 1.2;
+            h += Math.sin(x * 0.025) * Math.cos(z * 0.025) * 3;
+            const d = Math.sqrt(x * x + z * z);
+            const flatten = Math.max(0, 1 - d / 28);
+            h *= (1 - flatten * 0.7);
+            return h;
+        }
+
+        function createTree(x, y, z) {
+            const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.3, 1.2, 6), new THREE.MeshStandardMaterial({ color: 0x5c4033 }));
+            trunk.position.set(x, y + 0.6, z);
+            trunk.castShadow = true;
+            const leaves = new THREE.Mesh(GEOM.tree, new THREE.MeshStandardMaterial({ color: Math.random() > 0.5 ? 0x2d8a4a : 0x3a9b5a }));
+            leaves.position.set(x, y + 2.2, z);
+            leaves.scale.set(1 + Math.random()*0.5, 1 + Math.random()*0.4, 1 + Math.random()*0.5);
+            leaves.castShadow = true;
+            terrainGroup.add(trunk, leaves);
+        }
+
+        createTerrain();
+
+        // --- Selection Ring Pool ---
+        const selectionRings = [];
+        function getSelectionRing() {
+            for (const r of selectionRings) if (!r.userData.active) return r;
+            const ring = new THREE.Mesh(new THREE.RingGeometry(0.8, 1.0, 24), MAT.selection);
+            ring.rotateX(-Math.PI / 2);
+            ring.userData.active = false;
+            scene.add(ring);
+            selectionRings.push(ring);
+            return ring;
+        }
+        function updateSelectionRings() {
+            for (const r of selectionRings) { r.visible = false; r.userData.active = false; }
+            let idx = 0;
+            state.selected.forEach(ent => {
+                if (!ent || ent.dead) return;
+                const ring = selectionRings[idx++] || getSelectionRing();
+                ring.visible = true;
+                ring.userData.active = true;
+                ring.position.set(ent.position.x, sampleHeight(ent.position.x, ent.position.z) + 0.15, ent.position.z);
+                const radius = (ent.radius || 0.7) + 0.2;
+                ring.scale.set(radius, radius, radius);
+                ring.material.color.setHex(ent.team === 'friendly' ? CONFIG.colors.friendly : CONFIG.colors.enemy);
+            });
+        }
+
+        // --- Entity Creation Helpers ---
+        function createUnitMesh(type, team) {
+            const group = new THREE.Group();
+            const isFriendly = team === 'friendly';
+            const colorMat = isFriendly ? MAT.friendly.clone() : MAT.enemy.clone();
+
+            if (type === 'worker') {
+                const body = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.35, 0.8, 8), colorMat);
+                body.position.y = 0.4;
+                body.castShadow = true;
+                const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 8), new THREE.MeshStandardMaterial({ color: 0xffccaa }));
+                head.position.y = 0.95;
+                const pack = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.4, 0.25), new THREE.MeshStandardMaterial({ color: 0x8b5a2b }));
+                pack.position.set(0, 0.55, -0.2);
+                group.add(body, head, pack);
+            } else if (type === 'swordsman') {
+                const body = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.4, 1.0, 8), colorMat);
+                body.position.y = 0.5;
+                body.castShadow = true;
+                const head = new THREE.Mesh(new THREE.SphereGeometry(0.24, 10, 8), new THREE.MeshStandardMaterial({ color: 0xffccaa }));
+                head.position.y = 1.15;
+                const helm = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.45, 8), new THREE.MeshStandardMaterial({ color: 0x8a9bb0 }));
+                helm.position.y = 1.35;
+                const sword = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.9, 0.08), new THREE.MeshStandardMaterial({ color: 0xc0c0c0 }));
+                sword.position.set(0.45, 0.7, 0.2);
+                sword.rotation.z = -0.2;
+                group.add(body, head, helm, sword);
+            } else if (type === 'spearman') {
+                const body = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.35, 1.05, 8), colorMat);
+                body.position.y = 0.52;
+                body.castShadow = true;
+                const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 8), new THREE.MeshStandardMaterial({ color: 0xffccaa }));
+                head.position.y = 1.15;
+                const spear = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 2.2, 6), new THREE.MeshStandardMaterial({ color: 0x5c4033 }));
+                spear.position.set(0.5, 0.9, 0.3);
+                spear.rotation.z = -0.15;
+                const tip = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.35, 6), new THREE.MeshStandardMaterial({ color: 0xc0c0c0 }));
+                tip.position.set(0, 1.15, 0);
+                spear.add(tip);
+                group.add(body, head, spear);
+            } else if (type === 'archer') {
+                const body = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.3, 0.9, 8), colorMat);
+                body.position.y = 0.45;
+                body.castShadow = true;
+                const head = new THREE.Mesh(new THREE.SphereGeometry(0.21, 10, 8), new THREE.MeshStandardMaterial({ color: 0xffccaa }));
+                head.position.y = 1.05;
+                const bow = new THREE.Mesh(new THREE.TorusGeometry(0.45, 0.04, 6, 12, Math.PI), new THREE.MeshStandardMaterial({ color: 0x5c4033 }));
+                bow.position.set(-0.35, 0.6, 0);
+                bow.rotation.y = Math.PI / 2;
+                group.add(body, head, bow);
+            } else if (type === 'mage') {
+                const robe = new THREE.Mesh(new THREE.ConeGeometry(0.4, 1.1, 8), colorMat);
+                robe.position.y = 0.55;
+                robe.castShadow = true;
+                const head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 10, 8), new THREE.MeshStandardMaterial({ color: 0xffccaa }));
+                head.position.y = 1.2;
+                const staff = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 1.8, 6), new THREE.MeshStandardMaterial({ color: 0x5c4033 }));
+                staff.position.set(0.35, 0.9, 0.2);
+                const orb = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 8), new THREE.MeshStandardMaterial({ color: 0x9b59b6, emissive: 0x9b59b6, emissiveIntensity: 0.4 }));
+                orb.position.set(0, 0.9, 0);
+                staff.add(orb);
+                group.add(robe, head, staff);
+            } else if (type === 'knight') {
+                const body = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.5, 1.1, 8), new THREE.MeshStandardMaterial({ color: 0x8a9bb0 }));
+                body.position.y = 0.55;
+                body.castShadow = true;
+                const head = new THREE.Mesh(new THREE.SphereGeometry(0.25, 10, 8), new THREE.MeshStandardMaterial({ color: 0xffccaa }));
+                head.position.y = 1.25;
+                const helm = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.4, 8), new THREE.MeshStandardMaterial({ color: 0x8a9bb0 }));
+                helm.position.y = 1.45;
+                const lance = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.4, 6), new THREE.MeshStandardMaterial({ color: 0x5c4033 }));
+                lance.position.set(0.55, 0.9, 0.25);
+                lance.rotation.z = -0.2;
+                group.add(body, head, helm, lance);
+            } else if (type === 'cleric') {
+                const robe = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.45, 1.0, 8), new THREE.MeshStandardMaterial({ color: 0xf0e6d2 }));
+                robe.position.y = 0.5;
+                robe.castShadow = true;
+                const head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 10, 8), new THREE.MeshStandardMaterial({ color: 0xffccaa }));
+                head.position.y = 1.1;
+                const symbol = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.04, 6, 12), new THREE.MeshStandardMaterial({ color: 0xffd700, emissive: 0xffd700, emissiveIntensity: 0.3 }));
+                symbol.position.set(0.35, 0.8, 0.25);
+                symbol.rotation.x = Math.PI / 2;
+                group.add(robe, head, symbol);
+            }
+
+            // Team color indicator
+            const ring = new THREE.Mesh(new THREE.RingGeometry(0.35, 0.45, 16), new THREE.MeshBasicMaterial({ color: isFriendly ? 0x4aa8ff : 0xd94f4f, transparent: true, opacity: 0.7 }));
+            ring.rotateX(-Math.PI / 2);
+            ring.position.y = 0.05;
+            group.add(ring);
+
+            return group;
+        }
+
+        function createBuildingMesh(type, team) {
+            const group = new THREE.Group();
+            const isFriendly = team === 'friendly';
+            const colorMat = isFriendly ? MAT.friendly.clone() : MAT.enemy.clone();
+            const stoneMat = new THREE.MeshStandardMaterial({ color: 0x7a7a8a, roughness: 0.9 });
+            const woodMat = new THREE.MeshStandardMaterial({ color: 0x8b5a2b, roughness: 0.8 });
+            const roofMat = new THREE.MeshStandardMaterial({ color: 0x3d5a80 });
+
+            if (type === 'townhall') {
+                const base = new THREE.Mesh(new THREE.BoxGeometry(3.5, 2.2, 3.5), stoneMat);
+                base.position.y = 1.1;
+                base.castShadow = true;
+                const tower = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 1.0, 4, 10), colorMat);
+                tower.position.y = 3.5;
+                tower.castShadow = true;
+                const roof = new THREE.Mesh(new THREE.ConeGeometry(1.4, 1.8, 10), new THREE.MeshStandardMaterial({ color: 0x2c5282 }));
+                roof.position.y = 6.0;
+                const banner = createBanner(isFriendly ? 0x4aa8ff : 0xd94f4f);
+                banner.position.set(0, 4.5, 0);
+                group.add(base, tower, roof, banner);
+            } else if (type === 'house') {
+                const base = new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.4, 1.8), woodMat);
+                base.position.y = 0.7;
+                base.castShadow = true;
+                const roof = new THREE.Mesh(new THREE.ConeGeometry(1.5, 1.2, 4), roofMat);
+                roof.position.y = 1.9;
+                roof.rotation.y = Math.PI / 4;
+                group.add(base, roof);
+            } else if (type === 'lumbermill') {
+                const base = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.6, 2.0), woodMat);
+                base.position.y = 0.8;
+                base.castShadow = true;
+                const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.7, 0.1, 6, 12), new THREE.MeshStandardMaterial({ color: 0x5c4033 }));
+                wheel.position.set(1.5, 0.8, 0);
+                wheel.rotation.y = Math.PI / 2;
+                group.add(base, wheel);
+            } else if (type === 'quarry') {
+                const base = new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.4, 2.4), stoneMat);
+                base.position.y = 0.7;
+                base.castShadow = true;
+                const crane = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 3, 6), woodMat);
+                crane.position.set(0, 1.8, 0);
+                crane.rotation.z = 0.3;
+                group.add(base, crane);
+            } else if (type === 'farm') {
+                const base = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.6, 2.0), woodMat);
+                base.position.y = 0.3;
+                base.castShadow = true;
+                for (let i = 0; i < 5; i++) {
+                    const crop = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.6, 6), new THREE.MeshStandardMaterial({ color: 0xe6c35c }));
+                    crop.position.set((Math.random()-0.5)*1.6, 0.5, (Math.random()-0.5)*1.6);
+                    group.add(crop);
+                }
+                group.add(base);
+            } else if (type === 'mine') {
+                const base = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.6, 2.2), stoneMat);
+                base.position.y = 0.8;
+                base.castShadow = true;
+                const entrance = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 1.0, 12), new THREE.MeshStandardMaterial({ color: 0x1a1a1a }));
+                entrance.position.set(0, 0.5, 1.15);
+                entrance.rotation.x = Math.PI / 2;
+                group.add(base, entrance);
+            } else if (type === 'barracks') {
+                const base = new THREE.Mesh(new THREE.BoxGeometry(2.8, 1.8, 2.4), stoneMat);
+                base.position.y = 0.9;
+                base.castShadow = true;
+                const roof = new THREE.Mesh(new THREE.ConeGeometry(2.1, 1.4, 4), colorMat);
+                roof.position.y = 2.3;
+                roof.rotation.y = Math.PI / 4;
+                const banner = createBanner(isFriendly ? 0x4aa8ff : 0xd94f4f);
+                banner.position.set(0, 2.5, 0);
+                group.add(base, roof, banner);
+            } else if (type === 'archery') {
+                const base = new THREE.Mesh(new THREE.BoxGeometry(2.6, 2.0, 2.2), woodMat);
+                base.position.y = 1.0;
+                base.castShadow = true;
+                const tower = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 1.0, 2.5, 8), colorMat);
+                tower.position.y = 2.6;
+                group.add(base, tower);
+            } else if (type === 'mage') {
+                const base = new THREE.Mesh(new THREE.CylinderGeometry(1.3, 1.5, 2.2, 10), colorMat);
+                base.position.y = 1.1;
+                base.castShadow = true;
+                const roof = new THREE.Mesh(new THREE.ConeGeometry(1.6, 1.5, 10), new THREE.MeshStandardMaterial({ color: 0x4a2c7a }));
+                roof.position.y = 2.7;
+                const orb = new THREE.Mesh(new THREE.SphereGeometry(0.25, 12, 10), new THREE.MeshStandardMaterial({ color: 0x9b59b6, emissive: 0x9b59b6, emissiveIntensity: 0.5 }));
+                orb.position.y = 3.6;
+                group.add(base, roof, orb);
+            } else if (type === 'tower') {
+                const base = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 1.1, 4, 10), stoneMat);
+                base.position.y = 2;
+                base.castShadow = true;
+                const top = new THREE.Mesh(new THREE.CylinderGeometry(1.3, 0.9, 1.2, 10), colorMat);
+                top.position.y = 4.4;
+                const cren = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.4, 0.4, 10, 1, true), new THREE.MeshStandardMaterial({ color: 0x7a7a8a }));
+                cren.position.y = 5.0;
+                group.add(base, top, cren);
+            } else if (type === 'wall') {
+                const base = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.8, 0.6), stoneMat);
+                base.position.y = 0.9;
+                base.castShadow = true;
+                group.add(base);
+            }
+
+            return group;
+        }
+
+        function createBanner(color) {
+            const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 2.5, 6), new THREE.MeshStandardMaterial({ color: 0x5c4033 }));
+            const cloth = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.5, 0.05), new THREE.MeshStandardMaterial({ color }));
+            cloth.position.set(0.4, 0.7, 0);
+            pole.add(cloth);
+            return pole;
+        }
+
+        function createResourceNode(type, x, z) {
+            const group = new THREE.Group();
+            group.position.set(x, sampleHeight(x, z), z);
+            const amount = Math.floor(Math.random() * 200) + 300;
+
+            if (type === 'tree') {
+                const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.35, 1.5, 7), new THREE.MeshStandardMaterial({ color: 0x5c4033 }));
+                trunk.position.y = 0.75;
+                trunk.castShadow = true;
+                const leaves = new THREE.Mesh(new THREE.ConeGeometry(1.5, 3.5, 8), new THREE.MeshStandardMaterial({ color: 0x2d8a4a }));
+                leaves.position.y = 2.5;
+                leaves.castShadow = true;
+                group.add(trunk, leaves);
+            } else if (type === 'stone') {
+                const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(1.2, 1), new THREE.MeshStandardMaterial({ color: 0x808080 }));
+                rock.position.y = 0.8;
+                rock.castShadow = true;
+                group.add(rock);
+            } else if (type === 'gold') {
+                const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(1.0, 1), new THREE.MeshStandardMaterial({ color: 0xb8860b }));
+                rock.position.y = 0.7;
+                rock.castShadow = true;
+                const crystals = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.8, 6), new THREE.MeshStandardMaterial({ color: 0xffd700, emissive: 0xffd700, emissiveIntensity: 0.2 }));
+                crystals.position.y = 1.1;
+                group.add(rock, crystals);
+            } else if (type === 'berry') {
+                const bush = new THREE.Mesh(new THREE.SphereGeometry(0.9, 10, 8), new THREE.MeshStandardMaterial({ color: 0x228b22 }));
+                bush.position.y = 0.6;
+                bush.castShadow = true;
+                for (let i = 0; i < 6; i++) {
+                    const berry = new THREE.Mesh(new THREE.SphereGeometry(0.12, 6, 6), new THREE.MeshStandardMaterial({ color: 0xcc3333 }));
+                    berry.position.set((Math.random()-0.5)*1.0, 0.7 + Math.random()*0.4, (Math.random()-0.5)*1.0);
+                    group.add(berry);
+                }
+                group.add(bush);
+            }
+
+            const node = {
+                id: Math.random().toString(36),
+                type: 'resource',
+                resourceType: type,
+                amount,
+                maxAmount: amount,
+                position: new THREE.Vector3(x, group.position.y, z),
+                mesh: group,
+                radius: 1.2,
+                team: 'neutral'
+            };
+            scene.add(group);
+            state.resourceNodes.push(node);
+            return node;
+        }
+
+        function createEnemyMesh(type) {
+            const group = new THREE.Group();
+            const def = ENEMIES[type];
+            const mat = new THREE.MeshStandardMaterial({ color: 0x3a1a3a, roughness: 0.7 });
+            const glowMat = new THREE.MeshStandardMaterial({ color: 0xd94f4f, emissive: 0xd94f4f, emissiveIntensity: 0.4 });
+
+            if (type === 'shade') {
+                const body = new THREE.Mesh(new THREE.ConeGeometry(0.35, 1.0, 7), mat);
+                body.position.y = 0.5;
+                body.castShadow = true;
+                const eyes = new THREE.Mesh(new THREE.SphereGeometry(0.08, 6, 6), glowMat);
+                eyes.position.set(0, 0.75, 0.2);
+                group.add(body, eyes);
+            } else if (type === 'reaver') {
+                const body = new THREE.Mesh(new THREE.BoxGeometry(0.7, 1.2, 0.5), mat);
+                body.position.y = 0.6;
+                body.castShadow = true;
+                const blade = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1.2, 0.05), glowMat);
+                blade.position.set(0.5, 0.7, 0.2);
+                blade.rotation.z = -0.2;
+                group.add(body, blade);
+            } else if (type === 'wraith') {
+                const body = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.45, 1.1, 8), new THREE.MeshStandardMaterial({ color: 0x4a3a5a, transparent: true, opacity: 0.85 }));
+                body.position.y = 0.55;
+                body.castShadow = true;
+                const hood = new THREE.Mesh(new THREE.ConeGeometry(0.35, 0.6, 8), mat);
+                hood.position.y = 1.1;
+                const orb = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 8), glowMat);
+                orb.position.set(0.35, 0.7, 0.2);
+                group.add(body, hood, orb);
+            } else if (type === 'brute') {
+                const body = new THREE.Mesh(new THREE.CylinderGeometry(0.65, 0.8, 1.6, 8), mat);
+                body.position.y = 0.8;
+                body.castShadow = true;
+                const club = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.25, 2.0, 7), new THREE.MeshStandardMaterial({ color: 0x2a1a2a }));
+                club.position.set(0.8, 0.8, 0.3);
+                club.rotation.z = -0.15;
+                const spikes = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.4, 6), glowMat);
+                spikes.position.set(0, 0.9, 0);
+                club.add(spikes);
+                group.add(body, club);
+            } else if (type === 'elite') {
+                const body = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.9, 2.0, 10), new THREE.MeshStandardMaterial({ color: 0x1a0a1a }));
+                body.position.y = 1.0;
+                body.castShadow = true;
+                const shoulders = new THREE.Mesh(new THREE.SphereGeometry(0.5, 10, 8), new THREE.MeshStandardMaterial({ color: 0x3a1a3a }));
+                shoulders.position.set(0, 1.6, 0);
+                const helm = new THREE.Mesh(new THREE.ConeGeometry(0.55, 0.9, 10), mat);
+                helm.position.y = 2.6;
+                const greatsword = new THREE.Mesh(new THREE.BoxGeometry(0.2, 2.6, 0.1), glowMat);
+                greatsword.position.set(0.8, 1.3, 0.4);
+                greatsword.rotation.z = -0.2;
+                const aura = new THREE.Mesh(new THREE.SphereGeometry(1.4, 16, 12), new THREE.MeshBasicMaterial({ color: 0xd94f4f, transparent: true, opacity: 0.12, wireframe: true }));
+                aura.position.y = 1.2;
+                group.add(body, shoulders, helm, greatsword, aura);
+            }
+
+            return group;
+        }
+
+        function spawnUnit(type, x, z, team = 'friendly') {
+            const def = UNITS[type];
+            const mesh = createUnitMesh(type, team);
+            const y = sampleHeight(x, z);
+            mesh.position.set(x, y, z);
+            scene.add(mesh);
+
+            const unit = {
+                id: Math.random().toString(36),
+                type,
+                team,
+                position: new THREE.Vector3(x, y, z),
+                mesh,
+                radius: type === 'knight' ? 0.55 : 0.35,
+                hp: def.hp * (team === 'friendly' ? 1 : DIFFICULTY[CONFIG.difficulty].hpMult),
+                maxHp: def.hp * (team === 'friendly' ? 1 : DIFFICULTY[CONFIG.difficulty].hpMult),
+                damage: def.damage,
+                range: def.range,
+                speed: def.speed,
+                attackSpeed: def.attackSpeed,
+                armor: def.armor,
+                pop: def.pop,
+                attackCooldown: 0,
+                state: 'idle',
+                target: null,
+                gatherTarget: null,
+                buildTarget: null,
+                homeBuilding: null,
+                carry: { type: null, amount: 0 },
+                formationOffset: new THREE.Vector3(),
+                animTime: Math.random() * 10,
+                dead: false,
+                holdPosition: false,
+                attackMove: false,
+                rallyPoint: null,
+                level: 1,
+                xp: 0,
+                abilities: []
+            };
+
+            // Hero commander (first worker becomes hero if none exists)
+            if (team === 'friendly' && !state.units.some(u => u.isHero) && type === 'worker') {
+                unit.isHero = true;
+                unit.name = 'Prince Aldric';
+                unit.maxHp *= 2.5;
+                unit.hp = unit.maxHp;
+                unit.damage *= 1.8;
+                unit.speed *= 1.1;
+                unit.radius = 0.45;
+                // Hero glow
+                const glow = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.7, 24), new THREE.MeshBasicMaterial({ color: 0xffd700, transparent: true, opacity: 0.5, side: THREE.DoubleSide }));
+                glow.rotateX(-Math.PI / 2);
+                glow.position.y = 0.08;
+                mesh.add(glow);
+                unit.abilities = ['rally', 'inspire', 'heal_aura'];
+            }
+
+            applyResearchBonuses(unit);
+
+            if (team === 'friendly') state.units.push(unit);
+            else state.enemies.push(unit);
+            return unit;
+        }
+
+        function spawnBuilding(type, x, z, team = 'friendly') {
+            const def = BUILDINGS[type];
+            const mesh = createBuildingMesh(type, team);
+            const y = sampleHeight(x, z);
+            mesh.position.set(x, y, z);
+            scene.add(mesh);
+
+            const building = {
+                id: Math.random().toString(36),
+                type,
+                team,
+                position: new THREE.Vector3(x, y, z),
+                mesh,
+                size: def.size,
+                radius: def.size * 0.8,
+                hp: def.hp * (state.researched.has('masonry') ? 1.3 : 1),
+                maxHp: def.hp * (state.researched.has('masonry') ? 1.3 : 1),
+                built: def.buildTime === 0,
+                buildProgress: def.buildTime === 0 ? 1 : 0,
+                buildTime: def.buildTime,
+                popCap: def.popCap || 0,
+                income: def.income ? { ...def.income } : null,
+                range: def.range || 0,
+                damage: def.damage || 0,
+                attackSpeed: def.attackSpeed || 0,
+                attackCooldown: 0,
+                rallyPoint: new THREE.Vector3(x + def.size + 1, y, z),
+                productionQueue: [],
+                researchQueue: null,
+                dead: false,
+                tier: 1
+            };
+
+            if (team === 'friendly') state.buildings.push(building);
+            return building;
+        }
+
+        function spawnEnemy(type, x, z) {
+            const def = ENEMIES[type];
+            const mesh = createEnemyMesh(type);
+            const y = sampleHeight(x, z);
+            mesh.position.set(x, y, z);
+            mesh.scale.setScalar(def.size);
+            scene.add(mesh);
+
+            const enemy = {
+                id: Math.random().toString(36),
+                type,
+                team: 'enemy',
+                position: new THREE.Vector3(x, y, z),
+                mesh,
+                radius: def.size * 0.4,
+                hp: def.hp * DIFFICULTY[CONFIG.difficulty].hpMult * (1 + state.waveNumber * 0.08),
+                maxHp: def.hp * DIFFICULTY[CONFIG.difficulty].hpMult * (1 + state.waveNumber * 0.08),
+                damage: def.damage * DIFFICULTY[CONFIG.difficulty].dmgMult * (1 + state.waveNumber * 0.04),
+                range: def.range,
+                speed: def.speed,
+                attackSpeed: def.attackSpeed,
+                armor: def.armor,
+                attackCooldown: 0,
+                state: 'advance',
+                target: null,
+                animTime: Math.random() * 10,
+                dead: false
+            };
+            state.enemies.push(enemy);
+            return enemy;
+        }
+
+        function createProjectile(source, target, type, damage, team) {
+            let mesh;
+            if (type === 'arrow') {
+                mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.8, 6), new THREE.MeshStandardMaterial({ color: 0x8b5a2b }));
+            } else if (type === 'magic') {
+                mesh = new THREE.Mesh(new THREE.SphereGeometry(0.18, 10, 8), new THREE.MeshStandardMaterial({ color: 0x9b59b6, emissive: 0x9b59b6, emissiveIntensity: 0.6 }));
+            } else if (type === 'shadow') {
+                mesh = new THREE.Mesh(new THREE.SphereGeometry(0.15, 8, 8), new THREE.MeshStandardMaterial({ color: 0x2a0a2a, emissive: 0xd94f4f, emissiveIntensity: 0.4 }));
+            } else if (type === 'holy') {
+                mesh = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 8), new THREE.MeshStandardMaterial({ color: 0xffd700, emissive: 0xffd700, emissiveIntensity: 0.5 }));
+            } else {
+                mesh = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 8), new THREE.MeshStandardMaterial({ color: team === 'friendly' ? 0x4aa8ff : 0xd94f4f }));
+            }
+            mesh.position.copy(source);
+            scene.add(mesh);
+
+            const proj = {
+                mesh,
+                source: source.clone(),
+                target: target,
+                targetPos: target.position.clone(),
+                speed: type === 'arrow' ? 35 : 22,
+                damage,
+                type,
+                team,
+                startTime: state.gameTime,
+                life: 3
+            };
+            state.projectiles.push(proj);
+            return proj;
+        }
+
+        function createParticle(position, color, count = 8, type = 'burst') {
+            for (let i = 0; i < count; i++) {
+                const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.08 + Math.random()*0.08, 6, 6), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9 }));
+                mesh.position.copy(position);
+                mesh.position.y += 0.5;
+                scene.add(mesh);
+                state.particles.push({
+                    mesh,
+                    velocity: new THREE.Vector3((Math.random()-0.5)*5, Math.random()*4 + 1, (Math.random()-0.5)*5),
+                    life: 0.6 + Math.random()*0.6,
+                    maxLife: 0.6 + Math.random()*0.6,
+                    type
+                });
+            }
+        }
+
+        function spawnFloatingText(text, position, color = '#ffffff') {
+            const el = document.createElement('div');
+            el.className = 'floating-text';
+            el.textContent = text;
+            el.style.color = color;
+            document.body.appendChild(el);
+            const screenPos = worldToScreen(position);
+            el.style.left = screenPos.x + 'px';
+            el.style.top = screenPos.y + 'px';
+            setTimeout(() => el.remove(), 1200);
+        }
+
+        function worldToScreen(pos) {
+            const vec = pos.clone();
+            vec.project(camera);
+            return {
+                x: (vec.x * 0.5 + 0.5) * window.innerWidth,
+                y: (-(vec.y * 0.5) + 0.5) * window.innerHeight
+            };
+        }
+
+        // --- Initial World ---
+        function initWorld() {
+            // Townhall
+            const th = spawnBuilding('townhall', 0, 0, 'friendly');
+            state.population.cap = th.popCap;
+
+            // Starting workers
+            for (let i = 0; i < 4; i++) {
+                const angle = (i / 4) * Math.PI * 2;
+                spawnUnit('worker', Math.cos(angle) * 6, Math.sin(angle) * 6, 'friendly');
+            }
+            // Hero commander
+            const hero = spawnUnit('swordsman', 4, 4, 'friendly');
+            hero.isHero = true;
+            hero.name = 'Prince Aldric';
+            hero.maxHp = hero.maxHp * 2.5;
+            hero.hp = hero.maxHp;
+            hero.damage = hero.damage * 1.8;
+            hero.speed *= 1.1;
+            hero.abilities = ['rally', 'inspire', 'charge'];
+            const glow = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.75, 24), new THREE.MeshBasicMaterial({ color: 0xffd700, transparent: true, opacity: 0.5, side: THREE.DoubleSide }));
+            glow.rotateX(-Math.PI / 2);
+            glow.position.y = 0.08;
+            hero.mesh.add(glow);
+
+            // Starting military
+            spawnUnit('swordsman', -4, 5, 'friendly');
+            spawnUnit('archer', 5, -3, 'friendly');
+
+            // Resource nodes
+            const resTypes = ['tree', 'stone', 'gold', 'berry'];
+            for (let i = 0; i < 80; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const dist = 18 + Math.random() * 55;
+                const x = Math.cos(angle) * dist;
+                const z = Math.sin(angle) * dist;
+                const type = resTypes[Math.floor(Math.random() * resTypes.length)];
+                createResourceNode(type, x, z);
+            }
+
+            // Enemy bases (corruption obelisks)
+            for (let i = 0; i < 3; i++) {
+                const angle = Math.PI * 2 / 3 * i + Math.PI / 6;
+                const dist = 55 + Math.random() * 10;
+                const x = Math.cos(angle) * dist;
+                const z = Math.sin(angle) * dist;
+                spawnEnemyBase(x, z);
+            }
+
+            updatePopulation();
+        }
+
+        function spawnEnemyBase(x, z) {
+            const obelisk = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.8, 6, 8), new THREE.MeshStandardMaterial({ color: 0x1a0a1a, emissive: 0x5a1a5a, emissiveIntensity: 0.4 }));
+            obelisk.position.set(x, sampleHeight(x, z) + 3, z);
+            obelisk.castShadow = true;
+            scene.add(obelisk);
+            const base = new THREE.Mesh(new THREE.CylinderGeometry(2.5, 2.8, 0.6, 12), new THREE.MeshStandardMaterial({ color: 0x2a1a2a }));
+            base.position.set(x, sampleHeight(x, z) + 0.3, z);
+            scene.add(base);
+
+            const building = {
+                id: Math.random().toString(36),
+                type: 'enemy_base',
+                team: 'enemy',
+                position: new THREE.Vector3(x, sampleHeight(x, z), z),
+                mesh: obelisk,
+                size: 4,
+                radius: 3,
+                hp: 2500,
+                maxHp: 2500,
+                dead: false,
+                isEnemyBase: true,
+                spawnTimer: 0
+            };
+            state.buildings.push(building);
+        }
+
+        // --- Core Systems ---
+
+        function applyResearchBonuses(unit) {
+            if (state.researched.has('sharpening') && (unit.type === 'swordsman' || unit.type === 'spearman' || unit.type === 'knight')) {
+                unit.damage *= 1.2;
+            }
+            if (state.researched.has('fletching') && (unit.type === 'archer')) {
+                unit.damage *= 1.2;
+            }
+            if (state.researched.has('husbandry')) {
+                unit.speed *= 1.15;
+            }
+        }
+
+        function updatePopulation() {
+            let cap = 0;
+            state.buildings.forEach(b => { if (b.team === 'friendly' && !b.dead) cap += (b.popCap || 0); });
+            state.population.cap = cap;
+            state.population.current = state.units.filter(u => !u.dead).reduce((a, u) => a + (u.pop || 0), 0);
+            document.getElementById('popCurrent').textContent = state.population.current;
+            document.getElementById('popCap').textContent = state.population.cap;
+        }
+
+        function canAfford(cost) {
+            for (const k in cost) {
+                if (state.resources[k] < cost[k]) return false;
+            }
+            return true;
+        }
+
+        function spend(cost) {
+            for (const k in cost) state.resources[k] -= cost[k];
+        }
+
+        function addResource(type, amount) {
+            state.resources[type] += amount;
+            state.stats.resourcesGathered += amount;
+        }
+
+        function updateIncome() {
+            state.income = { wood: 0, stone: 0, gold: 0, food: 0 };
+            state.buildings.forEach(b => {
+                if (b.team === 'friendly' && b.built && !b.dead && b.income) {
+                    for (const k in b.income) {
+                        state.income[k] += b.income[k] * DIFFICULTY[CONFIG.difficulty].incomeMult;
+                    }
+                }
+            });
+            // Workers gathering also add directly, shown as income approximation
+            const gatheringWorkers = state.units.filter(u => !u.dead && u.gatherTarget).length;
+            state.income.food += gatheringWorkers * 2;
+
+            for (const k in state.income) {
+                state.resources[k] += state.income[k] / 60; // per second income
+                document.getElementById('income' + k.charAt(0).toUpperCase() + k.slice(1)).textContent = '+' + Math.round(state.income[k]);
+                document.getElementById('res' + k.charAt(0).toUpperCase() + k.slice(1)).textContent = Math.floor(state.resources[k]);
+            }
+        }
+
+        function isBuildable(x, z, size, excludeId = null) {
+            const margin = size * 0.55;
+            // Check bounds
+            if (Math.abs(x) > CONFIG.mapSize/2 - margin || Math.abs(z) > CONFIG.mapSize/2 - margin) return false;
+            // Check other buildings
+            for (const b of state.buildings) {
+                if (b.dead || b.id === excludeId) continue;
+                const dist = Math.hypot(b.position.x - x, b.position.z - z);
+                if (dist < b.radius + margin + 0.3) return false;
+            }
+            // Check resource nodes
+            for (const n of state.resourceNodes) {
+                if (n.amount <= 0) continue;
+                const dist = Math.hypot(n.position.x - x, n.position.z - z);
+                if (dist < n.radius + margin + 0.2) return false;
+            }
+            return true;
+        }
+
+        // --- Combat Logic ---
+
+        function findNearestEnemy(unit, maxRange = Infinity) {
+            let best = null, bestD = maxRange * maxRange;
+            const enemies = unit.team === 'friendly' ? state.enemies : state.units;
+            for (const e of enemies) {
+                if (e.dead) continue;
+                const d = unit.position.distanceToSquared(e.position);
+                if (d < bestD) { bestD = d; best = e; }
+            }
+            return best;
+        }
+
+        function dealDamage(attacker, target, damage, isSplash = false) {
+            if (target.dead) return;
+            const actual = Math.max(1, damage * (1 - (target.armor || 0) * 0.05));
+            target.hp -= actual;
+            spawnFloatingText(Math.round(actual).toString(), target.position.clone().add(new THREE.Vector3(0, 1.5, 0)), target.team === 'friendly' ? '#ff6b6b' : '#ffffff');
+            createParticle(target.position, target.team === 'friendly' ? 0xff4a4a : 0x9b59b6, 4);
+
+            if (target.hp <= 0) {
+                killEntity(target);
+                if (attacker.team === 'friendly' && target.team === 'enemy') {
+                    attacker.xp = (attacker.xp || 0) + (target.type === 'elite' ? 50 : 10);
+                    if (attacker.xp >= attacker.level * 80) {
+                        attacker.level++;
+                        attacker.maxHp *= 1.15;
+                        attacker.hp = attacker.maxHp;
+                        attacker.damage *= 1.1;
+                        if (attacker.isHero) spawnFloatingText('LEVEL UP!', attacker.position.clone().add(new THREE.Vector3(0, 2.5, 0)), '#ffd700');
+                    }
+                    state.stats.kills++;
+                }
+            }
+        }
+
+        function killEntity(entity) {
+            entity.dead = true;
+            if (entity.mesh) {
+                createParticle(entity.position, entity.team === 'friendly' ? 0x4aa8ff : 0xd94f4f, 12);
+                scene.remove(entity.mesh);
+            }
+            if (entity.team === 'friendly') {
+                state.stats.unitsLost++;
+                state.selected.delete(entity);
+            }
+            if (entity.type === 'enemy_base' && entity.isEnemyBase) {
+                checkVictory();
+            }
+        }
+
+        function checkVictory() {
+            const enemyBases = state.buildings.filter(b => b.isEnemyBase && !b.dead);
+            if (enemyBases.length === 0) {
+                state.won = true;
+                state.gameOver = true;
+                showGameOver(true);
+            }
+        }
+
+        function checkDefeat() {
+            const townhall = state.buildings.find(b => b.type === 'townhall' && !b.dead);
+            if (!townhall || (state.units.filter(u => !u.dead).length === 0 && state.population.current === 0 && state.resources.food < 30)) {
+                if (!townhall) {
+                    state.gameOver = true;
+                    showGameOver(false);
+                }
+            }
+        }
+
+        // --- Unit AI ---
+
+        function updateUnits(dt) {
+            // Friendly units
+            for (const u of state.units) {
+                if (u.dead) continue;
+                u.animTime += dt * (u.state === 'move' ? 8 : 3);
+                if (u.mesh) {
+                    u.mesh.position.y = sampleHeight(u.position.x, u.position.z) + Math.sin(u.animTime) * 0.03;
+                    if (u.state === 'move') u.mesh.position.y += Math.abs(Math.sin(u.animTime * 2)) * 0.08;
+                }
+                u.attackCooldown -= dt;
+
+                // Auto-attack for military
+                if (u.type !== 'worker') {
+                    const enemy = findNearestEnemy(u, u.range + 8);
+                    if (enemy && !u.attackMove && !u.holdPosition) {
+                        u.target = enemy;
+                        u.state = 'combat';
+                    } else if (u.holdPosition) {
+                        const threat = findNearestEnemy(u, u.range + 4);
+                        if (threat) { u.target = threat; u.state = 'combat'; }
+                    }
+                }
+
+                // Combat
+                if (u.target && !u.target.dead) {
+                    const dist = u.position.distanceTo(u.target.position);
+                    if (dist <= u.range + u.radius + u.target.radius) {
+                        if (u.attackCooldown <= 0) {
+                            performAttack(u, u.target);
+                            u.attackCooldown = u.attackSpeed;
+                        }
+                        u.state = 'combat';
+                        faceTarget(u, u.target.position);
+                    } else {
+                        moveTowards(u, u.target.position, dt, u.speed * 0.9);
+                        u.state = 'move';
+                    }
+                } else {
+                    u.target = null;
+                    if (u.state === 'combat') u.state = 'idle';
+                }
+
+                // Worker gathering
+                if (u.type === 'worker') {
+                    updateWorker(u, dt);
+                }
+
+                // Cleric healing
+                if (u.type === 'cleric') {
+                    updateCleric(u, dt);
+                }
+
+                // Rally point movement
+                if (u.rallyPoint && u.state === 'idle') {
+                    if (u.position.distanceTo(u.rallyPoint) > 1) {
+                        moveTowards(u, u.rallyPoint, dt, u.speed);
+                        u.state = 'move';
+                    } else {
+                        u.rallyPoint = null;
+                    }
+                }
+            }
+
+            // Enemy units
+            for (const e of state.enemies) {
+                if (e.dead) continue;
+                e.animTime += dt * (e.state === 'move' ? 7 : 3);
+                if (e.mesh) e.mesh.position.y = sampleHeight(e.position.x, e.position.z) + Math.sin(e.animTime) * 0.04;
+                e.attackCooldown -= dt;
+
+                const target = findNearestEnemy(e, e.range + 25);
+                if (target) {
+                    const dist = e.position.distanceTo(target.position);
+                    if (dist <= e.range + e.radius + target.radius) {
+                        if (e.attackCooldown <= 0) {
+                            performAttack(e, target);
+                            e.attackCooldown = e.attackSpeed;
+                        }
+                        faceTarget(e, target.position);
+                        e.state = 'combat';
+                    } else {
+                        moveTowards(e, target.position, dt, e.speed);
+                        e.state = 'move';
+                    }
+                } else {
+                    // Move toward townhall
+                    const th = state.buildings.find(b => b.type === 'townhall' && !b.dead);
+                    if (th) moveTowards(e, th.position, dt, e.speed * 0.6);
+                    e.state = 'move';
+                }
+            }
+        }
+
+        function performAttack(attacker, target) {
+            if (attacker.range > 3) {
+                // Ranged
+                const type = attacker.type === 'mage' ? 'magic' : attacker.type === 'wraith' ? 'shadow' : attacker.type === 'cleric' ? 'holy' : 'arrow';
+                createProjectile(attacker.position.clone().add(new THREE.Vector3(0, 1.2, 0)), target, type, attacker.damage, attacker.team);
+                if (attacker.type === 'mage') {
+                    // Mage splash on impact handled in projectile update
+                }
+            } else {
+                // Melee
+                dealDamage(attacker, target, attacker.damage);
+                // Lifesteal aura from hero?
+                if (attacker.isHero) {
+                    attacker.hp = Math.min(attacker.maxHp, attacker.hp + attacker.damage * 0.1);
+                }
+            }
+        }
+
+        function updateWorker(u, dt) {
+            if (!u.gatherTarget) return;
+            const node = u.gatherTarget;
+            if (node.amount <= 0) { u.gatherTarget = null; u.state = 'idle'; return; }
+
+            const dist = u.position.distanceTo(node.position);
+            if (dist > 1.5) {
+                moveTowards(u, node.position, dt, u.speed);
+                u.state = 'move';
+            } else {
+                u.state = 'gather';
+                u.gatherTimer = (u.gatherTimer || 0) + dt;
+                if (u.gatherTimer >= 1.2) {
+                    const amt = Math.min(10, node.amount);
+                    node.amount -= amt;
+                    u.carry = { type: node.resourceType, amount: amt };
+                    u.gatherTimer = 0;
+                    // Return to townhall or nearest dropoff
+                    const drop = findNearestDropoff(u);
+                    u.homeBuilding = drop;
+                }
+            }
+
+            // Return resources
+            if (u.carry.amount > 0 && u.homeBuilding) {
+                const drop = u.homeBuilding;
+                if (drop.dead) { u.homeBuilding = null; return; }
+                if (u.position.distanceTo(drop.position) > 2) {
+                    moveTowards(u, drop.position, dt, u.speed * 1.1);
+                    u.state = 'move';
+                } else {
+                    let resType = u.carry.type;
+                    if (resType === 'berry') resType = 'food';
+                    if (resType === 'tree') resType = 'wood';
+                    addResource(resType, u.carry.amount);
+                    spawnFloatingText('+' + u.carry.amount, u.position.clone().add(new THREE.Vector3(0, 1.2, 0)), '#4aff4a');
+                    u.carry.amount = 0;
+                    u.homeBuilding = null;
+                }
+            }
+        }
+
+        function findNearestDropoff(u) {
+            let best = state.buildings.find(b => b.type === 'townhall' && !b.dead);
+            if (!best) return null;
+            let bestD = u.position.distanceToSquared(best.position);
+            for (const b of state.buildings) {
+                if (b.team !== 'friendly' || b.dead) continue;
+                const d = u.position.distanceToSquared(b.position);
+                if (d < bestD) { bestD = d; best = b; }
+            }
+            return best;
+        }
+
+        function updateCleric(u, dt) {
+            if (u.attackCooldown > 0) return;
+            let best = null, bestHp = 999;
+            for (const ally of state.units) {
+                if (ally.dead || ally.id === u.id) continue;
+                if (ally.position.distanceTo(u.position) > 12) continue;
+                if (ally.hp / ally.maxHp < bestHp) { bestHp = ally.hp / ally.maxHp; best = ally; }
+            }
+            if (best && bestHp < 0.85) {
+                createProjectile(u.position.clone().add(new THREE.Vector3(0, 1.2, 0)), best, 'holy', -18, 'friendly');
+                u.attackCooldown = u.attackSpeed;
+            }
+        }
+
+        function moveTowards(entity, targetPos, dt, speed) {
+            const dir = new THREE.Vector3(targetPos.x - entity.position.x, 0, targetPos.z - entity.position.z);
+            const dist = dir.length();
+            if (dist < 0.1) return;
+            dir.normalize();
+
+            // Simple separation
+            const neighbors = (entity.team === 'friendly' ? state.units : state.enemies).filter(e => e !== entity && !e.dead && e.position.distanceTo(entity.position) < 1.2);
+            for (const n of neighbors) {
+                const away = new THREE.Vector3(entity.position.x - n.position.x, 0, entity.position.z - n.position.z);
+                away.normalize().multiplyScalar(0.3);
+                dir.add(away);
+            }
+            dir.normalize();
+
+            const move = dir.multiplyScalar(speed * dt);
+            const nextX = entity.position.x + move.x;
+            const nextZ = entity.position.z + move.z;
+            entity.position.set(nextX, sampleHeight(nextX, nextZ), nextZ);
+            if (entity.mesh) entity.mesh.position.copy(entity.position);
+            faceTarget(entity, targetPos);
+        }
+
+        function faceTarget(entity, targetPos) {
+            if (!entity.mesh) return;
+            const dir = new THREE.Vector3(targetPos.x - entity.position.x, 0, targetPos.z - entity.position.z);
+            if (dir.length() > 0.01) {
+                const targetRot = Math.atan2(dir.x, dir.z);
+                entity.mesh.rotation.y = targetRot;
+            }
+        }
+
+        function updateBuildings(dt) {
+            for (const b of state.buildings) {
+                if (b.dead) continue;
+
+                // Construction
+                if (!b.built) {
+                    const workers = state.units.filter(u => u.type === 'worker' && !u.dead && u.buildTarget && u.buildTarget.id === b.id);
+                    if (workers.length > 0) {
+                        b.buildProgress += dt * 0.15 * workers.length;
+                        if (b.buildProgress >= 1) {
+                            b.built = true;
+                            b.hp = b.maxHp;
+                            spawnFloatingText('Built!', b.position.clone().add(new THREE.Vector3(0, 3, 0)), '#ffd700');
+                            workers.forEach(w => w.buildTarget = null);
+                        }
+                    }
+                    continue;
+                }
+
+                // Tower attack
+                if (b.type === 'tower' && b.damage > 0) {
+                    b.attackCooldown -= dt;
+                    if (b.attackCooldown <= 0) {
+                        const range = b.range * (state.researched.has('fortification') ? 1.25 : 1);
+                        const target = findNearestEnemy(b, range);
+                        if (target) {
+                            createProjectile(b.position.clone().add(new THREE.Vector3(0, 4, 0)), target, 'arrow', b.damage * (state.researched.has('fortification') ? 1.25 : 1), 'friendly');
+                            b.attackCooldown = b.attackSpeed;
+                        }
+                    }
+                }
+
+                // Production queue
+                if (b.productionQueue && b.productionQueue.length > 0) {
+                    const item = b.productionQueue[0];
+                    item.progress -= dt;
+                    if (item.progress <= 0) {
+                        b.productionQueue.shift();
+                        finishProduction(b, item);
+                    }
+                }
+
+                // Research
+                if (b.researchQueue) {
+                    b.researchQueue.progress -= dt;
+                    if (b.researchQueue.progress <= 0) {
+                        finishResearch(b, b.researchQueue);
+                        b.researchQueue = null;
+                    }
+                }
+
+                // Enemy base spawning
+                if (b.isEnemyBase) {
+                    b.spawnTimer += dt;
+                    if (b.spawnTimer > 25) {
+                        b.spawnTimer = 0;
+                        const angle = Math.random() * Math.PI * 2;
+                        spawnEnemy('shade', b.position.x + Math.cos(angle) * 6, b.position.z + Math.sin(angle) * 6);
+                    }
+                }
+            }
+        }
+
+        function updateProjectiles(dt) {
+            for (let i = state.projectiles.length - 1; i >= 0; i--) {
+                const p = state.projectiles[i];
+                p.life -= dt;
+                if (p.life <= 0) { scene.remove(p.mesh); state.projectiles.splice(i, 1); continue; }
+
+                if (p.target.dead) {
+                    p.targetPos = p.target.position.clone();
+                }
+                const dir = new THREE.Vector3().subVectors(p.targetPos.clone().add(new THREE.Vector3(0, 1, 0)), p.mesh.position);
+                const dist = dir.length();
+                if (dist < 0.5) {
+                    // Hit
+                    if (p.type === 'holy' && p.damage < 0) {
+                        p.target.hp = Math.min(p.target.maxHp, p.target.hp - p.damage);
+                        createParticle(p.target.position, 0xffd700, 6);
+                    } else {
+                        dealDamage({ team: p.team, damage: p.damage, armor: 0 }, p.target, p.damage);
+                        if (p.type === 'magic' && state.researched.has('alchemy')) {
+                            // Splash
+                            const splashTargets = p.team === 'friendly' ? state.enemies : state.units;
+                            for (const t of splashTargets) {
+                                if (t.dead || t === p.target) continue;
+                                if (t.position.distanceTo(p.target.position) < 3) {
+                                    t.hp -= p.damage * 0.4;
+                                    if (t.hp <= 0) killEntity(t);
+                                }
+                            }
+                            createParticle(p.target.position, 0x9b59b6, 10);
+                        }
+                    }
+                    scene.remove(p.mesh);
+                    state.projectiles.splice(i, 1);
+                    continue;
+                }
+                dir.normalize();
+                p.mesh.position.add(dir.multiplyScalar(p.speed * dt));
+                p.mesh.lookAt(p.targetPos.clone().add(new THREE.Vector3(0, 1, 0)));
+            }
+        }
+
+        function updateParticles(dt) {
+            for (let i = state.particles.length - 1; i >= 0; i--) {
+                const p = state.particles[i];
+                p.life -= dt;
+                if (p.life <= 0) { scene.remove(p.mesh); state.particles.splice(i, 1); continue; }
+                p.mesh.position.add(p.velocity.clone().multiplyScalar(dt));
+                p.velocity.y -= 9.8 * dt;
+                p.mesh.material.opacity = p.life / p.maxLife;
+                p.mesh.scale.setScalar(0.5 + (1 - p.life/p.maxLife) * 0.5);
+            }
+        }
+
+        // --- Waves ---
+
+        function updateWaves(dt) {
+            if (state.gameOver) return;
+            state.waveTimer += dt;
+
+            const dayProgress = state.timeOfDay;
+            const isNight = dayProgress < 0.2 || dayProgress > 0.75;
+
+            if (isNight && !state.waveActive && state.waveTimer > state.nextWaveTime) {
+                startWave();
+            }
+            if (!isNight && state.waveActive) {
+                state.waveActive = false;
+                document.getElementById('waveWarning').classList.add('hidden');
+                notify('Night survived! Prepare for the next day.', 'bg-blue-900/80 border-blue-500/60 text-blue-100');
+            }
+        }
+
+        function startWave() {
+            state.waveActive = true;
+            state.waveNumber++;
+            state.nextWaveTime = state.waveTimer + 120;
+            const mult = DIFFICULTY[CONFIG.difficulty].waveMult;
+            const count = Math.floor((8 + state.waveNumber * 4) * mult);
+            const elites = Math.floor(state.waveNumber / 4);
+
+            document.getElementById('waveWarning').classList.remove('hidden');
+            document.getElementById('waveText').textContent = `Wave ${state.waveNumber}: ${count} enemies approach from the shadows...`;
+            notify(`Wave ${state.waveNumber} has arrived!`, 'bg-red-900/80 border-red-500/60 text-red-100');
+
+            // Spawn from enemy bases and map edges
+            const bases = state.buildings.filter(b => b.isEnemyBase && !b.dead);
+            const spawnPoints = bases.length > 0 ? bases.map(b => b.position) : [
+                new THREE.Vector3(CONFIG.mapSize/2 - 5, 0, 0),
+                new THREE.Vector3(-CONFIG.mapSize/2 + 5, 0, 0),
+                new THREE.Vector3(0, 0, CONFIG.mapSize/2 - 5)
+            ];
+
+            for (let i = 0; i < count; i++) {
+                const spawn = spawnPoints[Math.floor(Math.random() * spawnPoints.length)];
+                const angle = Math.random() * Math.PI * 2;
+                const dist = 8 + Math.random() * 12;
+                const x = spawn.x + Math.cos(angle) * dist;
+                const z = spawn.z + Math.sin(angle) * dist;
+                const r = Math.random();
+                let type = 'shade';
+                if (r > 0.75) type = 'reaver';
+                else if (r > 0.55) type = 'wraith';
+                else if (r > 0.92) type = 'brute';
+                spawnEnemy(type, x, z);
+            }
+            for (let i = 0; i < elites; i++) {
+                const spawn = spawnPoints[Math.floor(Math.random() * spawnPoints.length)];
+                spawnEnemy('elite', spawn.x, spawn.z);
+            }
+        }
+
+        // --- Day/Night Cycle ---
+
+        function updateDayNight(dt) {
+            state.gameTime += dt;
+            state.timeOfDay = ((state.gameTime % CONFIG.dayDuration) / CONFIG.dayDuration + 0.25) % 1;
+
+            // Lighting interpolation
+            const t = state.timeOfDay;
+            const isDay = t > 0.2 && t < 0.75;
+            const dayFactor = Math.max(0, Math.sin((t - 0.2) / 0.55 * Math.PI));
+
+            const skyDay = new THREE.Color(0x87CEEB);
+            const skyNight = new THREE.Color(0x0a0e1a);
+            scene.background = skyNight.clone().lerp(skyDay, dayFactor);
+            scene.fog.color.copy(scene.background);
+
+            sunLight.intensity = dayFactor * 1.2;
+            moonLight.intensity = (1 - dayFactor) * 0.4;
+            ambientLight.intensity = 0.2 + dayFactor * 0.4;
+
+            MAT.ground.color.setHex(CONFIG.colors.groundNight).lerp(new THREE.Color(CONFIG.colors.ground), dayFactor);
+
+            const totalDays = Math.floor(state.gameTime / CONFIG.dayDuration) + 1;
+            state.day = totalDays;
+            document.getElementById('dayNum').textContent = state.day;
+
+            const hour = Math.floor((t * 24 + 6) % 24);
+            const minute = Math.floor(((t * 24 + 6) % 1) * 60);
+            document.getElementById('timeDisplay').textContent = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+            document.getElementById('timeDisplay').className = isDay ? 'font-bold text-sm text-amber-200' : 'font-bold text-sm text-blue-300';
+        }
+
+        // --- UI Construction ---
+
+        function initUI() {
+            const buildGrid = document.getElementById('buildGrid');
+            Object.entries(BUILDINGS).forEach(([key, b]) => {
+                if (key === 'townhall') return;
+                const el = document.createElement('div');
+                el.className = 'unit-card p-2 rounded cursor-pointer text-center';
+                el.dataset.build = key;
+                el.innerHTML = `<div class="text-xl">${b.icon}</div><div class="text-xs font-bold text-amber-100">${b.name}</div><div class="text-[10px] text-amber-100/60 mt-1">${formatCost(b.cost)}</div>`;
+                el.onclick = () => startPlacement(key);
+                el.onmouseenter = (e) => showTooltip(e, b.name, b.desc + '<br><br>' + formatCost(b.cost));
+                el.onmouseleave = hideTooltip;
+                buildGrid.appendChild(el);
+            });
+
+            const trainList = document.getElementById('trainList');
+            Object.entries(UNITS).forEach(([key, u]) => {
+                const el = document.createElement('div');
+                el.className = 'unit-card p-2 rounded cursor-pointer flex items-center gap-2';
+                el.dataset.unit = key;
+                el.innerHTML = `<div class="text-2xl">${u.icon}</div><div class="flex-1"><div class="text-xs font-bold text-amber-100">${u.name}</div><div class="text-[10px] text-amber-100/60">${formatCost(u.cost)} · ${u.pop} pop · ${u.buildTime}s</div></div>`;
+                el.onclick = () => trainUnit(key);
+                el.onmouseenter = (e) => showTooltip(e, u.name, u.desc + '<br><br>' + formatCost(u.cost));
+                el.onmouseleave = hideTooltip;
+                trainList.appendChild(el);
+            });
+
+            const researchList = document.getElementById('researchList');
+            Object.entries(RESEARCH).forEach(([key, r]) => {
+                const el = document.createElement('div');
+                el.className = 'unit-card p-2 rounded cursor-pointer flex items-center gap-2';
+                el.dataset.research = key;
+                el.innerHTML = `<div class="text-2xl">${r.icon}</div><div class="flex-1"><div class="text-xs font-bold text-amber-100">${r.name}</div><div class="text-[10px] text-amber-100/60">${formatCost(r.cost)} · ${r.time}s</div></div>`;
+                el.onclick = () => startResearch(key);
+                el.onmouseenter = (e) => showTooltip(e, r.name, r.desc);
+                el.onmouseleave = hideTooltip;
+                researchList.appendChild(el);
+            });
+
+            // Tabs
+            document.getElementById('tabBuild').onclick = () => setTab('build');
+            document.getElementById('tabTrain').onclick = () => setTab('train');
+            document.getElementById('tabResearch').onclick = () => setTab('research');
+
+            // Difficulty
+            document.querySelectorAll('.difficulty-btn').forEach(btn => {
+                btn.onclick = () => {
+                    document.querySelectorAll('.difficulty-btn').forEach(b => b.classList.add('opacity-80'));
+                    btn.classList.remove('opacity-80');
+                    CONFIG.difficulty = parseInt(btn.dataset.diff);
+                };
+            });
+
+            document.getElementById('startBtn').onclick = startGame;
+            document.getElementById('restartBtn').onclick = () => location.reload();
+            document.getElementById('pauseBtn').onclick = () => { state.paused = !state.paused; document.getElementById('pauseBtn').textContent = state.paused ? '▶ Resume' : '⏸ Pause'; };
+
+            // Abilities
+            document.querySelectorAll('.ability-btn').forEach(btn => {
+                btn.onclick = () => useAbility(btn.dataset.ability);
+            });
+        }
+
+        function setTab(tab) {
+            ['build', 'train', 'research'].forEach(t => {
+                document.getElementById(t + 'Panel').classList.toggle('hidden', t !== tab);
+                document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1)).classList.toggle('opacity-60', t !== tab);
+            });
+        }
+
+        function formatCost(cost) {
+            const parts = [];
+            if (cost.wood) parts.push(`🪵${cost.wood}`);
+            if (cost.stone) parts.push(`🪨${cost.stone}`);
+            if (cost.gold) parts.push(`🪙${cost.gold}`);
+            if (cost.food) parts.push(`🌾${cost.food}`);
+            return parts.join(' ') || 'Free';
+        }
+
+        function showTooltip(e, title, text) {
+            const tt = document.getElementById('tooltip');
+            tt.innerHTML = `<div class="fantasy-font font-bold text-amber-200 mb-1">${title}</div><div class="text-xs text-amber-100/80">${text}</div>`;
+            tt.style.display = 'block';
+            tt.style.left = (e.clientX + 12) + 'px';
+            tt.style.top = (e.clientY + 12) + 'px';
+        }
+
+        function hideTooltip() {
+            document.getElementById('tooltip').style.display = 'none';
+        }
+
+        function notify(text, classes) {
+            const container = document.getElementById('notifications');
+            const el = document.createElement('div');
+            el.className = `notification ${classes}`;
+            el.textContent = text;
+            container.appendChild(el);
+            setTimeout(() => el.remove(), 3000);
+        }
+
+        function startGame() {
+            document.getElementById('startScreen').classList.add('hidden');
+            initWorld();
+            gameLoop();
+        }
+
+        function showGameOver(won) {
+            document.getElementById('gameOverScreen').classList.remove('hidden');
+            document.getElementById('gameOverTitle').textContent = won ? 'Victory!' : 'Defeat';
+            document.getElementById('gameOverTitle').className = won ? 'fantasy-font text-4xl font-bold text-amber-300 mb-2' : 'fantasy-font text-4xl font-bold text-red-400 mb-2';
+            document.getElementById('gameOverText').textContent = won ? 'The Veil has been banished from Aetherhold.' : 'Your kingdom has fallen to darkness.';
+            document.getElementById('endDays').textContent = state.day;
+            document.getElementById('endUnitsLost').textContent = state.stats.unitsLost;
+            document.getElementById('endKills').textContent = state.stats.kills;
+            document.getElementById('endResources').textContent = Math.floor(state.stats.resourcesGathered);
+        }
+
+        // --- Placement System ---
+
+        let placementGhost = null;
+
+        function startPlacement(buildingType) {
+            const def = BUILDINGS[buildingType];
+            if (!canAfford(def.cost)) { notify('Not enough resources!', 'bg-red-900/80 border-red-500/60 text-red-100'); return; }
+            state.placementBuilding = buildingType;
+            if (placementGhost) scene.remove(placementGhost);
+            placementGhost = new THREE.Group();
+            const preview = createBuildingMesh(buildingType, 'friendly');
+            preview.traverse(c => { if (c.material) c.material = c.material.clone(); });
+            preview.traverse(c => { if (c.material) { c.material.transparent = true; c.material.opacity = 0.5; } });
+            placementGhost.add(preview);
+            scene.add(placementGhost);
+        }
+
+        function updatePlacement() {
+            if (!state.placementBuilding || !placementGhost) return;
+            raycaster.setFromCamera(mouse, camera);
+            const point = new THREE.Vector3();
+            raycaster.ray.intersectPlane(groundPlane, point);
+            if (point) {
+                const def = BUILDINGS[state.placementBuilding];
+                const x = Math.round(point.x / 0.5) * 0.5;
+                const z = Math.round(point.z / 0.5) * 0.5;
+                const y = sampleHeight(x, z);
+                placementGhost.position.set(x, y, z);
+                const valid = isBuildable(x, z, def.size) && canAfford(def.cost);
+                placementGhost.traverse(c => {
+                    if (c.material) c.material.color.setHex(valid ? 0x4aff4a : 0xff4a4a);
+                });
+            }
+        }
+
+        function confirmPlacement() {
+            if (!state.placementBuilding || !placementGhost) return;
+            const def = BUILDINGS[state.placementBuilding];
+            const x = placementGhost.position.x;
+            const z = placementGhost.position.z;
+            if (isBuildable(x, z, def.size) && canAfford(def.cost)) {
+                spend(def.cost);
+                spawnBuilding(state.placementBuilding, x, z, 'friendly');
+                state.stats.buildingsBuilt++;
+                updatePopulation();
+                notify(`${def.name} construction started!`, 'bg-green-900/80 border-green-500/60 text-green-100');
+                // Auto-assign nearby idle workers
+                const workers = state.units.filter(u => u.type === 'worker' && !u.dead && u.state === 'idle');
+                const building = state.buildings[state.buildings.length - 1];
+                for (const w of workers.slice(0, 3)) {
+                    w.buildTarget = building;
+                    w.state = 'build';
+                }
+            }
+            cancelPlacement();
+        }
+
+        function cancelPlacement() {
+            state.placementBuilding = null;
+            if (placementGhost) { scene.remove(placementGhost); placementGhost = null; }
+        }
+
+        // --- Training & Research ---
+
+        function trainUnit(unitType) {
+            const def = UNITS[unitType];
+            // Find appropriate building
+            let buildingType = 'barracks';
+            if (unitType === 'archer') buildingType = 'archery';
+            if (unitType === 'mage') buildingType = 'mage';
+            if (unitType === 'worker') buildingType = 'townhall';
+
+            const building = state.buildings.find(b => b.type === buildingType && b.team === 'friendly' && !b.dead && b.built);
+            if (!building) { notify(`Requires a ${BUILDINGS[buildingType].name}!`, 'bg-red-900/80 border-red-500/60 text-red-100'); return; }
+            if (!canAfford(def.cost)) { notify('Not enough resources!', 'bg-red-900/80 border-red-500/60 text-red-100'); return; }
+            if (state.population.current + def.pop > state.population.cap) { notify('Population cap reached!', 'bg-red-900/80 border-red-500/60 text-red-100'); return; }
+
+            spend(def.cost);
+            building.productionQueue.push({ type: unitType, progress: def.buildTime });
+            notify(`Training ${def.name}...`, 'bg-blue-900/80 border-blue-500/60 text-blue-100');
+            updatePopulation();
+        }
+
+        function finishProduction(building, item) {
+            const def = UNITS[item.type];
+            const angle = Math.random() * Math.PI * 2;
+            const dist = building.size + 1;
+            const x = building.position.x + Math.cos(angle) * dist;
+            const z = building.position.z + Math.sin(angle) * dist;
+            const unit = spawnUnit(item.type, x, z, 'friendly');
+            unit.rallyPoint = building.rallyPoint.clone();
+            notify(`${def.name} ready!`, 'bg-green-900/80 border-green-500/60 text-green-100');
+            updatePopulation();
+        }
+
+        function startResearch(researchKey) {
+            if (state.researched.has(researchKey)) { notify('Already researched!', 'bg-amber-900/80 border-amber-500/60 text-amber-100'); return; }
+            const def = RESEARCH[researchKey];
+            const building = state.buildings.find(b => b.type === 'mage' && b.team === 'friendly' && !b.dead && b.built);
+            if (!building) { notify('Requires a Celestial Athenaeum!', 'bg-red-900/80 border-red-500/60 text-red-100'); return; }
+            if (building.researchQueue) { notify('Already researching!', 'bg-red-900/80 border-red-500/60 text-red-100'); return; }
+            if (!canAfford(def.cost)) { notify('Not enough resources!', 'bg-red-900/80 border-red-500/60 text-red-100'); return; }
+            spend(def.cost);
+            building.researchQueue = { key: researchKey, progress: def.time };
+            notify(`Researching ${def.name}...`, 'bg-purple-900/80 border-purple-500/60 text-purple-100');
+        }
+
+        function finishResearch(building, item) {
+            state.researched.add(item.key);
+            const def = RESEARCH[item.key];
+            notify(`${def.name} complete!`, 'bg-purple-900/80 border-purple-500/60 text-purple-100');
+            state.units.forEach(u => applyResearchBonuses(u));
+            // Re-apply masonry to buildings
+            if (item.key === 'masonry') {
+                state.buildings.forEach(b => { if (b.team === 'friendly') { b.maxHp *= 1.3; b.hp *= 1.3; } });
+            }
+        }
+
+        // --- Input Handling ---
+
+        let isDragging = false, dragStart = { x: 0, y: 0 };
+        const selectionBox = document.getElementById('selectionBox');
+
+        function onMouseDown(e) {
+            if (e.button !== 0 || state.gameOver) return;
+            isDragging = true;
+            dragStart = { x: e.clientX, y: e.clientY };
+            selectionBox.style.left = e.clientX + 'px';
+            selectionBox.style.top = e.clientY + 'px';
+            selectionBox.style.width = '0px';
+            selectionBox.style.height = '0px';
+            selectionBox.style.display = 'block';
+        }
+
+        function onMouseMove(e) {
+            mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+            if (isDragging) {
+                const x = Math.min(dragStart.x, e.clientX);
+                const y = Math.min(dragStart.y, e.clientY);
+                const w = Math.abs(e.clientX - dragStart.x);
+                const h = Math.abs(e.clientY - dragStart.y);
+                selectionBox.style.left = x + 'px';
+                selectionBox.style.top = y + 'px';
+                selectionBox.style.width = w + 'px';
+                selectionBox.style.height = h + 'px';
+            }
+
+            if (cam.rotating) {
+                const dx = e.clientX - cam.lastMouseX;
+                cam.angle += dx * CONFIG.camera.rotSpeed;
+            }
+            if (cam.panning) {
+                const dx = e.clientX - cam.lastMouseX;
+                const dy = e.clientY - cam.lastMouseY;
+                const sin = Math.sin(cam.angle), cos = Math.cos(cam.angle);
+                cam.targetX -= (dx * cos - dy * sin) * 0.12;
+                cam.targetZ -= (dx * sin + dy * cos) * 0.12;
+            }
+            cam.lastMouseX = e.clientX;
+            cam.lastMouseY = e.clientY;
+
+            updatePlacement();
+        }
+
+        function onMouseUp(e) {
+            if (!isDragging) return;
+            isDragging = false;
+            selectionBox.style.display = 'none';
+
+            const w = Math.abs(e.clientX - dragStart.x);
+            const h = Math.abs(e.clientY - dragStart.y);
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(scene.children, true);
+            let groundPoint = null;
+            for (const hit of intersects) {
+                if (hit.object.name === 'ground' || hit.object.name === 'water') {
+                    groundPoint = hit.point;
+                    break;
+                }
+            }
+
+            if (w < 5 && h < 5) {
+                // Click select
+                const entity = getEntityAtMouse();
+                if (entity) {
+                    if (!e.ctrlKey) state.selected.clear();
+                    state.selected.add(entity);
+                    updateSelectionUI();
+                } else if (!state.placementBuilding && groundPoint) {
+                    state.selected.clear();
+                    updateSelectionUI();
+                }
+            } else {
+                // Box select
+                if (!e.ctrlKey) state.selected.clear();
+                const minX = Math.min(dragStart.x, e.clientX);
+                const maxX = Math.max(dragStart.x, e.clientX);
+                const minY = Math.min(dragStart.y, e.clientY);
+                const maxY = Math.max(dragStart.y, e.clientY);
+                for (const u of state.units) {
+                    if (u.dead) continue;
+                    const pos = worldToScreen(u.position);
+                    if (pos.x >= minX && pos.x <= maxX && pos.y >= minY && pos.y <= maxY) {
+                        state.selected.add(u);
+                    }
+                }
+                updateSelectionUI();
+            }
+        }
+
+        function onRightClick(e) {
+            e.preventDefault();
+            if (state.gameOver) return;
+
+            if (state.placementBuilding) { cancelPlacement(); return; }
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(scene.children, true);
+            let groundPoint = null;
+            let targetEntity = null;
+
+            for (const hit of intersects) {
+                const ent = findEntityByMesh(hit.object);
+                if (ent && !ent.dead) {
+                    targetEntity = ent;
+                    break;
+                }
+                if (hit.object.name === 'ground' || hit.object.name === 'water') {
+                    groundPoint = hit.point;
+                }
+            }
+
+            const selected = Array.from(state.selected).filter(s => s.team === 'friendly' && !s.dead);
+
+            if (targetEntity) {
+                if (targetEntity.team === 'enemy') {
+                    selected.forEach(u => { u.target = targetEntity; u.state = 'combat'; u.attackMove = false; });
+                } else if (targetEntity.type === 'resource') {
+                    const workers = selected.filter(u => u.type === 'worker');
+                    workers.forEach(u => { u.gatherTarget = targetEntity; u.state = 'move'; u.buildTarget = null; });
+                    if (workers.length > 0) notify('Workers assigned to gather', 'bg-blue-900/80 border-blue-500/60 text-blue-100');
+                } else if (targetEntity.team === 'friendly' && targetEntity.type !== 'resource') {
+                    // Repair/build
+                    const workers = selected.filter(u => u.type === 'worker');
+                    workers.forEach(u => { u.buildTarget = targetEntity; u.state = 'move'; u.gatherTarget = null; });
+                    if (workers.length > 0) {
+                        if (!targetEntity.built) notify('Workers assigned to construct', 'bg-blue-900/80 border-blue-500/60 text-blue-100');
+                        else notify('Workers assigned to repair', 'bg-blue-900/80 border-blue-500/60 text-blue-100');
+                    }
+                }
+            } else if (groundPoint) {
+                commandMove(selected, groundPoint);
+            }
+        }
+
+        function commandMove(units, point) {
+            // Formation movement
+            const count = units.length;
+            const cols = Math.ceil(Math.sqrt(count));
+            const spacing = state.formationMode ? 1.2 : 0.6;
+            const center = new THREE.Vector3(point.x, sampleHeight(point.x, point.z), point.z);
+
+            units.forEach((u, i) => {
+                const row = Math.floor(i / cols);
+                const col = i % cols;
+                const offsetX = (col - cols/2) * spacing;
+                const offsetZ = row * spacing;
+                const tx = center.x + offsetX;
+                const tz = center.z + offsetZ;
+                u.rallyPoint = new THREE.Vector3(tx, sampleHeight(tx, tz), tz);
+                u.state = 'move';
+                u.target = null;
+                u.attackMove = state.attackMoveMode;
+                u.holdPosition = false;
+            });
+
+            // Visual marker
+            createParticle(center, state.attackMoveMode ? 0xff4a4a : 0x4aa8ff, 6);
+            notify(state.attackMoveMode ? 'Attack move ordered' : 'Moving to position', 'bg-blue-900/80 border-blue-500/60 text-blue-100');
+        }
+
+        function getEntityAtMouse() {
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(scene.children, true);
+            for (const hit of intersects) {
+                const ent = findEntityByMesh(hit.object);
+                if (ent && !ent.dead) return ent;
+            }
+            return null;
+        }
+
+        function findEntityByMesh(mesh) {
+            let current = mesh;
+            while (current) {
+                for (const u of state.units) if (u.mesh === current) return u;
+                for (const e of state.enemies) if (e.mesh === current) return e;
+                for (const b of state.buildings) if (b.mesh === current) return b;
+                for (const n of state.resourceNodes) if (n.mesh === current) return n;
+                current = current.parent;
+            }
+            return null;
+        }
+
+        function onKeyDown(e) {
+            if (state.gameOver) return;
+            const key = e.key.toLowerCase();
+
+            if (key === 'escape') { cancelPlacement(); state.selected.clear(); updateSelectionUI(); }
+            if (key === ' ') {
+                const hero = state.units.find(u => u.isHero && !u.dead);
+                if (hero) { cam.targetX = hero.position.x; cam.targetZ = hero.position.z; }
+            }
+            if (key === 'h') useAbility('hold');
+            if (key === 'a') { state.attackMoveMode = !state.attackMoveMode; notify(state.attackMoveMode ? 'Attack move enabled' : 'Attack move disabled', 'bg-blue-900/80 border-blue-500/60 text-blue-100'); }
+            if (key === 'f') { state.formationMode = !state.formationMode; notify(state.formationMode ? 'Formation movement on' : 'Formation movement off', 'bg-blue-900/80 border-blue-500/60 text-blue-100'); }
+            if (key === 'r') useAbility('retreat');
+
+            // Build/train shortcuts
+            const buildKeys = ['1','2','3','4','5','6','7','8','9'];
+            const buildList = Object.keys(BUILDINGS).filter(k => k !== 'townhall');
+            if (buildKeys.includes(key) && !e.ctrlKey && !e.shiftKey) {
+                const idx = parseInt(key) - 1;
+                const tab = document.getElementById('buildPanel').classList.contains('hidden') ? null : 'build';
+                if (tab === 'build' && buildList[idx]) startPlacement(buildList[idx]);
+            }
+        }
+
+        function onWheel(e) {
+            cam.height += e.deltaY * 0.04;
+            cam.height = Math.max(CONFIG.camera.minHeight, Math.min(CONFIG.camera.maxHeight, cam.height));
+        }
+
+        function useAbility(ability) {
+            const selected = Array.from(state.selected).filter(s => s.team === 'friendly' && !s.dead);
+            if (selected.length === 0) return;
+
+            if (ability === 'hold') {
+                selected.forEach(u => { u.holdPosition = true; u.rallyPoint = null; u.state = 'idle'; });
+                notify('Hold position!', 'bg-amber-900/80 border-amber-500/60 text-amber-100');
+            } else if (ability === 'attack') {
+                state.attackMoveMode = !state.attackMoveMode;
+                notify(state.attackMoveMode ? 'Attack move enabled - right-click to attack-move' : 'Attack move disabled', 'bg-red-900/80 border-red-500/60 text-red-100');
+            } else if (ability === 'formation') {
+                state.formationMode = !state.formationMode;
+                notify(state.formationMode ? 'Formation movement on' : 'Formation movement off', 'bg-blue-900/80 border-blue-500/60 text-blue-100');
+            } else if (ability === 'retreat') {
+                const th = state.buildings.find(b => b.type === 'townhall' && !b.dead);
+                if (th) commandMove(selected, th.position.clone().add(new THREE.Vector3(8, 0, 0)));
+            }
+        }
+
+        function updateSelectionUI() {
+            const info = document.getElementById('selectionInfo');
+            const details = document.getElementById('selectionDetails');
+            const selected = Array.from(state.selected).filter(s => !s.dead);
+
+            updateSelectionRings();
+
+            if (selected.length === 0) {
+                info.innerHTML = '<div class="italic text-amber-100/50">Click units or drag to select</div>';
+                details.innerHTML = '<div class="text-amber-100/60 text-sm italic">No selection</div>';
+                return;
+            }
+
+            if (selected.length === 1) {
+                const s = selected[0];
+                const hpPct = Math.max(0, s.hp / s.maxHp * 100);
+                let html = `<div class="font-bold text-amber-200">${s.name || s.type}</div>`;
+                html += `<div class="text-xs text-amber-100/70">${s.team === 'friendly' ? 'Aetherhold' : 'The Veil'}</div>`;
+                html += `<div class="health-bar h-2 mt-1"><div class="health-fill ${s.isHero ? 'hero' : s.team === 'friendly' ? 'friendly' : ''}" style="width:${hpPct}%"></div></div>`;
+                html += `<div class="text-xs mt-1">HP: ${Math.floor(s.hp)}/${Math.floor(s.maxHp)}${s.isHero ? ' · Lvl ' + s.level : ''}</div>`;
+                info.innerHTML = html;
+
+                let dhtml = '';
+                if (s.type && UNITS[s.type]) {
+                    const u = UNITS[s.type];
+                    dhtml += `<div class="grid grid-cols-3 gap-2 text-xs text-amber-100/80"><div>⚔️ ${Math.floor(s.damage)}</div><div>🛡️ ${s.armor}</div><div>👟 ${s.speed.toFixed(1)}</div></div>`;
+                    dhtml += `<div class="text-xs text-amber-100/60 mt-1">${u.desc}</div>`;
+                }
+                if (s.type && BUILDINGS[s.type]) {
+                    const b = BUILDINGS[s.type];
+                    dhtml += `<div class="text-xs text-amber-100/80">${b.desc}</div>`;
+                    if (b.income) dhtml += `<div class="text-xs text-green-400 mt-1">Income: ${formatCost(b.income)}/min</div>`;
+                    if (b.popCap) dhtml += `<div class="text-xs text-blue-400 mt-1">Pop Cap: +${b.popCap}</div>`;
+                    if (s.productionQueue && s.productionQueue.length > 0) {
+                        dhtml += `<div class="mt-2 text-xs font-bold text-amber-200">Training: ${UNITS[s.productionQueue[0].type].name} (${s.productionQueue[0].progress.toFixed(1)}s)</div>`;
+                    }
+                }
+                details.innerHTML = dhtml;
+            } else {
+                const types = {};
+                selected.forEach(s => { types[s.type] = (types[s.type] || 0) + 1; });
+                let html = `<div class="font-bold text-amber-200">${selected.length} Selected</div>`;
+                for (const [t, c] of Object.entries(types)) {
+                    html += `<div class="text-xs text-amber-100/80">${c} ${UNITS[t]?.name || t}</div>`;
+                }
+                info.innerHTML = html;
+                details.innerHTML = '<div class="text-amber-100/60 text-sm italic">Multiple units selected. Right-click to issue commands.</div>';
+            }
+        }
+
+        // --- Minimap ---
+        const minimapCanvas = document.getElementById('minimap');
+        const minimapCtx = minimapCanvas.getContext('2d');
+        minimapCanvas.width = 200;
+        minimapCanvas.height = 200;
+
+        function updateMinimap() {
+            const ctx = minimapCtx;
+            const w = minimapCanvas.width, h = minimapCanvas.height;
+            const scale = w / CONFIG.mapSize;
+            ctx.fillStyle = '#0c1220';
+            ctx.fillRect(0, 0, w, h);
+
+            // Terrain-ish
+            ctx.fillStyle = '#1a2e22';
+            ctx.fillRect(0, 0, w, h);
+
+            for (const n of state.resourceNodes) {
+                if (n.amount <= 0) continue;
+                if (n.resourceType === 'tree') ctx.fillStyle = '#2d8a4a';
+                else if (n.resourceType === 'stone') ctx.fillStyle = '#808080';
+                else if (n.resourceType === 'gold') ctx.fillStyle = '#b8860b';
+                else ctx.fillStyle = '#228b22';
+                const px = (n.position.x + CONFIG.mapSize/2) * scale;
+                const py = (n.position.z + CONFIG.mapSize/2) * scale;
+                ctx.fillRect(px-1, py-1, 3, 3);
+            }
+
+            for (const b of state.buildings) {
+                if (b.dead) continue;
+                ctx.fillStyle = b.team === 'friendly' ? '#4aa8ff' : '#d94f4f';
+                const px = (b.position.x + CONFIG.mapSize/2) * scale;
+                const py = (b.position.z + CONFIG.mapSize/2) * scale;
+                ctx.fillRect(px-2, py-2, b.size * 1.5, b.size * 1.5);
+            }
+
+            for (const u of state.units) {
+                if (u.dead) continue;
+                ctx.fillStyle = u.isHero ? '#ffd700' : '#87ceeb';
+                const px = (u.position.x + CONFIG.mapSize/2) * scale;
+                const py = (u.position.z + CONFIG.mapSize/2) * scale;
+                ctx.fillRect(px-1, py-1, 2, 2);
+            }
+
+            for (const e of state.enemies) {
+                if (e.dead) continue;
+                ctx.fillStyle = '#ff4444';
+                const px = (e.position.x + CONFIG.mapSize/2) * scale;
+                const py = (e.position.z + CONFIG.mapSize/2) * scale;
+                ctx.fillRect(px-1.5, py-1.5, 3, 3);
+            }
+
+            // Camera view rect
+            ctx.strokeStyle = '#ffffff';
+            ctx.strokeRect(w/2 - 10, h/2 - 10, 20, 20);
+        }
+
+        // --- Camera Update ---
+        const keys = {};
+        window.addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
+        window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+
+        function updateCamera() {
+            const sin = Math.sin(cam.angle), cos = Math.cos(cam.angle);
+            const targetX = cam.targetX + sin * cam.height * 0.3;
+            const targetZ = cam.targetZ - cos * cam.height * 0.3;
+            camera.position.x += (targetX - camera.position.x) * 0.1;
+            camera.position.z += (targetZ - camera.position.z) * 0.1;
+            camera.position.y += (cam.height - camera.position.y) * 0.1;
+            camera.lookAt(cam.targetX, 0, cam.targetZ);
+
+            // WASD pan relative to camera
+            const panSpeed = 0.35 * (cam.height / 30);
+            if (keys['w']) { cam.targetX += sin * panSpeed; cam.targetZ -= cos * panSpeed; }
+            if (keys['s']) { cam.targetX -= sin * panSpeed; cam.targetZ += cos * panSpeed; }
+            if (keys['a']) { cam.targetX -= cos * panSpeed; cam.targetZ -= sin * panSpeed; }
+            if (keys['d']) { cam.targetX += cos * panSpeed; cam.targetZ += sin * panSpeed; }
+            if (keys['q']) cam.angle -= 0.02;
+            if (keys['e']) cam.angle += 0.02;
+        }
+
+        // --- Main Loop ---
+        let lastTime = performance.now();
+
+        function gameLoop() {
+            requestAnimationFrame(gameLoop);
+            const now = performance.now();
+            const dt = Math.min((now - lastTime) / 1000, 0.05);
+            lastTime = now;
+
+            if (state.paused || state.gameOver) {
+                renderer.render(scene, camera);
+                return;
+            }
+
+            updateDayNight(dt);
+            updateIncome();
+            updateUnits(dt);
+            updateBuildings(dt);
+            updateProjectiles(dt);
+            updateParticles(dt);
+            updateWaves(dt);
+            updatePopulation();
+            updateSelectionUI();
+            updateMinimap();
+            checkDefeat();
+
+            renderer.render(scene, camera);
+        }
+
+        // --- Event Listeners ---
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        canvas.addEventListener('mousedown', (e) => {
+            if (e.button === 0) onMouseDown(e);
+            if (e.button === 1) { cam.panning = true; cam.lastMouseX = e.clientX; cam.lastMouseY = e.clientY; }
+            if (e.button === 2) { e.preventDefault(); }
+        });
+        canvas.addEventListener('mousemove', onMouseMove);
+        canvas.addEventListener('mouseup', (e) => {
+            if (e.button === 0) onMouseUp(e);
+            if (e.button === 1) cam.panning = false;
+        });
+        canvas.addEventListener('contextmenu', onRightClick);
+        canvas.addEventListener('wheel', onWheel, { passive: true });
+        window.addEventListener('keydown', onKeyDown);
+
+        initUI();
+        renderer.render(scene, camera);
+    </script>
+</body>
+</html>

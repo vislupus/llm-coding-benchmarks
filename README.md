@@ -451,7 +451,7 @@ Testing different LLMs to do software tasks
 | **Qwen 3.7 Max**      | **0/10** |
 | **Qwen 3.6 Max**      | **0/10** |
 | **Qwen 3.6**          | **3/10** |
-| **Qwen 3.5 Max**      | **0/10** |
+| **Qwen 3.5 Max**      | **3/10** |
 | **Qwen 3.5**          | **1/10** |
 | **Qwen 3 Max**        | **0/10** |
 | **Qwen 3.5 122b a10b**| **1/10** |
@@ -468,8 +468,8 @@ Testing different LLMs to do software tasks
 | **Laguna S 2.1**      | **0/10** |
 | **Muse Spark 1.3**    | **3/10** |
 | **Muse Spark 1.1**    | **2/10** |
-| **Muse Glimmer**      | **0/10** |
-| **Llama 4 Maverick**  | **0/10** |
+| **Muse Glimmer**      | **2/10** |
+| **Llama 4 Maverick**  | **1/10** |
 | **Inkling**           | **1/10** |
 | **Mistral Large 3**   | **1/10** |
 | **Mistral Medium 3.5**| **1/10** |
@@ -1077,7 +1077,7 @@ Testing different LLMs to do software tasks
 | **Glm 4.7**           | **1/10** |
 | **Glm 4.6**           | **1/10** |
 | **Kimi K3**           | **5/10** |
-| **Kimi K2.7 code**    | **0/10** |
+| **Kimi K2.7 code**    | **2/10** |
 | **Kimi K2.6**         | **3/10** |
 | **Kimi K2.5**         | **2/10** |
 | **Kimi K2 Turbo**     | **3/10** |
@@ -1095,7 +1095,7 @@ Testing different LLMs to do software tasks
 | **Qwen 3.7 Max**      | **3/10** |
 | **Qwen 3.6 Max**      | **3/10** |
 | **Qwen 3.6**          | **0/10** |
-| **Qwen 3.5 Max**      | **0/10** |
+| **Qwen 3.5 Max**      | **1/10** |
 | **Qwen 3.5**          | **0/10** |
 | **Qwen 3 Max**        | **1/10** |
 | **Qwen 3.5 122b a10b**| **1/10** |
@@ -1112,7 +1112,7 @@ Testing different LLMs to do software tasks
 | **Laguna S 2.1**      | **1/10** |
 | **Muse Spark 1.3**    | **3/10** |
 | **Muse Spark 1.1**    | **0/10** |
-| **Muse Glimmer**      | **0/10** |
+| **Muse Glimmer**      | **2/10** |
 | **Llama 4 Maverick**  | **1/10** |
 | **Inkling**           | **1/10** |
 | **Mistral Large 3**   | **1/10** |
