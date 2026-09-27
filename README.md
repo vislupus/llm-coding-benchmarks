@@ -49,6 +49,7 @@ Testing different LLMs to do software tasks
 | **Grok 4.2**          | **4/10** |
 | **Grok 4.1**          | **1/10** |
 | **Claude Fable 5**    | **8/10** |
+| **Claude Opus 5.5**   | **10/10** |
 | **Claude Opus 5**     | **8/10** |
 | **Claude Opus 4.8**   | **8/10** |
 | **Claude Opus 4.7**   | **8/10** |
@@ -88,6 +89,7 @@ Testing different LLMs to do software tasks
 | **Qwen 3.5 122b a10b**| **1/10** |
 | **Qwen 3.5 35b a3b**  | **2/10** |
 | **Qwen 3.6 27b**      | **3/10** |
+| **MiMo 2.6**          | **0/10** |
 | **MiMo 2.5**          | **3/10** |
 | **MiMo 2**            | **3/10** |
 | **LongCat 2**         | **4/10** |
@@ -139,6 +141,7 @@ Testing different LLMs to do software tasks
 | **Grok 4.2**          | **1/10** |
 | **Grok 4.1**          | **3/10** |
 | **Claude Fable 5**    | **7/10** |
+| **Claude Opus 5.5**   | **10/10** |
 | **Claude Opus 5**     | **7/10** |
 | **Claude Opus 4.8**   | **8/10** |
 | **Claude Opus 4.7**   | **7/10** |
@@ -178,6 +181,7 @@ Testing different LLMs to do software tasks
 | **Qwen 3.5 122b a10b**| **1/10** |
 | **Qwen 3.5 35b a3b**  | **1/10** |
 | **Qwen 3.6 27b**      | **1/10** |
+| **MiMo 2.6**          | **0/10** |
 | **MiMo 2.5**          | **4/10** |
 | **MiMo 2**            | **1/10** |
 | **LongCat 2**         | **1/10** |
@@ -229,6 +233,7 @@ Testing different LLMs to do software tasks
 | **Grok 4.2**          | **1/10** |
 | **Grok 4.1**          | **2/10** |
 | **Claude Fable 5**    | **9/10** |
+| **Claude Opus 5.5**   | **10/10** |
 | **Claude Opus 5**     | **10/10** |
 | **Claude Opus 4.8**   | **9/10** |
 | **Claude Opus 4.7**   | **10/10** |
@@ -268,6 +273,7 @@ Testing different LLMs to do software tasks
 | **Qwen 3.5 122b a10b**| **1/10** |
 | **Qwen 3.5 35b a3b**  | **1/10** |
 | **Qwen 3.6 27b**      | **1/10** |
+| **MiMo 2.6**          | **0/10** |
 | **MiMo 2.5**          | **1/10** |
 | **MiMo 2**            | **1/10** |
 | **LongCat 2**         | **1/10** |
@@ -319,6 +325,7 @@ Testing different LLMs to do software tasks
 | **Grok 4.2**          | **3/10** |
 | **Grok 4.1**          | **1/10** |
 | **Claude Fable 5**    | **8/10** |
+| **Claude Opus 5.5**   | **10/10** |
 | **Claude Opus 5**     | **10/10** |
 | **Claude Opus 4.8**   | **1/10** |
 | **Claude Opus 4.7**   | **10/10** |
@@ -333,7 +340,7 @@ Testing different LLMs to do software tasks
 | **Glm 5**             | **6/10** |
 | **Glm 4.7**           | **1/10** |
 | **Glm 4.6**           | **2/10** |
-| **Kimi K3**           | **0/10** |
+| **Kimi K3**           | **5/10** |
 | **Kimi K2.7 code**    | **5/10** |
 | **Kimi K2.6**         | **1/10** |
 | **Kimi K2.5**         | **5/10** |
@@ -358,6 +365,7 @@ Testing different LLMs to do software tasks
 | **Qwen 3.5 122b a10b**| **2/10** |
 | **Qwen 3.5 35b a3b**  | **1/10** |
 | **Qwen 3.6 27b**      | **1/10** |
+| **MiMo 2.6**          | **0/10** |
 | **MiMo 2.5**          | **4/10** |
 | **MiMo 2**            | **3/10** |
 | **LongCat 2**         | **1/10** |
@@ -375,6 +383,98 @@ Testing different LLMs to do software tasks
 | **Mistral Medium 3.5**| **1/10** |
 | **Seed 2.1**          | **2/10** |
 | **Solar Pro 4**       | **1/10** |
+
+---
+
+### 30 - 3D animation
+**Create a beautiful, cinematic 3D animation based on the provided image, preserving the original style and key details; add smooth camera movement, subtle depth-of-field, realistic lighting, and high-quality rendering. Deliver the final result as a single self-contained HTML file (all CSS/JS/assets embedded, no external links) that is ready to share and runs offline in a browser.**
+
+| Model                 | Score    |
+| --------------------- | -------- |
+| **Gemini 3.8 flash**  | **1/10** |
+| **Gemini 3.7 flash**  | **6/10** |
+| **Gemini 3.6 flash**  | **5/10** |
+| **Gemini 3.5 flash**  | **3/10** |
+| **Gemini 3.1**        | **2/10** |
+| **Gemini 3 flash**    | **1/10** |
+| **Gemini 2.5**        | **1/10** |
+| **Gemma 4 31B**       | **1/10** |
+| **ChatGPT 6**         | **8/10** |
+| **ChatGPT 5.6**       | **1/10** |
+| **ChatGPT 5.5**       | **2/10** |
+| **ChatGPT 5.4**       | **2/10** |
+| **ChatGPT 5.3**       | **3/10** |
+| **ChatGPT 5.2**       | **1/10** |
+| **ChatGPT 5.1**       | **2/10** |
+| **ChatGPT 5**         | **3/10** |
+| **ChatGPT o3**        | **1/10** |
+| **ChatGPT 4.1**       | **2/10** |
+| **ChatGPT 3.5**       | **0/10** |
+| **GPT-OSS-120b**      | **0/10** |
+| **Grok 4.6**          | **4/10** |
+| **Grok 4.5**          | **3/10** |
+| **Grok 4.3**          | **2/10** |
+| **Grok 4.2**          | **1/10** |
+| **Grok 4.1**          | **2/10** |
+| **Claude Fable 5**    | **6/10** |
+| **Claude Opus 5.5**   | **8/10** |
+| **Claude Opus 5**     | **7/10** |
+| **Claude Opus 4.8**   | **2/10** |
+| **Claude Opus 4.7**   | **2/10** |
+| **Claude Opus 4.6**   | **3/10** |
+| **Claude Opus 4.5**   | **0/10** |
+| **Claude Opus 4.1**   | **0/10** |
+| **Claude Opus 3**     | **0/10** |
+| **Glm 5.3 flash**     | **2/10** |
+| **Glm 5.3**           | **2/10** |
+| **Glm 5.2**           | **1/10** |
+| **Glm 5.1**           | **1/10** |
+| **Glm 5**             | **2/10** |
+| **Glm 4.7**           | **2/10** |
+| **Glm 4.6**           | **2/10** |
+| **Kimi K3**           | **2/10** |
+| **Kimi K2.7 code**    | **1/10** |
+| **Kimi K2.6**         | **2/10** |
+| **Kimi K2.5**         | **3/10** |
+| **Kimi K2 Turbo**     | **0/10** |
+| **Deepseek 4.1 flash**| **1/10** |
+| **Deepseek 4 flash**  | **2/10** |
+| **Deepseek 4**        | **0/10** |
+| **Deepseek 3.2**      | **0/10** |
+| **Мinimax m3**        | **1/10** |
+| **Мinimax m2.7**      | **2/10** |
+| **Мinimax m2.5**      | **2/10** |
+| **Мinimax m2.1**      | **0/10** |
+| **Мinimax m2**        | **0/10** |
+| **Мinimax m1**        | **0/10** |
+| **Qwen 3.8 Max**      | **2/10** |
+| **Qwen 3.7 Max**      | **0/10** |
+| **Qwen 3.6 Max**      | **0/10** |
+| **Qwen 3.6**          | **3/10** |
+| **Qwen 3.5 Max**      | **0/10** |
+| **Qwen 3.5**          | **1/10** |
+| **Qwen 3 Max**        | **0/10** |
+| **Qwen 3.5 122b a10b**| **1/10** |
+| **Qwen 3.5 35b a3b**  | **1/10** |
+| **Qwen 3.6 27b**      | **0/10** |
+| **MiMo 2.6**          | **0/10** |
+| **MiMo 2.5**          | **3/10** |
+| **MiMo 2**            | **0/10** |
+| **LongCat 2**         | **0/10** |
+| **Nemotron 3.5**      | **0/10** |
+| **Nemotron 3 ultra**  | **0/10** |
+| **Trinity**           | **0/10** |
+| **HY3**               | **0/10** |
+| **Laguna S 2.1**      | **0/10** |
+| **Muse Spark 1.3**    | **3/10** |
+| **Muse Spark 1.1**    | **2/10** |
+| **Muse Glimmer**      | **0/10** |
+| **Llama 4 Maverick**  | **0/10** |
+| **Inkling**           | **1/10** |
+| **Mistral Large 3**   | **1/10** |
+| **Mistral Medium 3.5**| **1/10** |
+| **Seed 2.1**          | **3/10** |
+| **Solar Pro 4**       | **0/10** |
 
 ---
 
@@ -409,6 +509,7 @@ Testing different LLMs to do software tasks
 | **Grok 4.2**          | **4/10** |
 | **Grok 4.1**          | **2/10** |
 | **Claude Fable 5**    | **7/10** |
+| **Claude Opus 5.5**   | **9/10** |
 | **Claude Opus 5**     | **8/10** |
 | **Claude Opus 4.8**   | **6/10** |
 | **Claude Opus 4.7**   | **5/10** |
@@ -448,6 +549,7 @@ Testing different LLMs to do software tasks
 | **Qwen 3.5 122b a10b**| **3/10** |
 | **Qwen 3.5 35b a3b**  | **1/10** |
 | **Qwen 3.6 27b**      | **3/10** |
+| **MiMo 2.6**          | **0/10** |
 | **MiMo 2.5**          | **3/10** |
 | **MiMo 2**            | **2/10** |
 | **LongCat 2**         | **3/10** |
@@ -499,6 +601,7 @@ Testing different LLMs to do software tasks
 | **Grok 4.2**          | **3/10** |
 | **Grok 4.1**          | **3/10** |
 | **Claude Fable 5**    | **8/10** |
+| **Claude Opus 5.5**   | **9/10** |
 | **Claude Opus 5**     | **9/10** |
 | **Claude Opus 4.8**   | **6/10** |
 | **Claude Opus 4.7**   | **5/10** |
@@ -538,6 +641,7 @@ Testing different LLMs to do software tasks
 | **Qwen 3.5 122b a10b**| **2/10** |
 | **Qwen 3.5 35b a3b**  | **2/10** |
 | **Qwen 3.6 27b**      | **4/10** |
+| **MiMo 2.6**          | **0/10** |
 | **MiMo 2.5**          | **3/10** |
 | **MiMo 2**            | **2/10** |
 | **LongCat 2**         | **4/10** |
@@ -589,6 +693,7 @@ Testing different LLMs to do software tasks
 | **Grok 4.2**          | **4/10** |
 | **Grok 4.1**          | **2/10** |
 | **Claude Fable 5**    | **8/10** |
+| **Claude Opus 5.5**   | **9/10** |
 | **Claude Opus 5**     | **9/10** |
 | **Claude Opus 4.8**   | **6/10** |
 | **Claude Opus 4.7**   | **6/10** |
@@ -628,6 +733,7 @@ Testing different LLMs to do software tasks
 | **Qwen 3.5 122b a10b**| **1/10** |
 | **Qwen 3.5 35b a3b**  | **1/10** |
 | **Qwen 3.6 27b**      | **4/10** |
+| **MiMo 2.6**          | **0/10** |
 | **MiMo 2.5**          | **5/10** |
 | **MiMo 2**            | **2/10** |
 | **LongCat 2**         | **2/10** |
@@ -679,6 +785,7 @@ Testing different LLMs to do software tasks
 | **Grok 4.2**          | **1/10** |
 | **Grok 4.1**          | **1/10** |
 | **Claude Fable 5**    | **8/10** |
+| **Claude Opus 5.5**   | **9/10** |
 | **Claude Opus 5**     | **9/10** |
 | **Claude Opus 4.8**   | **8/10** |
 | **Claude Opus 4.7**   | **5/10** |
@@ -693,7 +800,7 @@ Testing different LLMs to do software tasks
 | **Glm 5**             | **1/10** |
 | **Glm 4.7**           | **1/10** |
 | **Glm 4.6**           | **1/10** |
-| **Kimi K3**           | **0/10** |
+| **Kimi K3**           | **1/10** |
 | **Kimi K2.7 code**    | **1/10** |
 | **Kimi K2.6**         | **1/10** |
 | **Kimi K2.5**         | **1/10** |
@@ -718,6 +825,7 @@ Testing different LLMs to do software tasks
 | **Qwen 3.5 122b a10b**| **1/10** |
 | **Qwen 3.5 35b a3b**  | **1/10** |
 | **Qwen 3.6 27b**      | **1/10** |
+| **MiMo 2.6**          | **0/10** |
 | **MiMo 2.5**          | **1/10** |
 | **MiMo 2**            | **1/10** |
 | **LongCat 2**         | **1/10** |
@@ -769,6 +877,7 @@ Testing different LLMs to do software tasks
 | **Grok 4.2**          | **1/10** |
 | **Grok 4.1**          | **1/10** |
 | **Claude Fable 5**    | **4/10** |
+| **Claude Opus 5.5**   | **8/10** |
 | **Claude Opus 5**     | **6/10** |
 | **Claude Opus 4.8**   | **4/10** |
 | **Claude Opus 4.7**   | **1/10** |
@@ -808,6 +917,7 @@ Testing different LLMs to do software tasks
 | **Qwen 3.5 122b a10b**| **1/10** |
 | **Qwen 3.5 35b a3b**  | **1/10** |
 | **Qwen 3.6 27b**      | **1/10** |
+| **MiMo 2.6**          | **0/10** |
 | **MiMo 2.5**          | **3/10** |
 | **MiMo 2**            | **1/10** |
 | **LongCat 2**         | **1/10** |
@@ -859,6 +969,7 @@ Testing different LLMs to do software tasks
 | **Grok 4.2**          | **3/10** |
 | **Grok 4.1**          | **2/10** |
 | **Claude Fable 5**    | **8/10** |
+| **Claude Opus 5.5**   | **9/10** |
 | **Claude Opus 5**     | **7/10** |
 | **Claude Opus 4.8**   | **6/10** |
 | **Claude Opus 4.7**   | **6/10** |
@@ -873,7 +984,7 @@ Testing different LLMs to do software tasks
 | **Glm 5**             | **6/10** |
 | **Glm 4.7**           | **5/10** |
 | **Glm 4.6**           | **3/10** |
-| **Kimi K3**           | **0/10** |
+| **Kimi K3**           | **5/10** |
 | **Kimi K2.7 code**    | **4/10** |
 | **Kimi K2.6**         | **1/10** |
 | **Kimi K2.5**         | **3/10** |
@@ -898,6 +1009,7 @@ Testing different LLMs to do software tasks
 | **Qwen 3.5 122b a10b**| **2/10** |
 | **Qwen 3.5 35b a3b**  | **2/10** |
 | **Qwen 3.6 27b**      | **2/10** |
+| **MiMo 2.6**          | **0/10** |
 | **MiMo 2.5**          | **5/10** |
 | **MiMo 2**            | **2/10** |
 | **LongCat 2**         | **3/10** |
@@ -949,6 +1061,7 @@ Testing different LLMs to do software tasks
 | **Grok 4.2**          | **1/10** |
 | **Grok 4.1**          | **1/10** |
 | **Claude Fable 5**    | **0/10** |
+| **Claude Opus 5.5**   | **8/10** |
 | **Claude Opus 5**     | **7/10** |
 | **Claude Opus 4.8**   | **5/10** |
 | **Claude Opus 4.7**   | **5/10** |
@@ -962,12 +1075,12 @@ Testing different LLMs to do software tasks
 | **Glm 5.1**           | **2/10** |
 | **Glm 5**             | **1/10** |
 | **Glm 4.7**           | **1/10** |
-| **Glm 4.6**           | **0/10** |
-| **Kimi K3**           | **0/10** |
+| **Glm 4.6**           | **1/10** |
+| **Kimi K3**           | **5/10** |
 | **Kimi K2.7 code**    | **0/10** |
 | **Kimi K2.6**         | **3/10** |
-| **Kimi K2.5**         | **0/10** |
-| **Kimi K2 Turbo**     | **0/10** |
+| **Kimi K2.5**         | **2/10** |
+| **Kimi K2 Turbo**     | **3/10** |
 | **Deepseek 4.1 flash**| **1/10** |
 | **Deepseek 4 flash**  | **2/10** |
 | **Deepseek 4**        | **1/10** |
@@ -988,6 +1101,7 @@ Testing different LLMs to do software tasks
 | **Qwen 3.5 122b a10b**| **1/10** |
 | **Qwen 3.5 35b a3b**  | **1/10** |
 | **Qwen 3.6 27b**      | **1/10** |
+| **MiMo 2.6**          | **0/10** |
 | **MiMo 2.5**          | **3/10** |
 | **MiMo 2**            | **0/10** |
 | **LongCat 2**         | **2/10** |

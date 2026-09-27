@@ -1,0 +1,1464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lumina Siege – Stylized 3D Fantasy Survival RTS</title>
+<style>
+  * { box-sizing:border-box; user-select:none; }
+  html,body { margin:0; padding:0; overflow:hidden; background:#0b0f14; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color:#fff; }
+  canvas { display:block; width:100vw; height:100vh; }
+
+  /* Glassmorphism UI panels */
+  .panel { background: rgba(12,24,36,0.88); backdrop-filter: blur(6px); border:1px solid rgba(120,220,255,0.12); border-radius: 10px; padding:8px 12px; }
+  .btn { display:inline-flex; align-items:center; justify-content:center; cursor:pointer; border:none; border-radius:8px; padding:6px 10px; font-weight:700; font-size:12px; text-transform:uppercase; letter-spacing:0.5px; color:#e6f7ff; background: linear-gradient(180deg, rgba(0,188,212,0.25), rgba(0,96,100,0.35)); border:1px solid rgba(0,230,255,0.25); transition: transform .05s, box-shadow .1s; }
+  .btn:hover { background: linear-gradient(180deg, rgba(0,188,212,0.45), rgba(0,150,170,0.45)); box-shadow: 0 0 12px rgba(0,230,255,0.25); }
+  .btn:active { transform: translateY(1px); }
+  .btn.disabled { opacity:0.4; pointer-events:none; filter:grayscale(0.8); }
+  .btn.red { background: linear-gradient(180deg, rgba(244,67,54,0.25), rgba(183,28,28,0.35)); border-color:rgba(255,100,80,0.25); color:#ffebee; }
+  .btn.red:hover { background: linear-gradient(180deg, rgba(244,67,54,0.45), rgba(220,40,40,0.45)); }
+
+  /* Top bar */
+  #topBar { position:absolute; top:8px; left:8px; right:8px; display:flex; gap:10px; align-items:center; justify-content:space-between; pointer-events:none; }
+  #topBar > * { pointer-events:auto; }
+  .res { display:flex; align-items:center; gap:6px; font-weight:800; font-size:13px; text-shadow:0 2px 4px rgba(0,0,0,0.6); }
+  .res .dot { width:10px; height:10px; border-radius:50%; display:inline-block; border:1px solid rgba(255,255,255,0.3); }
+  .res .dot.lum { background:#00e5ff; box-shadow:0 0 8px #00e5ff; }
+  .res .dot.ess { background:#76ff03; box-shadow:0 0 8px #76ff03; }
+  .res .dot.stn { background:#b0bec5; box-shadow:0 0 8px #b0bec5; }
+  .pop { color:#ffe082; }
+
+  #dayNight { font-weight:700; font-size:12px; padding:6px 10px; }
+  #dayNight.night { color:#7c4dff; text-shadow:0 0 8px #7c4dff; }
+
+  /* Notifications */
+  #notify { position:absolute; top:60px; left:50%; transform:translateX(-50%); display:flex; flex-direction:column; gap:6px; align-items:center; pointer-events:none; }
+  .toast { background:rgba(0,0,0,0.7); border:1px solid rgba(255,255,255,0.1); padding:6px 14px; border-radius:20px; font-weight:700; font-size:13px; animation: fadeUp 3s forwards; }
+  @keyframes fadeUp { 0% { opacity:0; transform:translateY(6px); } 10% { opacity:1; transform:translateY(0); } 80% { opacity:1; } 100% { opacity:0; transform:translateY(-10px); } }
+
+  /* Bottom panel */
+  #bottomBar { position:absolute; bottom:8px; left:8px; right:8px; display:flex; gap:10px; align-items:stretch; height:148px; pointer-events:none; }
+  #bottomBar > * { pointer-events:auto; }
+  #infoPanel { width:260px; display:flex; flex-direction:column; gap:6px; }
+  #infoTitle { font-weight:800; font-size:16px; letter-spacing:0.5px; }
+  #infoSub { font-size:12px; opacity:0.85; }
+  #infoHp { height:6px; background:rgba(0,0,0,0.5); border-radius:3px; overflow:hidden; margin-top:4px; }
+  #infoHp > div { height:100%; width:100%; background:#00e676; border-radius:3px; }
+  #actions { flex:1; display:flex; flex-wrap:wrap; align-content:flex-start; gap:6px; overflow-y:auto; }
+
+  /* Selection box */
+  #selBox { position:absolute; border:1px solid rgba(0,230,255,0.85); background:rgba(0,230,255,0.08); pointer-events:none; display:none; z-index:10; }
+
+  /* Health bars (world-projected) */
+  .hpBar { position:absolute; width:44px; height:5px; background:rgba(0,0,0,0.7); border:1px solid rgba(255,255,255,0.15); border-radius:2px; transform:translate(-50%,-140%); display:none; }
+  .hpBar > div { height:100%; border-radius:2px; background:#00e676; width:100%; }
+
+  /* Build placement invalid */
+  #cursorMsg { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); font-weight:800; font-size:18px; color:#ff5252; text-shadow:0 2px 4px rgba(0,0,0,0.8); pointer-events:none; opacity:0; transition:opacity .1s; }
+
+  /* Overlay screens */
+  #overlay { position:absolute; inset:0; background:rgba(4,8,12,0.92); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; z-index:100; text-align:center; }
+  #overlay h1 { margin:0; font-size:34px; letter-spacing:2px; color:#e0f7fa; text-shadow:0 0 24px rgba(0,230,255,0.35); }
+  #overlay p { margin:0; color:#b0bec5; font-size:14px; max-width:480px; line-height:1.5; }
+  #overlay .btn { font-size:16px; padding:10px 22px; margin-top:6px; }
+
+  /* Tooltip */
+  #tooltip { position:absolute; background:rgba(0,0,0,0.85); border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:8px 10px; font-size:12px; pointer-events:none; display:none; z-index:50; max-width:240px; }
+</style>
+</head>
+<body>
+
+<div id="ui" style="position:absolute;inset:0;overflow:hidden;">
+  <div id="topBar" class="panel" style="background:transparent; border:none; backdrop-filter:none;">
+    <div style="display:flex; gap:16px; align-items:center;">
+      <div class="res"><span class="dot lum"></span><span id="rLum">0</span> Lumina</div>
+      <div class="res"><span class="dot ess"></span><span id="rEss">0</span> Essence</div>
+      <div class="res"><span class="dot stn"></span><span id="rStn">0</span> Stone</div>
+      <div class="res pop">Pop <span id="rPop">0</span>/<span id="rPopMax">0</span></div>
+    </div>
+    <div id="dayNight" class="panel">Day 1</div>
+    <div id="timer" class="panel">00:00</div>
+  </div>
+
+  <div id="notify"></div>
+
+  <div id="selBox"></div>
+
+  <div id="bottomBar">
+    <div id="infoPanel" class="panel">
+      <div id="infoTitle">Lumina Command</div>
+      <div id="infoSub">Select units or buildings</div>
+      <div id="infoHp"><div id="infoHpFill" style="width:100%"></div></div>
+    </div>
+    <div id="actions" class="panel"></div>
+  </div>
+
+  <div id="cursorMsg">Cannot place here</div>
+  <div id="tooltip"></div>
+</div>
+
+<div id="overlay">
+  <h1>LUMINA SIEGE</h1>
+  <p>Defend the Prism Nexus. Expand your territory. Harvest Lumina, Essence and Stone. Train an army. Destroy the three Umbral Fissures before the tide swallows the realm.</p>
+  <p style="font-size:12px; opacity:0.7;">
+    Left Click · Select &nbsp;|&nbsp; Right Click · Order &nbsp;|&nbsp; WASD / Edge · Pan &nbsp;|&nbsp; Wheel · Zoom &nbsp;|&nbsp; Q/E · Rotate Cam<br>
+    Hotkeys: Z Extractor &nbsp;X Siphon &nbsp;C Barracks &nbsp;V Academy &nbsp;B Resonator &nbsp;N Tower &nbsp;M Wall
+  </p>
+  <button class="btn" id="startBtn">Initialize Battle</button>
+</div>
+
+<div id="hpBars"></div>
+
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+/* =========================================================
+   CONFIG & STATE
+   ========================================================= */
+const CFG = {
+  CELLS: 80,          // grid cells per side
+  CELL_SIZE: 2.2,
+  MAX_POP: 10,
+  NEXUS_HP: 800,
+  START_RES: { lum: 180, ess: 60, stn: 80 },
+  SIGHT_RAD: 7,       // grid cells sight radius
+  WAVE_INT: 35,       // seconds between surge announcements
+  DIFF_SCALE: 1.0,
+};
+const WORLD = CFG.CELLS * CFG.CELL_SIZE;
+
+const TEAMS = { PLAYER:0, ENEMY:1, NEUTRAL:2 };
+const TERRAIN = { GRASS:0, STONE:1, SAND:2 };
+
+let scene, camera, renderer, clock;
+let groundMesh, cursorPlane, waterMesh;
+let fogMesh; // InstancedMesh black cells for unexplored
+let dayTime = 0; // 0..1
+let isNight = false;
+let gameActive = false;
+let gameTime = 0;
+
+/* Arrays */
+let entities = [];
+let particles = [];
+let projectiles = [];
+let selected = [];
+let buildings = []; // subset
+let units = []; // subset
+let resources = []; // subset
+let enemySpawners = [];
+
+/* Player state */
+let playerRes = { ...CFG.START_RES };
+let playerPop = 0, playerPopMax = CFG.MAX_POP;
+let upgrades = { atk:0, hp:0, spd:0 };
+let techUnlocked = new Set();
+
+/* Spawning / waves */
+let nextWaveTimer = CFG.WAVE_INT;
+let spawnTimer = 5;
+
+/* Input */
+const mouse = new THREE.Vector2(-1,-1);
+let buildMode = null; // string key of building type
+let ghostMesh = null;
+const raycaster = new THREE.Raycaster();
+let dragStart = null;
+let cameraTarget = new THREE.Vector3(0,0,0);
+let camDist = 48, camAzim = Math.PI/4;
+
+/* Audio context */
+let audioCtx;
+
+/* =========================================================
+   UTILS
+   ========================================================= */
+function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
+function rand(a=1,b=0){ return Math.random()*(a-b)+b; }
+function dist2(a,b){ const dx=a.x-b.x, dz=a.z-b.z; return dx*dx+dz*dz; }
+function dist(a,b){ return Math.sqrt(dist2(a,b)); }
+function screenPos(worldPos){
+  const v = worldPos.clone().project(camera);
+  return { x:(v.x+1)/2*window.innerWidth, y:(-v.y+1)/2*window.innerHeight, visible:v.z<1 };
+}
+function gridToWorld(gx,gz){ return { x:(gx-CFG.CELLS/2+0.5)*CFG.CELL_SIZE, z:(gz-CFG.CELLS/2+0.5)*CFG.CELL_SIZE }; }
+function worldToGrid(x,z){
+  const gx = Math.floor(x/CFG.CELL_SIZE + CFG.CELLS/2);
+  const gz = Math.floor(z/CFG.CELL_SIZE + CFG.CELLS/2);
+  return { x:clamp(gx,0,CFG.CELLS-1), z:clamp(gz,0,CFG.CELLS-1) };
+}
+function notify(text, color='#ffd54f'){
+  const el = document.createElement('div'); el.className='toast'; el.style.color=color; el.textContent=text;
+  document.getElementById('notify').appendChild(el); setTimeout(()=>el.remove(),3100);
+}
+function fmtTime(t){
+  const m=Math.floor(t/60), s=Math.floor(t%60); return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+
+/* =========================================================
+   AUDIO SYNTH
+   ========================================================= */
+function initAudio(){ if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)(); }
+function tone(freq=440, type='sine', dur=0.15, vol=0.08){
+  if(!audioCtx) return; const t=audioCtx.currentTime;
+  const o=audioCtx.createOscillator(), g=audioCtx.createGain();
+  o.type=type; o.frequency.value=freq; g.gain.setValueAtTime(vol,t); g.gain.exponentialRampToValueAtTime(0.001,t+dur);
+  o.connect(g).connect(audioCtx.destination); o.start(t); o.stop(t+dur);
+}
+function sfxAttack(){ tone(600+rand(200),'square',0.08,0.04); }
+function sfxShoot(){ tone(900,'triangle',0.12,0.04); }
+function sfxBuild(){ tone(300,'sine',0.3,0.06); }
+function sfxNotify(){ tone(440,'sine',0.1,0.05); setTimeout(()=>tone(660,'sine',0.2,0.05),120); }
+function sfxDeath(){ tone(150,'sawtooth',0.25,0.07); }
+
+/* =========================================================
+   THREE INIT
+   ========================================================= */
+function initThree(){
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x88cce8);
+  scene.fog = new THREE.Fog(0x88cce8, 40, 160);
+
+  camera = new THREE.PerspectiveCamera(38, window.innerWidth/window.innerHeight, 0.5, 300);
+  camera.position.set(30, 42, 30);
+
+  renderer = new THREE.WebGLRenderer({antialias:true});
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.15;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  document.body.insertBefore(renderer.domElement, document.body.firstChild);
+
+  // Lights
+  const hemi = new THREE.HemisphereLight(0xddeeff, 0x334422, 0.7);
+  scene.add(hemi);
+
+  const sun = new THREE.DirectionalLight(0xfff5e0, 1.4);
+  sun.position.set(40, 60, 20);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.camera.near = 10; sun.shadow.camera.far = 140;
+  const sc = 55; sun.shadow.camera.left=-sc; sun.shadow.camera.right=sc; sun.shadow.camera.top=sc; sun.shadow.camera.bottom=-sc;
+  sun.shadow.bias = -0.0005;
+  scene.add(sun);
+  scene.userData.sun = sun; scene.userData.hemi = hemi;
+
+  // Ground plane for raycasting
+  cursorPlane = new THREE.Mesh(new THREE.PlaneGeometry(WORLD, WORLD), new THREE.MeshBasicMaterial({visible:false}));
+  cursorPlane.rotation.x = -Math.PI/2; cursorPlane.position.y = 0.15; scene.add(cursorPlane);
+}
+
+/* =========================================================
+   TERRAIN
+   ========================================================= */
+function noiseH(x,z){
+  const d = Math.sqrt(x*x+z*z);
+  const h = Math.sin(x*0.06)*2.4 + Math.cos(z*0.08)*2.2 + Math.sin((x+z)*0.12)*1.0 - Math.max(0, (d-14)*0.12);
+  return clamp(h, -2, 8);
+}
+function createTerrain(){
+  const segs = CFG.CELLS;
+  const pos = [], idx = [], colors = [];
+  const get = (cx,cz)=> noiseH((cx-segs/2)*CFG.CELL_SIZE, (cz-segs/2)*CFG.CELL_SIZE);
+  const palette = [ new THREE.Color(0x7cb342), new THREE.Color(0x558b2f), new THREE.Color(0xc2b280), new THREE.Color(0x8d8d8d), new THREE.Color(0xe0f7fa) ];
+  for(let z=0; z<=segs; z++){
+    for(let x=0; x<=segs; x++){
+      const px = (x-segs/2)*CFG.CELL_SIZE;
+      const pz = (z-segs/2)*CFG.CELL_SIZE;
+      let py = get(x,z);
+      // flatten center for base
+      const d = Math.sqrt(px*px + pz*pz);
+      if(d<12) py *= (d/12);
+      if(d<20 && py<0.2) py=0.2;
+      pos.push(px, py, pz);
+      let c = palette[1];
+      if(py<0.4) c = palette[2];
+      else if(py<1.0) c = palette[0];
+      else if(py<3.0) c = palette[1];
+      else if(py<5.0) c = palette[3];
+      else c = palette[4];
+      // variation
+      const vary = rand(0.94,1.06); c = c.clone().multiplyScalar(vary);
+      colors.push(c.r, c.g, c.b);
+    }
+  }
+  for(let z=0; z<segs; z++){
+    for(let x=0; x<segs; x++){
+      const a = z*(segs+1)+x; const b=a+1; const c=a+segs+1; const d=c+1;
+      idx.push(a,b,c, b,d,c);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos,3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors,3));
+  geo.setIndex(idx); geo.computeVertexNormals();
+  const mat = new THREE.MeshStandardMaterial({vertexColors:true, flatShading:true, roughness:0.9});
+  groundMesh = new THREE.Mesh(geo, mat); groundMesh.receiveShadow = true; scene.add(groundMesh);
+
+  // Water
+  const wGeo = new THREE.PlaneGeometry(WORLD*0.9, WORLD*0.9);
+  wGeo.rotateX(-Math.PI/2);
+  const wMat = new THREE.MeshBasicMaterial({color:0x4fc3f7, transparent:true, opacity:0.35, depthWrite:false});
+  waterMesh = new THREE.Mesh(wGeo, wMat); waterMesh.position.y = 0.05; scene.add(waterMesh);
+}
+
+/* =========================================================
+   FOG OF WAR (Instanced boxes)
+   ========================================================= */
+function initFog(){
+  const total = CFG.CELLS*CFG.CELLS;
+  const geo = new THREE.BoxGeometry(CFG.CELL_SIZE*0.96, 0.06, CFG.CELL_SIZE*0.96);
+  const mat = new THREE.MeshBasicMaterial({color:0x06030a});
+  fogMesh = new THREE.InstancedMesh(geo, mat, total);
+  fogMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  const dummy = new THREE.Object3D();
+  for(let z=0; z<CFG.CELLS; z++){
+    for(let x=0; x<CFG.CELLS; x++){
+      const p = gridToWorld(x,z);
+      dummy.position.set(p.x, 0.12, p.z);
+      dummy.updateMatrix();
+      fogMesh.setMatrixAt(z*CFG.CELLS+x, dummy.matrix);
+    }
+  }
+  scene.add(fogMesh);
+}
+
+let explored = new Uint8Array(CFG.CELLS*CFG.CELLS); // 1 = explored (fog removed)
+let visibleThis = new Uint8Array(CFG.CELLS*CFG.CELLS); // frame visibility
+const zeroDummy = new THREE.Object3D(); zeroDummy.scale.set(0,0,0); zeroDummy.updateMatrix();
+
+function clearVisibility(){ visibleThis.fill(0); }
+function reveal(cx,cz,sght){
+  const r = Math.ceil(sght);
+  for(let z=-r; z<=r; z++){
+    for(let x=-r; x<=r; x++){
+      const dx=cx+x, dz=cz+z; if(dx<0||dx>=CFG.CELLS||dz<0||dz>=CFG.CELLS) continue;
+      const ix = dz*CFG.CELLS+dx;
+      if(dx*dx + z*z <= sght*sght){
+        visibleThis[ix] = 1;
+        if(!explored[ix]){ explored[ix]=1; fogMesh.setMatrixAt(ix, zeroDummy.matrix); }
+      }
+    }
+  }
+}
+function updateFogSight(){
+  clearVisibility();
+  for(const e of entities){
+    if(e.dead || !e.mesh) continue;
+    if(e.team !== TEAMS.PLAYER) continue;
+    const g = worldToGrid(e.pos.x, e.pos.z);
+    reveal(g.x, g.z, CFG.SIGHT_RAD);
+  }
+  fogMesh.instanceMatrix.needsUpdate = true;
+
+  // Hide enemy units if not visible
+  for(const e of entities){
+    if(e.dead || !e.mesh) continue;
+    if(e.team === TEAMS.ENEMY){
+      const g = worldToGrid(e.pos.x, e.pos.z);
+      const vis = visibleThis[g.z*CFG.CELLS+g.x];
+      e.mesh.visible = vis===1;
+    } else {
+      e.mesh.visible = true;
+    }
+  }
+}
+
+/* =========================================================
+   PARTICLES
+   ========================================================= */
+const PMAX = 1500;
+let pGeo, pMat, pMesh;
+let pLife = new Float32Array(PMAX);
+let pVel = new Float32Array(PMAX*3);
+let pCol = new Float32Array(PMAX*3);
+function initParticles(){
+  const pos = new Float32Array(PMAX*3);
+  const alpha = new Float32Array(PMAX);
+  pGeo = new THREE.BufferGeometry();
+  pGeo.setAttribute('position', new THREE.BufferAttribute(pos,3));
+  pGeo.setAttribute('color', new THREE.BufferAttribute(pCol,3));
+  pGeo.setAttribute('alpha', new THREE.BufferAttribute(alpha,1));
+  pMat = new THREE.ShaderMaterial({
+    transparent:true, depthWrite:false, blending:THREE.AdditiveBlending,
+    vertexShader:`
+      attribute float alpha; attribute float size; varying float vAlpha;
+      void main(){ vAlpha=alpha; vec4 mv=modelViewMatrix*vec4(position,1.0); gl_PointSize=size*(300.0/-mv.z); gl_Position=projectionMatrix*mv; }
+    `,
+    fragmentShader:`
+      varying float vAlpha;
+      void main(){ float d=length(gl_PointCoord-vec2(0.5)); if(d>0.5) discard; float g=exp(-d*d*6.0); gl_FragColor=vec4(1.0,0.95,0.8, vAlpha*g); }
+    `
+  });
+  pMesh = new THREE.Points(pGeo, pMat); scene.add(pMesh);
+  // init attribute for size
+  const sz = new Float32Array(PMAX); for(let i=0;i<PMAX;i++) sz[i]=18;
+  pGeo.setAttribute('size', new THREE.BufferAttribute(sz,1));
+}
+function spawnParticle(pos, color, vel, life){
+  for(let i=0;i<PMAX;i++){
+    if(pLife[i]<=0){
+      pLife[i]=life; const i3=i*3;
+      pGeo.attributes.position.array[i3]=pos.x; pGeo.attributes.position.array[i3+1]=pos.y; pGeo.attributes.position.array[i3+2]=pos.z;
+      pVel[i3]=vel.x; pVel[i3+1]=vel.y; pVel[i3+2]=vel.z;
+      pCol[i3]=color.r; pCol[i3+1]=color.g; pCol[i3+2]=color.b;
+      return;
+    }
+  }
+}
+function updateParticles(dt){
+  let any=false;
+  for(let i=0;i<PMAX;i++){
+    if(pLife[i]<=0) continue;
+    any=true; pLife[i]-=dt;
+    const i3=i*3; pGeo.attributes.position.array[i3]+=pVel[i3]*dt; pGeo.attributes.position.array[i3+1]+=pVel[i3+1]*dt; pGeo.attributes.position.array[i3+2]+=pVel[i3+2]*dt;
+    pVel[i3+1] -= 4.0*dt; // gravity-ish
+    pGeo.attributes.alpha.array[i]=clamp(pLife[i]*1.5,0,1);
+  }
+  pGeo.attributes.position.needsUpdate = true;
+  pGeo.attributes.alpha.needsUpdate = true;
+  pGeo.attributes.color.needsUpdate = true;
+  if(!any) pGeo.attributes.alpha.array.fill(0);
+}
+
+/* =========================================================
+   FLOW FIELD (Enemy pathing to Nexus)
+   ========================================================= */
+let pathGrid = new Uint16Array(CFG.CELLS*CFG.CELLS); // distance from target cell
+let gridBlocked = new Uint8Array(CFG.CELLS*CFG.CELLS); // 1 = blocked by building/wall
+const INF16 = 65535;
+function recomputeFlow(){
+  // target = nexus cell
+  let tx=Math.floor(CFG.CELLS/2), tz=Math.floor(CFG.CELLS/2);
+  // find nearest open cell
+  let best=INF16, bx=tx, bz=tz;
+  for(let z=0; z<CFG.CELLS; z++) for(let x=0; x<CFG.CELLS; x++){
+    if(!gridBlocked[z*CFG.CELLS+x] && Math.abs(x-tx)+Math.abs(z-tz) < best){ best=Math.abs(x-tx)+Math.abs(z-tz); bx=x; bz=z; }
+  }
+  pathGrid.fill(INF16);
+  const q=[]; q.push(bx,bz); pathGrid[bz*CFG.CELLS+bx]=0;
+  let qi=0;
+  while(qi<q.length){
+    const cx=q[qi++], cz=q[qi++], cd=pathGrid[cz*CFG.CELLS+cx];
+    const dirs=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]];
+    for(const [dx,dz] of dirs){
+      const nx=cx+dx, nz=cz+dz; if(nx<0||nx>=CFG.CELLS||nz<0||nz>=CFG.CELLS) continue;
+      if(gridBlocked[nz*CFG.CELLS+nx]) continue;
+      const nd = cd + ((dx!==0 && dz!==0)?1.4:1);
+      const idx=nz*CFG.CELLS+nx; if(nd < pathGrid[idx]){ pathGrid[idx]=nd; q.push(nx,nz); }
+    }
+  }
+}
+function flowDirAt(x,z){
+  const g = worldToGrid(x,z); const cx=g.x, cz=g.z, idx=cz*CFG.CELLS+cx;
+  if(pathGrid[idx]>=INF16) return null;
+  let best=pathGrid[idx], bx=cx, bz=cz;
+  const dirs=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]];
+  for(const [dx,dz] of dirs){
+    const nx=cx+dx, nz=cz+dz; if(nx<0||nx>=CFG.CELLS||nz<0||nz>=CFG.CELLS) continue;
+    const nd=pathGrid[nz*CFG.CELLS+nx]; if(nd < best){ best=nd; bx=nx; bz=nz; }
+  }
+  const p = gridToWorld(bx,bz); return { x:p.x-x, z:p.z-z };
+}
+
+/* =========================================================
+   ENTITY CLASSES
+   ========================================================= */
+const hpBarsContainer = document.getElementById('hpBars');
+function makeHpBar(){
+  const el = document.createElement('div'); el.className='hpBar';
+  const fill = document.createElement('div'); el.appendChild(fill);
+  hpBarsContainer.appendChild(el); return { el, fill };
+}
+function removeHpBar(bar){ if(bar && bar.el && bar.el.parentNode) bar.el.parentNode.removeChild(bar.el); }
+
+class Entity {
+  constructor(type, team, pos, hp, radius=0.8){
+    this.type=type; this.team=team; this.pos={x:pos.x, y:pos.y||0, z:pos.z};
+    this.hp=hp; this.maxHp=hp; this.radius=radius; this.dead=false;
+    this.mesh=null; this.selected=false;
+    this.hpBar=makeHpBar(); this.hpBar.el.style.display='none';
+    this.id = Math.random().toString(36).slice(2);
+  }
+  takeDamage(amt, source){
+    if(this.dead) return;
+    this.hp -= amt; if(this.hp<0) this.hp=0;
+    // flash white
+    if(this.mesh && this.mesh.traverse) this.mesh.traverse(c=>{ if(c.isMesh && c.material.emissive) c.material.emissive.setScalar(0.6); });
+    setTimeout(()=>{ if(this.mesh) this.mesh.traverse(c=>{ if(c.isMesh && c.material.emissive) c.material.emissive.setScalar(this.team===TEAMS.PLAYER?0.15:0.05); }); },100);
+    if(this.hp<=0) this.die(source);
+  }
+  die(source){
+    this.dead=true; if(this.mesh){ scene.remove(this.mesh); this.mesh=null; }
+    removeHpBar(this.hpBar);
+    spawnParticle(this.pos, new THREE.Color(0xffd54f), {x:rand(2,-2),y:rand(4,1),z:rand(2,-2)}, rand(0.6,0.3));
+    sfxDeath();
+  }
+  updateHpBar(){
+    const sc = screenPos(new THREE.Vector3(this.pos.x, this.pos.y+this.radius+0.8, this.pos.z));
+    if(sc.visible && (this.hp<this.maxHp || this.selected)){
+      this.hpBar.el.style.display='block';
+      this.hpBar.el.style.left=sc.x+'px'; this.hpBar.el.style.top=sc.y+'px';
+      this.hpBar.fill.style.width = (this.hp/this.maxHp*100)+'%';
+      this.hpBar.fill.style.background = this.team===TEAMS.PLAYER?'#00e676':'#ff5252';
+    } else { this.hpBar.el.style.display='none'; }
+  }
+  remove(){ this.dead=true; if(this.mesh){ scene.remove(this.mesh); this.mesh=null; } removeHpBar(this.hpBar); }
+}
+
+class SelectionRing {
+  static getMesh(){
+    const geo = new THREE.RingGeometry(0.35, 0.5, 16); geo.rotateX(-Math.PI/2);
+    const mat = new THREE.MeshBasicMaterial({color:0x00e5ff, transparent:true, opacity:0.7, side:THREE.DoubleSide});
+    const m = new THREE.Mesh(geo, mat); return m;
+  }
+}
+
+class Building extends Entity {
+  constructor(kind, pos, extra={}){
+    const defs = {
+      nexus: { hp:1200, r:2.2 }, extractor: { hp:180, r:1.0 }, siphon: { hp:160, r:1.0 },
+      quarry: { hp:200, r:1.0 }, barracks: { hp:280, r:1.6 }, academy: { hp:220, r:1.6 },
+      resonator: { hp:140, r:1.0 }, tower: { hp:200, r:1.0 }, wall: { hp:400, r:1.0 },
+      fissure: { hp:5000, r:2.4 },
+    };
+    const d = defs[kind]||{hp:200,r:1};
+    super('building', extra.team??TEAMS.PLAYER, pos, d.hp, d.r);
+    this.kind = kind;
+    this.isConstruction = extra.isConstruction||false;
+    this.buildProgress = 0; this.buildTime = extra.buildTime||6;
+    this.sight = extra.sight||6;
+    this.gridX = extra.gx; this.gridZ = extra.gz;
+    this.attackRange = extra.range||0; this.damage = extra.dmg||0; this.cooldown = extra.cd||1; this.attackTimer = 0;
+    this.createMesh();
+    if(kind==='nexus') this.team=TEAMS.PLAYER;
+    if(kind==='fissure') this.team=TEAMS.ENEMY;
+    if(!this.isConstruction && kind!=='fissure') markGrid(this.gridX, this.gridZ, 1);
+  }
+  createMesh(){
+    const g = new THREE.Group();
+    if(this.kind==='nexus'){
+      const core = new THREE.Mesh(new THREE.OctahedronGeometry(1.6,0), new THREE.MeshToonMaterial({color:0x00e5ff, emissive:0x00bcd4, emissiveIntensity:0.25}));
+      core.position.y=1.6; g.add(core);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(1.9,0.08,8,16), new THREE.MeshToonMaterial({color:0xffeb3b}));
+      ring.rotation.x=Math.PI/2; ring.position.y=1.0; g.add(ring);
+      const base = new THREE.Mesh(new THREE.CylinderGeometry(2.2,2.6,1,8), new THREE.MeshToonMaterial({color:0xffffff}));
+      base.position.y=0.5; g.add(base);
+      const pt = new THREE.PointLight(0x00e5ff, 5, 18); pt.position.y=3; g.add(pt);
+    } else if(this.kind==='extractor'){
+      const base = new THREE.Mesh(new THREE.CylinderGeometry(0.7,0.9,0.8,6), new THREE.MeshToonMaterial({color:0x80cbc4}));
+      base.position.y=0.4; g.add(base);
+      const crys = new THREE.Mesh(new THREE.ConeGeometry(0.25,1.4,5), new THREE.MeshToonMaterial({color:0x00e5ff, emissive:0x00e5ff, emissiveIntensity:0.3}));
+      crys.position.y=1.2; crys.rotation.z=0.2; g.add(crys);
+      const crys2 = crys.clone(); crys2.rotation.z=-0.4; crys2.position.set(0.2,1.0,0.1); g.add(crys2);
+    } else if(this.kind==='siphon'){
+      const pool = new THREE.Mesh(new THREE.CylinderGeometry(0.8,0.8,0.1,16), new THREE.MeshBasicMaterial({color:0x76ff03, transparent:true, opacity:0.4}));
+      pool.position.y=0.05; g.add(pool);
+      const orb = new THREE.Mesh(new THREE.IcosahedronGeometry(0.22,0), new THREE.MeshToonMaterial({color:0x76ff03, emissive:0x76ff03, emissiveIntensity:0.35}));
+      orb.position.y=1.0; g.add(orb);
+      const pt = new THREE.PointLight(0x76ff03, 1.5, 10); pt.position.y=1.2; g.add(pt);
+    } else if(this.kind==='quarry'){
+      const base = new THREE.Mesh(new THREE.BoxGeometry(1.2,0.6,1.2), new THREE.MeshToonMaterial({color:0x8d8d8d}));
+      base.position.y=0.3; g.add(base);
+      const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(0.5), new THREE.MeshToonMaterial({color:0xb0bec5}));
+      rock.position.set(0.3,1.0,0.2); g.add(rock);
+    } else if(this.kind==='barracks'){
+      const tent = new THREE.Mesh(new THREE.ConeGeometry(1.8,1.6,4), new THREE.MeshToonMaterial({color:0x00bcd4}));
+      tent.rotation.y=Math.PI/4; tent.position.y=0.8; g.add(tent);
+      const base = new THREE.Mesh(new THREE.CylinderGeometry(1.4,1.6,0.6,8), new THREE.MeshToonMaterial({color:0xffffff}));
+      base.position.y=0.3; g.add(base);
+      const banner = new THREE.Mesh(new THREE.BoxGeometry(0.05,1.2,0.4), new THREE.MeshToonMaterial({color:0xffeb3b}));
+      banner.position.set(0,1.6,-0.6); g.add(banner);
+    } else if(this.kind==='academy'){
+      const dome = new THREE.Mesh(new THREE.SphereGeometry(1.3,8,8,0,Math.PI*2,0,Math.PI/2), new THREE.MeshToonMaterial({color:0x7c4dff}));
+      dome.position.y=0.6; g.add(dome);
+      const col = new THREE.Mesh(new THREE.CylinderGeometry(0.08,0.08,0.8,6), new THREE.MeshToonMaterial({color:0xffb74d}));
+      col.position.y=1.6; g.add(col);
+    } else if(this.kind==='resonator'){
+      const h = new THREE.Mesh(new THREE.CylinderGeometry(0.35,0.5,2.0,6), new THREE.MeshToonMaterial({color:0xffeb3b}));
+      h.position.y=1.0; g.add(h);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.55,0.05,8,12), new THREE.MeshToonMaterial({color:0xffd54f}));
+      ring.rotation.x=Math.PI/2; ring.position.y=1.4; g.add(ring);
+    } else if(this.kind==='tower'){
+      const base = new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.7,2.2,6), new THREE.MeshToonMaterial({color:0x00bcd4}));
+      base.position.y=1.1; g.add(base);
+      const head = new THREE.Mesh(new THREE.CylinderGeometry(0.15,0.4,0.6,6), new THREE.MeshToonMaterial({color:0xffeb3b}));
+      head.position.y=2.4; g.add(head);
+    } else if(this.kind==='wall'){
+      const blk = new THREE.Mesh(new THREE.BoxGeometry(2.0,1.6,0.5), new THREE.MeshToonMaterial({color:0x90a4ae}));
+      blk.position.y=0.8; g.add(blk);
+    } else if(this.kind==='fissure'){
+      const base = new THREE.Mesh(new THREE.CylinderGeometry(1.6,2.0,0.8,7), new THREE.MeshToonMaterial({color:0x1a1a1a}));
+      base.position.y=0.4; g.add(base);
+      const spike = new THREE.Mesh(new THREE.ConeGeometry(1.2,4.0,5), new THREE.MeshToonMaterial({color:0x4a148c, emissive:0x7c4dff, emissiveIntensity:0.4}));
+      spike.position.y=2.4; g.add(spike);
+      const bits = new THREE.Mesh(new THREE.OctahedronGeometry(0.3), new THREE.MeshToonMaterial({color:0xff1744, emissive:0xff1744, emissiveIntensity:0.5}));
+      bits.position.y=2.8; g.add(bits);
+      const pt = new THREE.PointLight(0x7c4dff, 3, 14); pt.position.y=3; g.add(pt);
+    }
+    g.traverse(c=>{ if(c.isMesh){ c.castShadow=true; c.receiveShadow=true; }});
+    this.mesh = g; scene.add(g);
+  }
+  update(dt){
+    // construction progress
+    if(this.isConstruction){
+      this.mesh.position.y = 0.15; // float
+      return;
+    }
+    // building pulse
+    const s = 1 + Math.sin(gameTime*2 + this.gridX)*0.015;
+    this.mesh.scale.set(s,1,s);
+    // tower attack
+    if(this.kind==='tower' && this.attackRange>0){
+      this.attackTimer -= dt;
+      if(this.attackTimer<=0){
+        // find enemy
+        let target=null, best=Infinity;
+        for(const u of units){ if(u.team===TEAMS.ENEMY && !u.dead && dist2(this.pos,u.pos) < this.attackRange*this.attackRange){
+          const d=dist2(this.pos,u.pos); if(d<best){ best=d; target=u; }
+        }}
+        if(target){ fireProjectile(this.pos, target, this.damage, 0xffeb3b); this.attackTimer=this.cooldown; sfxShoot(); }
+      }
+    }
+  }
+}
+
+class Unit extends Entity {
+  constructor(type, team, pos){
+    const stats = {
+      worker:{ hp:35, speed:5.5, dmg:3, range:1.2, cd:1.0, rad:0.35 },
+      sentinel:{ hp:70, speed:5.0, dmg:10, range:1.4, cd:0.9, rad:0.45 },
+      lancer:{ hp:55, speed:4.8, dmg:8, range:9, cd:1.1, rad:0.4 },
+      bulwark:{ hp:200, speed:3.8, dmg:14, range:1.8, cd:1.4, rad:0.6 },
+      striker:{ hp:40, speed:7.5, dmg:7, range:7, cd:0.7, rad:0.35 },
+      hero:{ hp:350, speed:5.0, dmg:22, range:4.5, cd:1.0, rad:0.55 },
+      // enemy
+      drone:{ hp:28, speed:5.2, dmg:5, range:1.2, cd:1.0, rad:0.35 },
+      runner:{ hp:20, speed:7.8, dmg:4, range:1.1, cd:0.8, rad:0.3 },
+      maw:{ hp:120, speed:3.2, dmg:12, range:1.8, cd:1.5, rad:0.7 },
+      shrieker:{ hp:38, speed:4.5, dmg:7, range:8, cd:1.3, rad:0.4 },
+      tyrant:{ hp:550, speed:2.6, dmg:30, range:2.8, cd:2.0, rad:1.0 },
+    };
+    const s = stats[type]||stats.worker;
+    let hp = s.hp; let dmg = s.dmg; let spd = s.speed;
+    if(team===TEAMS.PLAYER){
+      hp *= (1 + upgrades.hp*0.2);
+      dmg *= (1 + upgrades.atk*0.2);
+      spd *= (1 + upgrades.spd*0.15);
+    }
+    super('unit', team, pos, hp, s.rad);
+    this.unitType = type;
+    this.speed = spd; this.damage = dmg; this.attackRange = s.range; this.cooldownMax = s.cd; this.attackTimer = 0;
+    this.moveTarget = null; this.targetEnt = null; this.state = 'idle';
+    this.gatherType = null; this.buildingRef = null; this.carry = 0; this.carryMax = 10;
+    this.selectionRing = null;
+    this.createMesh(); this.updatePos();
+    units.push(this);
+  }
+  createMesh(){
+    const g = new THREE.Group();
+    const isPlayer = this.team===TEAMS.PLAYER;
+    const bodyColor = isPlayer?0x00e5ff:0x4a148c;
+    const secColor = isPlayer?0xffeb3b:0xff1744;
+    if(this.unitType==='worker'){
+      const b = new THREE.Mesh(new THREE.IcosahedronGeometry(0.25,0), new THREE.MeshToonMaterial({color:bodyColor}));
+      b.position.y=0.9; g.add(b);
+      const w = new THREE.Mesh(new THREE.BoxGeometry(0.06,0.4,0.06), new THREE.MeshToonMaterial({color:secColor}));
+      w.position.set(0.15,0.7,0); g.add(w);
+    } else if(this.unitType==='sentinel'){
+      const b = new THREE.Mesh(new THREE.BoxGeometry(0.3,0.5,0.25), new THREE.MeshToonMaterial({color:bodyColor}));
+      b.position.y=0.8; g.add(b);
+      const h = new THREE.Mesh(new THREE.ConeGeometry(0.22,0.35,4), new THREE.MeshToonMaterial({color:secColor}));
+      h.position.y=1.15; g.add(h);
+      const sw = new THREE.Mesh(new THREE.BoxGeometry(0.06,0.6,0.02), new THREE.MeshToonMaterial({color:0xffffff}));
+      sw.position.set(0.12,0.8,0.14); g.add(sw);
+    } else if(this.unitType==='lancer'){
+      const b = new THREE.Mesh(new THREE.CylinderGeometry(0.18,0.22,0.55,6), new THREE.MeshToonMaterial({color:bodyColor}));
+      b.position.y=0.8; g.add(b);
+      const l = new THREE.Mesh(new THREE.BoxGeometry(0.04,0.9,0.04), new THREE.MeshToonMaterial({color:secColor}));
+      l.position.set(0,1.1,0.2); l.rotation.x=0.2; g.add(l);
+    } else if(this.unitType==='bulwark'){
+      const b = new THREE.Mesh(new THREE.BoxGeometry(0.6,0.7,0.4), new THREE.MeshToonMaterial({color:0x00838f}));
+      b.position.y=0.75; g.add(b);
+      const sh = new THREE.Mesh(new THREE.BoxGeometry(0.1,0.5,0.4), new THREE.MeshToonMaterial({color:0xffb74d}));
+      sh.position.set(-0.35,0.8,0); g.add(sh);
+    } else if(this.unitType==='striker'){
+      const b = new THREE.Mesh(new THREE.ConeGeometry(0.18,0.6,6), new THREE.MeshToonMaterial({color:bodyColor}));
+      b.rotation.x=Math.PI/2; b.position.y=0.9; g.add(b);
+      const w = new THREE.Mesh(new THREE.BoxGeometry(0.4,0.04,0.04), new THREE.MeshToonMaterial({color:secColor}));
+      w.position.set(0,0.9,0.2); g.add(w);
+    } else if(this.unitType==='hero'){
+      const b = new THREE.Mesh(new THREE.CylinderGeometry(0.25,0.35,0.6,8), new THREE.MeshToonMaterial({color:0xffd54f}));
+      b.position.y=0.9; g.add(b);
+      const c = new THREE.Mesh(new THREE.TorusGeometry(0.45,0.04,8,12), new THREE.MeshToonMaterial({color:0x00e5ff}));
+      c.rotation.x=Math.PI/2; c.position.y=1.2; g.add(c);
+      const staff = new THREE.Mesh(new THREE.CylinderGeometry(0.03,0.03,1.6,5), new THREE.MeshToonMaterial({color:0xffffff}));
+      staff.position.set(0.3,1.2,0); g.add(staff);
+      const orb = new THREE.Mesh(new THREE.OctahedronGeometry(0.12), new THREE.MeshToonMaterial({color:0x00e5ff, emissive:0x00e5ff, emissiveIntensity:0.6}));
+      orb.position.set(0.3,2.0,0); g.add(orb);
+    } else if(this.unitType==='drone'){
+      const b = new THREE.Mesh(new THREE.TetrahedronGeometry(0.28), new THREE.MeshToonMaterial({color:0x311b92}));
+      b.position.y=0.8; g.add(b);
+    } else if(this.unitType==='runner'){
+      const b = new THREE.Mesh(new THREE.BoxGeometry(0.35,0.25,0.55), new THREE.MeshToonMaterial({color:0x4a148c}));
+      b.position.y=0.5; g.add(b);
+      const s = new THREE.Mesh(new THREE.ConeGeometry(0.06,0.4,4), new THREE.MeshToonMaterial({color:0xff1744}));
+      s.position.set(0,0.65,0.25); g.add(s);
+    } else if(this.unitType==='maw'){
+      const b = new THREE.Mesh(new THREE.SphereGeometry(0.45,8,6), new THREE.MeshToonMaterial({color:0x212121}));
+      b.scale.set(1,0.7,1); b.position.y=0.55; g.add(b);
+      const jaw = new THREE.Mesh(new THREE.ConeGeometry(0.15,0.4,4), new THREE.MeshToonMaterial({color:0xff1744}));
+      jaw.position.set(0,0.5,0.35); jaw.rotation.x=Math.PI/3; g.add(jaw);
+    } else if(this.unitType==='shrieker'){
+      const b = new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.25,0.5,5), new THREE.MeshToonMaterial({color:0x311b92}));
+      b.position.y=0.8; g.add(b);
+      const e = new THREE.Mesh(new THREE.BoxGeometry(0.35,0.06,0.06), new THREE.MeshToonMaterial({color:0xff1744}));
+      e.position.y=1.05; g.add(e);
+    } else if(this.unitType==='tyrant'){
+      const b = new THREE.Mesh(new THREE.OctahedronGeometry(0.65), new THREE.MeshToonMaterial({color:0x1a1a1a}));
+      b.position.y=1.5; g.add(b);
+      const arm1 = new THREE.Mesh(new THREE.BoxGeometry(0.15,1.2,0.15), new THREE.MeshToonMaterial({color:0x4a148c}));
+      arm1.position.set(0.6,1.2,0); arm1.rotation.z=-0.3; g.add(arm1);
+      const arm2 = arm1.clone(); arm2.position.set(-0.6,1.2,0); arm2.rotation.z=0.3; g.add(arm2);
+    }
+    g.traverse(c=>{ if(c.isMesh){ c.castShadow=true; c.receiveShadow=true; }});
+    if(this.unitType==='hero' || this.unitType==='bulwark' || this.unitType==='tyrant' || this.unitType==='maw'){
+      // stronger emissive
+      g.traverse(c=>{ if(c.isMesh && c.material.emissive){ c.material.emissiveIntensity = (this.team===TEAMS.PLAYER?0.25:0.35); }});
+    }
+    this.mesh = g; scene.add(g);
+    // selection ring
+    this.selectionRing = SelectionRing.getMesh(); this.selectionRing.visible=false; scene.add(this.selectionRing);
+  }
+  select(sel){ this.selected=sel; if(this.selectionRing){ this.selectionRing.visible=sel; } }
+  setPos(x,y,z){ this.pos.x=x; this.pos.y=y; this.pos.z=z; this.updatePos(); }
+  updatePos(){ if(!this.mesh) return; this.mesh.position.set(this.pos.x, this.pos.y+0.05, this.pos.z);
+    // animate bob
+    if(!this.dead){ this.mesh.position.y += Math.sin(gameTime*3 + this.id.charCodeAt(0))*0.06; }
+    if(this.selectionRing){ this.selectionRing.position.set(this.pos.x, 0.1, this.pos.z); }
+  }
+  update(dt){
+    if(this.dead) return;
+    this.updatePos();
+    // hero passive aura
+    if(this.unitType==='hero' && this.team===TEAMS.PLAYER){
+      // nearby allies +25% dmg handled in attack via distance check
+    }
+    // enemy AI
+    if(this.team===TEAMS.ENEMY){
+      this.updateEnemyAI(dt);
+      return;
+    }
+    // player unit AI
+    if(this.state==='move' && this.moveTarget){
+      if(dist(this.pos, this.moveTarget) < 0.3){ this.state='idle'; this.moveTarget=null; }
+      else { this.seek(this.moveTarget.x, this.moveTarget.z, this.speed); }
+    }
+    if(this.state==='attack' && this.targetEnt){
+      if(this.targetEnt.dead){ this.targetEnt=null; this.state='idle'; return; }
+      const d = dist(this.pos, this.targetEnt.pos);
+      if(d > this.attackRange){ this.seek(this.targetEnt.pos.x, this.targetEnt.pos.z, this.speed); }
+      else {
+        this.attackTimer -= dt;
+        if(this.attackTimer <= 0){ this.performAttack(this.targetEnt); this.attackTimer = this.cooldownMax; }
+      }
+    }
+    if(this.state==='gather' && this.gatherType){
+      // find nearest resource node of type
+      if(!this.gatherTarget || this.gatherTarget.dead){ this.findGatherTarget(); }
+      if(this.gatherTarget){
+        const d = dist(this.pos, this.gatherTarget.pos);
+        if(d > 1.5){ this.seek(this.gatherTarget.pos.x, this.gatherTarget.pos.z, this.speed); }
+        else {
+          // gather tick
+          this.carry += dt * 3; // gather speed
+          this.mesh.rotation.y += dt*2;
+          if(this.carry >= this.carryMax){
+            this.carry = this.carryMax;
+            // return to drop-off (nexus or nearest storage)
+            const drop = findDropOff(); if(drop){ this.state='return'; this.moveTarget={...drop.pos}; }
+            else { this.state='idle'; }
+          }
+        }
+      }
+    }
+    if(this.state==='return'){
+      if(!this.moveTarget){ this.state='idle'; return; }
+      if(dist(this.pos, this.moveTarget) < 2){
+        // deposit
+        if(this.gatherType==='crystal') playerRes.lum += Math.floor(this.carry);
+        if(this.gatherType==='essence') playerRes.ess += Math.floor(this.carry);
+        if(this.gatherType==='stone') playerRes.stn += Math.floor(this.carry);
+        this.carry = 0; this.state='gather'; this.findGatherTarget();
+      } else { this.seek(this.moveTarget.x, this.moveTarget.z, this.speed); }
+    }
+    if(this.state==='build' && this.buildingRef){
+      const b=this.buildingRef; if(b.dead || !b.isConstruction){ this.state='idle'; this.buildingRef=null; return; }
+      if(dist(this.pos, b.pos) > 1.8){ this.seek(b.pos.x, b.pos.z, this.speed); }
+      else {
+        b.buildProgress += dt * 0.12;
+        sfxBuildTick(); // subtle tick handled elsewhere or just quiet
+        if(b.buildProgress >= 1){
+          b.isConstruction=false; b.hp=b.maxHp; b.mesh.traverse(c=>{ if(c.material && c.material.transparent) c.material.opacity=1; });
+          // convert mesh to full building visuals new?
+          // simpler: set existing meshes to solid
+          b.mesh.traverse(c=>{ if(c.isMesh){ c.material.transparent=false; c.material.opacity=1; }});
+          this.state='idle'; this.buildingRef=null; notify('Construction complete','#00e676');
+        }
+      }
+    }
+    if(this.state==='idle' && this.unitType==='worker' && !this.gatherType){
+      // do nothing unless ordered
+    }
+    // hero Q
+    if(this.unitType==='hero'){ /* ability cooldown managed by UI */ }
+  }
+  updateEnemyAI(dt){
+    // Attack nearest player entity, else follow flow field to Nexus
+    let target = null, best=Infinity;
+    // attack range check nearby
+    for(const e of entities){
+      if(e.dead) continue; if(e.team!==TEAMS.PLAYER) continue;
+      const d = dist2(this.pos, e.pos); if(d < 36){ if(d<best){ best=d; target=e; } }
+    }
+    if(target && Math.sqrt(best) <= this.attackRange + (target.radius||0)){
+      this.attackTimer -= dt;
+      if(this.attackTimer <= 0){ this.performAttack(target); this.attackTimer=this.cooldownMax; }
+      return;
+    }
+    // path using flow field
+    const dir = flowDirAt(this.pos.x, this.pos.z);
+    if(dir){ this.pos.x += dir.x*this.speed*dt*1.2; this.pos.z += dir.z*this.speed*dt*1.2; this.mesh.lookAt(this.pos.x+dir.x, this.pos.y, this.pos.z+dir.z); }
+    else if(target){ this.seek(target.pos.x, target.pos.z, this.speed); }
+    else {
+      // seek nearest nexus
+      const nexus = buildings.find(b=>b.kind==='nexus' && !b.dead);
+      if(nexus) this.seek(nexus.pos.x, nexus.pos.z, this.speed);
+    }
+  }
+  seek(tx,tz,spd){
+    const dx=tx-this.pos.x, dz=tz-this.pos.z; const d=Math.sqrt(dx*dx+dz*dz); if(d<0.1) return;
+    const vx=(dx/d)*spd, vz=(dz/d)*spd;
+    this.pos.x += vx*0.016; this.pos.z += vz*0.016; // approximate dt inside; proper called with dt
+    if(this.mesh) this.mesh.lookAt(tx, this.pos.y, tz);
+  }
+  seek2(tx,tz,spd,dt){ const dx=tx-this.pos.x, dz=tz-this.pos.z; const d2=dx*dx+dz*dz; if(d2<0.1) return; const d=Math.sqrt(d2); this.pos.x+=(dx/d)*spd*dt; this.pos.z+=(dz/d)*spd*dt; if(this.mesh) this.mesh.lookAt(tx, this.pos.y, tz); }
+  findGatherTarget(){
+    let best=null, bd=Infinity; const type=this.gatherType;
+    for(const r of resources){ if(r.dead) continue; if(r.resType!==type) continue; const d=dist2(this.pos,r.pos); if(d<bd){ bd=d; best=r; }}
+    this.gatherTarget = best;
+  }
+  performAttack(target){
+    if(this.unitType==='lancer' || this.unitType==='striker' || this.unitType==='shrieker' || this.unitType==='hero'){
+      fireProjectile(this.pos, target, this.damage, this.team===TEAMS.PLAYER?0x00e5ff:0xff1744);
+      sfxShoot();
+    } else {
+      target.takeDamage(this.damage, this);
+      sfxAttack();
+      // melee hit particles
+      spawnParticle(target.pos, new THREE.Color(this.team===TEAMS.PLAYER?0x00e5ff:0xff1744), {x:rand(1,-1),y:rand(2,0.5),z:rand(1,-1)}, 0.3);
+    }
+  }
+}
+
+function sfxBuildTick(){ /* intentionally silent to avoid spam */ }
+
+/* World helpers */
+function findDropOff(){
+  const nexus = buildings.find(b=>b.kind==='nexus' && !b.dead);
+  if(nexus) return nexus; return null;
+}
+function getTerrainHeight(x,z){
+  const d=Math.sqrt(x*x+z*z);
+  let h = Math.sin(x*0.06)*2.4 + Math.cos(z*0.08)*2.2 + Math.sin((x+z)*0.12) - Math.max(0,(d-14)*0.12);
+  if(d<12) h *= (d/12); if(d<20 && h<0.2) h=0.2; return clamp(h,-2,8);
+}
+function markGrid(gx,gz,val){
+  if(gx>=0&&gx<CFG.CELLS&&gz>=0&&gz<CFG.CELLS) gridBlocked[gz*CFG.CELLS+gx]=val;
+}
+
+/* =========================================================
+   RESOURCES
+   ========================================================= */
+class ResourceNode extends Entity {
+  constructor(type, pos){
+    super('resource', TEAMS.NEUTRAL, pos, 100, 0.6);
+    this.resType = type; this.amount = 400 + Math.floor(rand(200));
+    this.createMesh();
+    resources.push(this);
+  }
+  createMesh(){
+    const g = new THREE.Group();
+    if(this.resType==='crystal'){
+      const c1 = new THREE.Mesh(new THREE.ConeGeometry(0.22,1.4,5), new THREE.MeshToonMaterial({color:0x00e5ff, emissive:0x00e5ff, emissiveIntensity:0.25}));
+      c1.position.set(0,0.8,0); c1.rotation.z=0.3; g.add(c1);
+      const c2 = new THREE.Mesh(new THREE.ConeGeometry(0.18,1.1,5), new THREE.MeshToonMaterial({color:0x18ffff, emissive:0x18ffff, emissiveIntensity:0.2}));
+      c2.position.set(0.2,0.7,0.2); c2.rotation.z=-0.4; g.add(c2);
+      const pt = new THREE.PointLight(0x00e5ff, 1.8, 10); pt.position.y=1.2; g.add(pt);
+    } else if(this.resType==='essence'){
+      const pool = new THREE.Mesh(new THREE.CylinderGeometry(0.7,0.7,0.08,12), new THREE.MeshBasicMaterial({color:0x76ff03, transparent:true, opacity:0.35}));
+      pool.position.y=0.04; g.add(pool);
+      const pt = new THREE.PointLight(0x76ff03, 1.2, 8); pt.position.y=0.5; g.add(pt);
+    } else if(this.resType==='stone'){
+      const r = new THREE.Mesh(new THREE.DodecahedronGeometry(0.55), new THREE.MeshToonMaterial({color:0x8d8d8d}));
+      r.position.y=0.45; r.rotation.set(rand(),rand(),rand()); g.add(r);
+      const r2 = r.clone(); r2.scale.set(0.7,0.7,0.7); r2.position.set(0.3,0.25,0.2); g.add(r2);
+    }
+    g.traverse(c=>{ if(c.isMesh){ c.castShadow=true; c.receiveShadow=true; }});
+    this.mesh = g; scene.add(g);
+  }
+}
+
+/* =========================================================
+   PROJECTILES
+   ========================================================= */
+class Projectile {
+  constructor(from, target, damage, colorHex){
+    this.damage=damage; this.target=target; this.dead=false;
+    const speed=28;
+    const dx=target.pos.x-from.x, dy=(target.pos.y+0.8)-from.y, dz=target.pos.z-from.z;
+    const dist=Math.sqrt(dx*dx+dy*dy+dz*dz); this.vel={x:(dx/dist)*speed, y:(dy/dist)*speed, z:(dz/dist)*speed};
+    this.pos={x:from.x, y:from.y||1.2, z:from.z};
+    this.mesh = new THREE.Mesh(new THREE.SphereGeometry(0.12,5,5), new THREE.MeshBasicMaterial({color:colorHex}));
+    scene.add(this.mesh);
+    projectiles.push(this);
+  }
+  update(dt){
+    if(this.dead) return;
+    this.pos.x += this.vel.x*dt; this.pos.y += this.vel.y*dt; this.pos.z += this.vel.z*dt;
+    this.mesh.position.copy(this.pos);
+    if(this.target && !this.target.dead){
+      if(dist(this.pos, this.target.pos) < (this.target.radius||0.6)+0.3){
+        this.hit(); return;
+      }
+      // slight homing
+      const dx=this.target.pos.x-this.pos.x, dy=(this.target.pos.y+0.8)-this.pos.y, dz=this.target.pos.z-this.pos.z;
+      const d=Math.sqrt(dx*dx+dz*dz); if(d>0){ this.vel.x+=(dx/d)*60*dt; this.vel.z+=(dz/d)*60*dt; this.vel.y+=(dy/Math.max(0.1,Math.sqrt(d*d+dy*dy)))*60*dt; }
+    }
+    if(Math.abs(this.pos.x)>WORLD || Math.abs(this.pos.z)>WORLD) this.dead=true;
+  }
+  hit(){
+    this.dead=true; scene.remove(this.mesh); this.mesh=null;
+    if(this.target && !this.target.dead){ this.target.takeDamage(this.damage, this); }
+  }
+}
+
+function fireProjectile(from, target, dmg, color){ new Projectile(from, target, dmg, color); }
+
+/* =========================================================
+   CAMERA
+   ========================================================= */
+function updateCamera(dt){
+  const panSpd = 18 * dt;
+  if(input.w) cameraTarget.z -= panSpd;
+  if(input.s) cameraTarget.z += panSpd;
+  if(input.a) cameraTarget.x -= panSpd;
+  if(input.d) cameraTarget.x += panSpd;
+  // edge pan
+  if(mouse.x > 0.98) cameraTarget.x += panSpd;
+  if(mouse.x < 0.02) cameraTarget.x -= panSpd;
+  if(mouse.y > 0.98) cameraTarget.z += panSpd;
+  if(mouse.y < 0.02) cameraTarget.z -= panSpd;
+  // bounds
+  cameraTarget.x = clamp(cameraTarget.x, -WORLD*0.45, WORLD*0.45);
+  cameraTarget.z = clamp(cameraTarget.z, -WORLD*0.45, WORLD*0.45);
+
+  const cx = cameraTarget.x + Math.cos(camAzim)*camDist;
+  const cz = cameraTarget.z + Math.sin(camAzim)*camDist;
+  camera.position.set(cx, camDist*0.85, cz);
+  camera.lookAt(cameraTarget.x, 0, cameraTarget.z);
+}
+
+/* =========================================================
+   SPAWNING & WAVES
+   ========================================================= */
+function spawnEnemyWave(){
+  // pick random fissure
+  const spawns = enemySpawners.filter(b=>!b.dead); if(!spawns.length) return;
+  const origin = spawns[Math.floor(Math.random()*spawns.length)];
+  const budget = Math.floor(8 + gameTime*0.25);
+  const types = [
+    {t:'drone',c:1,w:5},{t:'runner',c:1,w:3},{t:'maw',c:2,w:2},
+    {t:'shrieker',c:2,w:3},{t:'tyrant',c:6,w:Math.max(0,(gameTime-600)/200)}
+  ];
+  let rem = budget;
+  while(rem>0){
+    const pool = types.filter(x=>x.c<=rem);
+    if(!pool.length) break;
+    const pick = pool[Math.floor(Math.random()*pool.length)];
+    const u = new Unit(pick.t, TEAMS.ENEMY, {x:origin.pos.x+rand(6,-6), z:origin.pos.z+rand(6,-6)});
+    u.pos.y = getTerrainHeight(u.pos.x, u.pos.z);
+    rem -= pick.c;
+  }
+}
+function trySpawn(){
+  const enemies = units.filter(u=>u.team===TEAMS.ENEMY && !u.dead).length;
+  const maxAlive = Math.floor(25 + gameTime*0.08);
+  if(enemies < maxAlive){
+    spawnTimer -= 0.016;
+    if(spawnTimer <= 0){ spawnEnemyWave(); spawnTimer = Math.max(1.5, 6 - gameTime*0.005); }
+  }
+}
+
+/* =========================================================
+   DAY / NIGHT
+   ========================================================= */
+function updateDayNight(dt){
+  dayTime += dt / 180; // 3 minute cycle
+  if(dayTime>1) dayTime-=1;
+  const sun = scene.userData.sun; const hemi = scene.userData.hemi;
+  const angle = dayTime * Math.PI * 2; // 0=midnight? let's make 0 = dawn-ish
+  const h = Math.sin(angle);
+  isNight = h < -0.1;
+  const sunY = Math.sin(angle + Math.PI/2); // offset so 0.25=zenith
+  sun.position.set(Math.cos(angle)*50, sunY*60, Math.sin(angle)*20);
+  sun.intensity = clamp(1.4 + sunY*1.2, 0.2, 1.8);
+  hemi.intensity = clamp(0.5 + sunY*0.6, 0.15, 0.85);
+  const skyColor = new THREE.Color().setHSL(0.58, 0.35, clamp(0.55+sunY*0.3, 0.1, 0.6));
+  scene.background = skyColor; scene.fog.color = skyColor;
+  // building lights glow more at night
+  const em = isNight ? 0.45 : 0.15;
+  for(const b of buildings){
+    if(b.dead) continue;
+    b.mesh.traverse(c=>{ if(c.isMesh && c.material.emissive) c.material.emissiveIntensity = em + Math.sin(gameTime*3)*0.05; });
+  }
+  // UI day/night label
+  const dn = document.getElementById('dayNight');
+  dn.textContent = isNight ? '🌙 Night' : '☀ Day';
+  dn.className = 'panel ' + (isNight?'night':'');
+}
+
+/* =========================================================
+   INPUT & SELECTION
+   ========================================================= */
+const input = { w:0, a:0, s:0, d:0, q:0, e:0, shift:0 };
+window.addEventListener('keydown', e=>{ const k=e.key.toLowerCase(); if(k==='w') input.w=1; if(k==='a') input.a=1; if(k==='s') input.s=1; if(k==='d') input.d=1; if(k==='q') camAzim -= 0.05; if(k==='e') camAzim += 0.05; if(k==='shift') input.shift=1; handleHotkey(k); });
+window.addEventListener('keyup', e=>{ const k=e.key.toLowerCase(); if(k==='w') input.w=0; if(k==='a') input.a=0; if(k==='s') input.s=0; if(k==='d') input.d=0; if(k==='shift') input.shift=0; });
+window.addEventListener('mousemove', e=>{
+  mouse.x = (e.clientX / window.innerWidth)*2 - 1;
+  mouse.y = -(e.clientY / window.innerHeight)*2 + 1;
+  if(dragStart){
+    const sb = document.getElementById('selBox');
+    const x = Math.min(dragStart.x, e.clientX); const y = Math.min(dragStart.y, e.clientY);
+    const w = Math.abs(e.clientX-dragStart.x); const h = Math.abs(e.clientY-dragStart.y);
+    sb.style.display='block'; sb.style.left=x+'px'; sb.style.top=y+'px'; sb.style.width=w+'px'; sb.style.height=h+'px';
+  }
+  if(buildMode && ghostMesh){
+    raycaster.setFromCamera(mouse, camera);
+    const hits = raycaster.intersectObject(cursorPlane);
+    if(hits.length){ const p=hits[0].point; ghostMesh.position.set(p.x, 0.15, p.z); ghostMesh.visible = canPlace(worldToGrid(p.x,p.z)); }
+  }
+});
+window.addEventListener('mousedown', e=>{
+  if(e.button===0){ // left
+    if(e.target.closest('.btn')) return; // ignore UI
+    dragStart = {x:e.clientX, y:e.clientY}; startSelection();
+  }
+});
+window.addEventListener('mouseup', e=>{
+  if(e.button===0 && dragStart){ finishSelection(e); dragStart=null; document.getElementById('selBox').style.display='none'; }
+});
+window.addEventListener('contextmenu', e=>{ e.preventDefault(); issueOrder(); });
+window.addEventListener('wheel', e=>{ camDist = clamp(camDist + e.deltaY*0.04, 12, 70); });
+
+let mouseWorld = {x:0,z:0};
+function updateMouseWorld(){
+  raycaster.setFromCamera(mouse, camera);
+  const h = raycaster.intersectObject(cursorPlane); if(h.length){ mouseWorld={x:h[0].point.x, z:h[0].point.z}; }
+}
+
+function startSelection(){}
+function finishSelection(e){
+  const r = new THREE.Vector2(dragStart.x/window.innerWidth*2-1, -(dragStart.y/window.innerHeight)*2+1);
+  const r2 = new THREE.Vector2(e.clientX/window.innerWidth*2-1, -(e.clientY/window.innerHeight)*2+1);
+  const minX=Math.min(r.x,r2.x), maxX=Math.max(r.x,r2.x);
+  const minY=Math.min(r.y,r2.y), maxY=Math.max(r.y,r2.y);
+  if(Math.abs(e.clientX-dragStart.x)<4 && Math.abs(e.clientY-dragStart.y)<4){
+    // single click
+    raycaster.setFromCamera(mouse, camera);
+    const hits = raycaster.intersectObjects(scene.children, true);
+    let found=null;
+    for(const h of hits){
+      let obj=h.object; while(obj.parent && obj.parent!==scene) obj=obj.parent;
+      const ent = entities.find(x=>x.mesh===obj);
+      if(ent && ent.team===TEAMS.PLAYER && (ent.type==='unit'||ent.type==='building')){ found=ent; break; }
+    }
+    if(!input.shift) clearSelection();
+    if(found){ selectEntity(found); }
+    else { // if buildmode and valid click, place buil
+      if(buildMode){ tryPlaceBuilding(); }
+    }
+    return;
+  }
+  // box select units only
+  if(!input.shift) clearSelection();
+  for(const u of units){
+    if(u.team!==TEAMS.PLAYER || u.dead || !u.mesh) continue;
+    const sp = screenPos(new THREE.Vector3(u.pos.x, u.pos.y+0.8, u.pos.z));
+    if(sp.x>=minX && sp.x<=maxX && sp.y>=minY && sp.y<=maxY) selectEntity(u);
+  }
+}
+
+function selectEntity(e){
+  e.select(true); selected.push(e);
+  updateInfoPanel();
+}
+function clearSelection(){ for(const s of selected){ if(!s.dead) s.select(false); } selected.length=0; updateInfoPanel(); }
+function issueOrder(){
+  if(!selected.length) return;
+  raycaster.setFromCamera(mouse, camera);
+  const hits = raycaster.intersectObjects(scene.children, true);
+  let targetEnt = null, ground = null;
+  for(const h of hits){
+    let obj=h.object; while(obj.parent && obj.parent!==scene) obj=obj.parent;
+    const ent = entities.find(x=>x.mesh===obj);
+    if(ent && ent.team===TEAMS.ENEMY && !ent.dead){ targetEnt=ent; break; }
+    if(!ground && h.object === cursorPlane) ground = h.point;
+  }
+  if(targetEnt){
+    for(const s of selected){ if(s.type==='unit' && !s.dead){ s.state='attack'; s.targetEnt=targetEnt; s.moveTarget=null; } }
+    sfxNotify();
+  } else if(ground){
+    // formation
+    const targets = computeFormation(selected, {x:ground.x, z:ground.z});
+    for(let i=0;i<selected.length;i++){ const s=selected[i]; if(s.type==='unit' && !s.dead){ s.state='move'; s.targetEnt=null; s.moveTarget=targets[i]; }}
+    tone(340,'sine',0.08,0.03);
+  }
+}
+
+function computeFormation(sel, center){
+  if(sel.length===1) return [center];
+  let cx=0, cz=0; for(const s of sel){ cx+=s.pos.x; cz+=s.pos.z; } cx/=sel.length; cz/=sel.length;
+  const pts = sel.map((s,i)=>{
+    const ox=s.pos.x-cx, oz=s.pos.z-cz;
+    const t={x:center.x+ox, z:center.z+oz}; t.y=getTerrainHeight(t.x,t.z); return t;
+  });
+  return pts;
+}
+
+/* =========================================================
+   BUILD SYSTEM
+   ========================================================= */
+const BUILD_DEFS = {
+  extractor: { cost:{lum:80,stn:20}, label:'Crystal Extractor (Z)', req:['crystal'], size:1 },
+  siphon:    { cost:{lum:60,stn:20}, label:'Essence Siphon (X)', req:['essence'], size:1 },
+  quarry:    { cost:{lum:40,stn:0},  label:'Stone Quarry (C)', req:['stone'], size:1 },
+  barracks:  { cost:{lum:120,stn:60},label:'Barracks (V)', req:[], size:1 },
+  academy:   { cost:{lum:150,ess:50,stn:100}, label:'Academy (B)', req:[], size:1 },
+  resonator: { cost:{lum:80,stn:40}, label:'Resonator (N)', req:[], size:1 },
+  tower:     { cost:{lum:100,stn:40}, label:'Watchtower (M)', req:[], size:1 },
+  wall:      { cost:{lum:30,stn:15}, label:'Wall (,) or .', req:[], size:1 },
+};
+
+function setBuildMode(key){
+  if(!key || !BUILD_DEFS[key]){ exitBuildMode(); return; }
+  buildMode=key;
+  if(ghostMesh){ scene.remove(ghostMesh); ghostMesh=null; }
+  // ghost mesh simple ring
+  const g = new THREE.Group();
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.9,1.1,16,1), new THREE.MeshBasicMaterial({color:0x00e5ff, transparent:true, opacity:0.5, side:THREE.DoubleSide}));
+  ring.rotation.x=-Math.PI/2; g.add(ring);
+  scene.add(g); ghostMesh=g; ghostMesh.visible=false;
+}
+function exitBuildMode(){ buildMode=null; if(ghostMesh){ scene.remove(ghostMesh); ghostMesh=null; } }
+function canPlace(g){
+  if(g.x<0||g.x>=CFG.CELLS||g.z<0||g.z>=CFG.CELLS) return false;
+  if(gridBlocked[g.z*CFG.CELLS+g.x]) return false;
+  // must be near player building (territory)
+  let near=false;
+  for(const b of buildings){
+    if(b.dead || b.kind==='fissure') continue;
+    const dx=b.gridX-g.x, dz=b.gridZ-g.z; if(dx*dx+dz*dz <= 12){ near=true; break; }
+  }
+  if(!near) return false;
+  // resource-specific?
+  const def = BUILD_DEFS[buildMode];
+  if(def.req.includes('crystal')){ /* must be on crystal node? for now ignore */ }
+  // resource cost check
+  if(playerRes.lum < (def.cost.lum||0) + playerRes.ess < (def.cost.ess||0)) return false; // actually just check and show red
+  return true;
+}
+function tryPlaceBuilding(){
+  if(!buildMode) return;
+  const g = worldToGrid(ghostMesh.position.x, ghostMesh.position.z);
+  const def = BUILD_DEFS[buildMode];
+  if(playerRes.lum < (def.cost.lum||0) || playerRes.ess < (def.cost.ess||0) || playerRes.stn < (def.cost.stn||0)){
+    notify('Not enough resources','#ff5252'); return;
+  }
+  if(!canPlace(g)){ notify('Invalid placement','#ff5252'); return; }
+  playerRes.lum -= (def.cost.lum||0); playerRes.ess -= (def.cost.ess||0); playerRes.stn -= (def.cost.stn||0);
+  sfxBuild();
+  // create construction site
+  const pos = gridToWorld(g.x, g.z); pos.y = getTerrainHeight(pos.x, pos.z);
+  const b = new Building(buildMode, pos, { team:TEAMS.PLAYER, isConstruction:true, gx:g.x, gz:g.z });
+  // temporarily unblock grid until built? keep blocked for pathing? keep blocked so enemies path around
+  markGrid(g.x,g.z,1);
+  buildings.push(b); entities.push(b);
+  // assign nearest idle worker automatically
+  let best=null, bd=Infinity;
+  for(const u of units){ if(u.team===TEAMS.PLAYER && u.unitType==='worker' && u.state==='idle'){ const d=dist2(u.pos,pos); if(d<bd){ bd=d; best=u; } } }
+  if(best){ best.state='build'; best.buildingRef=b; }
+  exitBuildMode(); recomputeFlow();
+}
+
+function handleHotkey(k){
+  if(k==='z') setBuildMode('extractor');
+  if(k==='x') setBuildMode('siphon');
+  if(k==='c') setBuildMode('quarry');
+  if(k==='v') setBuildMode('barracks');
+  if(k==='b') setBuildMode('academy');
+  if(k==='n') setBuildMode('resonator');
+  if(k==='m') setBuildMode('tower');
+  if(k===',' || k==='.') setBuildMode('wall');
+}
+
+/* =========================================================
+   UI MANAGEMENT
+   ========================================================= */
+const ui = {
+  infoTitle: document.getElementById('infoTitle'),
+  infoSub: document.getElementById('infoSub'),
+  infoHpFill: document.getElementById('infoHpFill'),
+  actions: document.getElementById('actions'),
+  rLum: document.getElementById('rLum'), rEss: document.getElementById('rEss'), rStn: document.getElementById('rStn'),
+  rPop: document.getElementById('rPop'), rPopMax: document.getElementById('rPopMax'),
+  timer: document.getElementById('timer'),
+};
+function updateInfoPanel(){
+  ui.actions.innerHTML='';
+  if(selected.length===0){
+    ui.infoTitle.textContent='Lumina Command';
+    ui.infoSub.textContent='Select units or buildings';
+    ui.infoHpFill.style.width='100%'; return;
+  }
+  const leader = selected[0];
+  ui.infoTitle.textContent = leader.type==='unit' ? (leader.unitType.charAt(0).toUpperCase()+leader.unitType.slice(1)) : (leader.kind==='nexus'?'Prism Nexus':leader.kind);
+  ui.infoSub.textContent = `HP ${Math.ceil(leader.hp)}/${leader.maxHp}`;
+  ui.infoHpFill.style.width = (leader.hp/leader.maxHp*100)+'%';
+
+  // actions based on selection
+  if(leader.type==='building' && leader.kind==='barracks'){
+    addActionBtn('Light Sentinel (40L,1pop)', ()=>queueUnit('sentinel'));
+    addActionBtn('Arc Lancer (60L,10E,1pop)', ()=>queueUnit('lancer'));
+    addActionBtn('Bulwark (100L,30S,2pop)', ()=>queueUnit('bulwark'));
+    addActionBtn('Sky Striker (80L,30E,1pop)', ()=>queueUnit('striker'));
+  }
+  if(leader.type==='building' && leader.kind==='nexus'){
+    addActionBtn('Recruit Worker (30L)', ()=>queueUnit('worker'));
+  }
+  if(leader.type==='building' && leader.kind==='academy'){
+    if(!techUnlocked.has('atk')) addActionBtn('Crystal Attunement (150L,40E)', ()=>research('atk'));
+    if(!techUnlocked.has('hp')) addActionBtn('Aetheric Plating (120L,60S)', ()=>research('hp'));
+    if(!techUnlocked.has('spd')) addActionBtn('Maglev Servos (100L,50E)', ()=>research('spd'));
+  }
+  if(leader.unitType==='hero'){
+    addActionBtn('Prismatic Nova', ()=>heroNova());
+  }
+  if(selected.length>=1 && selected.some(s=>s.type==='unit' && s.unitType==='worker')){
+    addActionBtn('Gather Crystals', ()=>orderGather('crystal'));
+    addActionBtn('Gather Essence', ()=>orderGather('essence'));
+    addActionBtn('Gather Stone', ()=>orderGather('stone'));
+  }
+}
+function addActionBtn(label, onClick){
+  const b = document.createElement('button'); b.className='btn'; b.textContent=label; b.onclick=onClick; ui.actions.appendChild(b);
+}
+function orderGather(type){
+  for(const s of selected){
+    if(s.type==='unit' && s.unitType==='worker' && !s.dead){ s.state='gather'; s.gatherType=type; s.findGatherTarget(); }
+  }
+}
+function queueUnit(type){
+  const costs = {
+    worker:{lum:30,pop:0},
+    sentinel:{lum:40,pop:1}, lancer:{lum:60,ess:10,pop:1},
+    bulwark:{lum:100,stn:30,pop:2}, striker:{lum:80,ess:30,pop:1},
+  };
+  const c = costs[type];
+  if(!c) return;
+  if(playerPop + (c.pop||0) > playerPopMax){ notify('Population cap reached','#ff5252'); return; }
+  if(playerRes.lum < (c.lum||0) || playerRes.ess < (c.ess||0) || playerRes.stn < (c.stn||0)){ notify('Not enough resources','#ff5252'); return; }
+  playerRes.lum -= (c.lum||0); playerRes.ess -= (c.ess||0)||0; playerRes.stn -= (c.stn||0)||0;
+  playerPop += (c.pop||0);
+  // spawn near barracks or nexus
+  const src = selected.find(e=>e.type==='building' && e.kind==='barracks') || buildings.find(b=>b.kind==='nexus');
+  const spawnPos = src ? {x:src.pos.x+rand(3,-3), z:src.pos.z+rand(3,-3)} : {x:0,z:0};
+  const u = new Unit(type, TEAMS.PLAYER, spawnPos);
+  u.pos.y = getTerrainHeight(u.pos.x, u.pos.z);
+  units.push(u); entities.push(u);
+  notify('Unit recruited','#00e676');
+}
+function research(key){
+  const costs = { atk:{lum:150,ess:40}, hp:{lum:120,stn:60}, spd:{lum:100,ess:50} };
+  if(techUnlocked.has(key)) return;
+  const c=costs[key];
+  if(playerRes.lum < (c.lum||0) || playerRes.ess < (c.ess||0) || playerRes.stn < (c.stn||0)){ notify('Not enough resources','#ff5252'); return; }
+  playerRes.lum -= c.lum; if(c.ess) playerRes.ess -= c.ess; if(c.stn) playerRes.stn -= c.stn;
+  techUnlocked.add(key); upgrades[key]++;
+  notify('Research complete: ' + key.toUpperCase(), '#ffd54f');
+  updateInfoPanel();
+}
+function heroNova(){
+  const hero = selected.find(s=>s.unitType==='hero');
+  if(!hero) return;
+  // aoe around hero
+  for(const u of units){ if(u.team===TEAMS.ENEMY && !u.dead && dist2(hero.pos, u.pos) < 36){ u.takeDamage(40, hero); } }
+  // particles
+  for(let i=0;i<20;i++) spawnParticle(hero.pos, new THREE.Color(0x00e5ff), {x:rand(6,-6),y:rand(8,2),z:rand(6,-6)}, 0.6);
+  notify('Prismatic Nova unleashed!','#00e5ff');
+}
+
+/* =========================================================
+   GAME INITIALIZATION
+   ========================================================= */
+function initGame(){
+  initAudio(); initThree(); createTerrain(); initFog(); initParticles(); recomputeFlow();
+  cameraTarget.set(0,0,0); camDist=48; camAzim=Math.PI/4;
+
+  // Nexus
+  const nexusPos = {x:0, z:0};
+  const nexus = new Building('nexus', nexusPos, { team:TEAMS.PLAYER, gx:Math.floor(CFG.CELLS/2), gz:Math.floor(CFG.CELLS/2), sight:10 });
+  entities.push(nexus); buildings.push(nexus);
+  markGrid(nexus.gridX, nexus.gridZ, 1);
+
+  // starting units
+  for(let i=0;i<3;i++){
+    const u = new Unit('worker', TEAMS.PLAYER, {x:rand(4,-4), z:rand(4,-4)});
+    u.pos.y = getTerrainHeight(u.pos.x, u.pos.z); entities.push(u);
+  }
+  const hero = new Unit('hero', TEAMS.PLAYER, {x:0, z:3});
+  hero.pos.y = getTerrainHeight(hero.pos.x, hero.pos.z); entities.push(hero);
+
+  // Resources
+  const rTypes = ['crystal','essence','stone'];
+  for(let i=0;i<30;i++){
+    const rx = rand(WORLD*0.4, -WORLD*0.4); const rz = rand(WORLD*0.4, -WORLD*0.4);
+    const d=Math.sqrt(rx*rx+rz*rz); if(d<10) continue;
+    const t = rTypes[Math.floor(Math.random()*3)];
+    const r = new ResourceNode(t, {x:rx, z:rz}); r.pos.y = getTerrainHeight(rx,rz); entities.push(r);
+  }
+
+  // Trees (decoration)
+  for(let i=0;i<60;i++){
+    const tx = rand(WORLD*0.45, -WORLD*0.45); const tz = rand(WORLD*0.45, -WORLD*0.45);
+    if(Math.sqrt(tx*tx+tz*tz) < 12) continue;
+    const tr = new THREE.Group();
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.1,0.18,1.2,5), new THREE.MeshToonMaterial({color:0x5d4037}));
+    trunk.position.y=0.6; tr.add(trunk);
+    const leaf = new THREE.Mesh(new THREE.IcosahedronGeometry(0.55,0), new THREE.MeshToonMaterial({color:0x8bc34a}));
+    leaf.position.y=1.3; tr.add(leaf);
+    tr.position.set(tx, getTerrainHeight(tx,tz), tz);
+    tr.traverse(c=>{ if(c.isMesh){ c.castShadow=true; c.receiveShadow=true; }});
+    scene.add(tr);
+  }
+
+  // Enemy Fissures
+  const angles = [0, Math.PI*2/3, Math.PI*4/3];
+  for(const ang of angles){
+    const fx = Math.cos(ang)*34; const fz = Math.sin(ang)*34;
+    const g = worldToGrid(fx,fz);
+    const f = new Building('fissure', {x:fx, z:fz}, { team:TEAMS.ENEMY, gx:g.x, gz:g.z, sight:8 });
+    entities.push(f); buildings.push(f); enemySpawners.push(f);
+  }
+
+  gameActive = true;
+  clock = new THREE.Clock();
+}
+
+/* =========================================================
+   MAIN LOOP
+   ========================================================= */
+function animate(){
+  requestAnimationFrame(animate);
+  if(!gameActive) return;
+  const rawDt = clock.getDelta();
+  const dt = Math.min(rawDt, 0.05);
+  gameTime += dt;
+  ui.timer.textContent = fmtTime(gameTime);
+  ui.rLum.textContent = Math.floor(playerRes.lum);
+  ui.rEss.textContent = Math.floor(playerRes.ess);
+  ui.rStn.textContent = Math.floor(playerRes.stn);
+  ui.rPop.textContent = playerPop; ui.rPopMax.textContent = playerPopMax;
+
+  updateDayNight(dt);
+  updateCamera(dt);
+  updateMouseWorld();
+
+  // passive income
+  playerRes.lum += dt * 0.3; playerRes.ess += dt * 0.08; playerRes.stn += dt * 0.05;
+
+  // entities update
+  for(let i=entities.length-1;i>=0;i--){
+    const e=entities[i]; if(e.dead){ entities.splice(i,1); continue; }
+    if(e.update) e.update(dt); if(e.type==='unit') e.updateHpBar();
+    else if(e.type==='building') e.updateHpBar();
+    else e.updateHpBar();
+    // enemies kill player -> defeat
+    if(e.kind==='nexus' && e.dead){ triggerDefeat(); }
+  }
+  // check victory (all fissures dead)
+  if(enemySpawners.length>0 && enemySpawners.every(f=>f.dead)){ triggerVictory(); }
+
+  // projectiles
+  for(let i=projectiles.length-1;i>=0;i--){ const p=projectiles[i]; p.update(dt); if(p.dead){
+    if(p.mesh) scene.remove(p.mesh); projectiles.splice(i,1);
+  }}
+
+  // particles
+  updateParticles(dt);
+
+  // wave director
+  trySpawn();
+
+  // fog update (throttled slightly for perf)
+  updateFogSight();
+
+  renderer.render(scene, camera);
+}
+
+/* =========================================================
+   VICTORY / DEFEAT
+   ========================================================= */
+function triggerVictory(){
+  gameActive=false;
+  document.getElementById('overlay').innerHTML = '<h1>VICTORY</h1><p>The Umbral Fissures have been sealed. The realm is safe.</p><button class="btn" onclick="location.reload()">Restart</button>';
+  document.getElementById('overlay').style.display='flex';
+  sfxNotify();
+}
+function triggerDefeat(){
+  gameActive=false;
+  document.getElementById('overlay').innerHTML = '<h1>DEFEAT</h1><p>The Nexus has fallen. The light fades.</p><button class="btn" onclick="location.reload()">Restart</button>';
+  document.getElementById('overlay').style.display='flex';
+  tone(200,'sawtooth',1.0,0.1);
+}
+
+/* =========================================================
+   SETUP
+   ========================================================= */
+document.getElementById('startBtn').addEventListener('click', ()=>{
+  initGame();
+  document.getElementById('overlay').style.display='none';
+  animate();
+});
+
+// passive resource generation from extractors (simplified as global boost)
+setInterval(()=>{
+  if(!gameActive) return;
+  for(const b of buildings){
+    if(b.dead) continue;
+    if(b.kind==='extractor') playerRes.lum += 1.2;
+    if(b.kind==='siphon') playerRes.ess += 0.5;
+    if(b.kind==='quarry') playerRes.stn += 0.8;
+  }
+},1000);
+
+</script>
+</body>
+</html>
