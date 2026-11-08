@@ -932,7 +932,7 @@ Testing different LLMs to do software tasks
 | **Gemini 3 flash**    | **2/10** |
 | **Gemini 2.5**        | **1/10** |
 | **Gemma 4 31B**       | **1/10** |
-| **ChatGPT 6.1**       | **1/10** |
+| **ChatGPT 6.1**       | **6/10** |
 | **ChatGPT 6**         | **6/10** |
 | **ChatGPT 5.6**       | **1/10** |
 | **ChatGPT 5.5**       | **3/10** |
