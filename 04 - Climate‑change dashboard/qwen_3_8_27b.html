@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sofia Climate Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --panel-border: #334155;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --accent: #38bdf8;
+    --hot: #f97316;
+    --cold: #3b82f6;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 20px;
+  }
+  header {
+    max-width: 1200px;
+    margin: 0 auto 20px;
+    text-align: center;
+  }
+  header h1 { font-size: 1.8rem; margin-bottom: 4px; }
+  header p { color: var(--muted); font-size: 0.95rem; }
+  .container { max-width: 1200px; margin: 0 auto; }
+
+  .controls {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 12px;
+    padding: 16px 20px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 20px;
+  }
+  .controls label { font-size: 0.9rem; color: var(--muted); }
+  .controls select {
+    background: #0f172a;
+    color: var(--text);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 0.95rem;
+    cursor: pointer;
+  }
+  .controls select:focus { outline: 2px solid var(--accent); }
+  #rangeLabel { font-weight: 600; color: var(--accent); min-width: 140px; text-align: center; }
+
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 14px;
+    margin-bottom: 20px;
+  }
+  .stat-card {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 12px;
+    padding: 14px 16px;
+  }
+  .stat-card .label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 6px; }
+  .stat-card .value { font-size: 1.4rem; font-weight: 700; }
+  .stat-card .sub { font-size: 0.78rem; color: var(--muted); margin-top: 4px; }
+  .value.hot { color: var(--hot); }
+  .value.cold { color: var(--cold); }
+  .value.accent { color: var(--accent); }
+  .value.warm-trend { color: #facc15; }
+  .value.cool-trend { color: #60a5fa; }
+
+  .charts-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .chart-card {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 12px;
+    padding: 16px;
+  }
+  .chart-card.full { grid-column: 1 / -1; }
+  .chart-card h2 { font-size: 1rem; margin-bottom: 12px; color: var(--text); }
+  .chart-wrap { position: relative; height: 300px; }
+
+  #status {
+    text-align: center;
+    padding: 40px;
+    color: var(--muted);
+  }
+  #status.error { color: #f87171; font-weight: 600; }
+
+  @media (max-width: 800px) {
+    .charts-grid { grid-template-columns: 1fr; }
+    .chart-card.full { grid-column: auto; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🌍 Sofia Climate Dashboard</h1>
+  <p>Daily temperature records, 1952 – 2021 · Station data (TAVG / TMAX / TMIN)</p>
+</header>
+
+<div class="container">
+
+  <div class="controls">
+    <label for="startYear">From year:</label>
+    <select id="startYear"></select>
+    <label for="endYear">To year:</label>
+    <select id="endYear"></select>
+    <span id="rangeLabel"></span>
+  </div>
+
+  <div id="status">Loading data…</div>
+
+  <div id="dashboard" style="display:none">
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="label">Overall Mean (TAVG)</div>
+        <div class="value accent" id="statMean">–</div>
+        <div class="sub" id="statMeanSub"></div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Warming Trend</div>
+        <div class="value" id="statTrend">–</div>
+        <div class="sub" id="statTrendSub"></div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Hottest Year</div>
+        <div class="value hot" id="statHotYear">–</div>
+        <div class="sub" id="statHotYearSub"></div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Coldest Year</div>
+        <div class="value cold" id="statColdYear">–</div>
+        <div class="sub" id="statColdYearSub"></div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Very Hot Days (TMAX ≥ 30 °C)</div>
+        <div class="value hot" id="statHotDays">–</div>
+        <div class="sub" id="statHotDaysSub"></div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Very Cold Days (TMIN ≤ −10 °C)</div>
+        <div class="value cold" id="statColdDays">–</div>
+        <div class="sub" id="statColdDaysSub"></div>
+      </div>
+    </div>
+
+    <div class="charts-grid">
+      <div class="chart-card full">
+        <h2>Yearly Mean Temperature (°C)</h2>
+        <div class="chart-wrap"><canvas id="annualChart"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <h2>Monthly Mean Temperature (°C)</h2>
+        <div class="chart-wrap"><canvas id="monthlyChart"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <h2>Very Hot / Very Cold Days per Year</h2>
+        <div class="chart-wrap"><canvas id="extremesChart"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  const CSV_FILE = "temperature_Sofia_2809794_1952-01-01 - 2021-11-28.csv";
+  const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const HOT_THRESHOLD = 30;    // TMAX >= 30 °C
+  const COLD_THRESHOLD = -10;  // TMIN <= -10 °C
+
+  let allRows = [];   // { date: Date, year, month, tavg, tmax, tmin }
+  let minYear = null, maxYear = null;
+
+  let annualChart, monthlyChart, extremesChart;
+
+  // ---------- CSV loading & parsing ----------
+
+  async function loadCSV() {
+    const resp = await fetch(CSV_FILE);
+    if (!resp.ok) throw new Error("HTTP " + resp.status + " fetching CSV");
+    const text = await resp.text();
+    parseCSV(text);
+  }
+
+  function parseCSV(text) {
+    const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
+    if (lines.length < 2) throw new Error("CSV file appears to be empty.");
+
+    // Detect delimiter (comma or semicolon) from header
+    const headerLine = lines[0];
+    const delim = headerLine.includes(";") ? ";" : ",";
+    const headers = headerLine.split(delim).map(h => h.trim().toUpperCase());
+
+    const idx = {
+      date: headers.findIndex(h => h === "DATE"),
+      tavg: headers.findIndex(h => h === "TAVG"),
+      tmax: headers.findIndex(h => h === "TMAX"),
+      tmin: headers.findIndex(h => h === "TMIN")
+    };
+    if (idx.date < 0 || idx.tavg < 0 || idx.tmax < 0 || idx.tmin < 0) {
+      throw new Error("Required columns (DATE, TAVG, TMAX, TMIN) not found. Found: " + headers.join(", "));
+    }
+
+    const rows = [];
+    for (let i = 1; i < lines.length; i++) {
+      const parts = lines[i].split(delim);
+      const dateStr = (parts[idx.date] || "").trim();
+      // Accept "YYYY-MM-DD" or "YYYYMMDD"
+      let m = dateStr.match(/^(\d{4})-?(\d{2})-?(\d{2})/);
+      if (!m) continue;
+      const year = +m[1], month = +m[2], day = +m[3];
+
+      const tavg = parseFloat(parts[idx.tavg]);
+      const tmax = parseFloat(parts[idx.tmax]);
+      const tmin = parseFloat(parts[idx.tmin]);
+      if (isNaN(tavg) || isNaN(tmax) || isNaN(tmin)) continue; // skip missing values
+
+      const date = new Date(year, month - 1, day);
+      if (isNaN(date.getTime())) continue;
+
+      rows.push({
+        year, month,
+        tavg: tavg / 10,   // tenths of a degree -> °C
+        tmax: tmax / 10,
+        tmin: tmin / 10
+      });
+    }
+
+    if (rows.length === 0) throw new Error("No valid data rows parsed.");
+    rows.sort((a, b) => a.year - b.year || a.month - b.month);
+
+    allRows = rows;
+    minYear = rows[0].year;
+    maxYear = rows[rows.length - 1].year;
+  }
+
+  // ---------- Aggregation ----------
+
+  function linearTrend(years, values) {
+    // Least-squares slope (°C per year)
+    const n = years.length;
+    if (n < 2) return 0;
+    const meanX = years.reduce((s, x) => s + x, 0) / n;
+    const meanY = values.reduce((s, y) => s + y, 0) / n;
+    let num = 0, den = 0;
+    for (let i = 0; i < n; i++) {
+      num += (years[i] - meanX) * (values[i] - meanY);
+      den += (years[i] - meanX) ** 2;
+    }
+    return den === 0 ? 0 : num / den;
+  }
+
+  function computeAggregates(startYear, endYear) {
+    const rows = allRows.filter(r => r.year >= startYear && r.year <= endYear);
+    if (rows.length === 0) return null;
+
+    // Yearly aggregates
+    const byYear = new Map();
+    for (const r of rows) {
+      if (!byYear.has(r.year)) byYear.set(r.year, { sum: 0, n: 0, maxT: -Infinity, minT: Infinity, hot: 0, cold: 0 });
+      const y = byYear.get(r.year);
+      y.sum += r.tavg; y.n++;
+      if (r.tmax > y.maxT) y.maxT = r.tmax;
+      if (r.tmin < y.minT) y.minT = r.tmin;
+      if (r.tmax >= HOT_THRESHOLD) y.hot++;
+      if (r.tmin <= COLD_THRESHOLD) y.cold++;
+    }
+
+    const years = [...byYear.keys()].sort((a, b) => a - b);
+    const annual = years.map(y => {
+      const d = byYear.get(y);
+      return {
+        year: y,
+        mean: d.sum / d.n,
+        max: d.maxT,
+        min: d.minT,
+        hot: d.hot,
+        cold: d.cold
+      };
+    });
+
+    // Monthly means (averaged over all selected years)
+    const monthlySums = new Array(12).fill(0);
+    const monthlyCounts = new Array(12).fill(0);
+    for (const r of rows) {
+      monthlySums[r.month - 1] += r.tavg;
+      monthlyCounts[r.month - 1]++;
+    }
+    const monthlyMeans = monthlySums.map((s, i) => monthlyCounts[i] ? s / monthlyCounts[i] : null);
+
+    // Overall stats
+    const totalSum = rows.reduce((s, r) => s + r.tavg, 0);
+    const overallMean = totalSum / rows.length;
+    const trendPerYear = linearTrend(years, annual.map(a => a.mean));
+    const trendPerDecade = trendPerYear * 10;
+
+    let hottest = annual[0], coldest = annual[0];
+    for (const a of annual) {
+      if (a.mean > hottest.mean) hottest = a;
+      if (a.mean < coldest.mean) coldest = a;
+    }
+
+    const totalHot = rows.reduce((s, r) => s + (r.tmax >= HOT_THRESHOLD ? 1 : 0), 0);
+    const totalCold = rows.reduce((s, r) => s + (r.tmin <= COLD_THRESHOLD ? 1 : 0), 0);
+    const absMax = rows.reduce((m, r) => Math.max(m, r.tmax), -Infinity);
+    const absMin = rows.reduce((m, r) => Math.min(m, r.tmin), Infinity);
+
+    return {
+      annual, monthlyMeans, overallMean, trendPerYear, trendPerDecade,
+      hottest, coldest, totalHot, totalCold, absMax, absMin, nDays: rows.length
+    };
+  }
+
+  // ---------- UI ----------
+
+  function fmt(v, digits = 1) {
+    return v == null ? "–" : v.toFixed(digits);
+  }
+
+  function populateYearSelects() {
+    const startSel = document.getElementById("startYear");
+    const endSel = document.getElementById("endYear");
+    const options = [];
+    for (let y = minYear; y <= maxYear; y++) options.push(y);
+
+    startSel.innerHTML = options.map(y => `<option value="${y}">${y}</option>`).join("");
+    endSel.innerHTML = options.map(y => `<option value="${y}">${y}</option>`).join("");
+    startSel.value = minYear;
+    endSel.value = maxYear;
+  }
+
+  function update() {
+    const startYear = +document.getElementById("startYear").value;
+    const endYear = +document.getElementById("endYear").value;
+    if (startYear > endYear) {
+      // swap values in UI
+      const s = document.getElementById("startYear");
+      const e = document.getElementById("endYear");
+      const tmp = s.value; s.value = e.value; e.value = tmp;
+      return update();
+    }
+
+    document.getElementById("rangeLabel").textContent = `${startYear} – ${endYear}`;
+
+    const agg = computeAggregates(startYear, endYear);
+    if (!agg) return;
+
+    // --- Stat cards ---
+    document.getElementById("statMean").textContent = fmt(agg.overallMean) + " °C";
+    document.getElementById("statMeanSub").textContent =
+      `${agg.nDays.toLocaleString()} days · range ${fmt(agg.absMin)} to ${fmt(agg.absMax)} °C`;
+
+    const trendEl = document.getElementById("statTrend");
+    trendEl.textContent = (agg.trendPerDecade >= 0 ? "+" : "") + fmt(agg.trendPerDecade, 2) + " °C/decade";
+    trendEl.className = "value " + (agg.trendPerDecade >= 0 ? "warm-trend" : "cool-trend");
+    document.getElementById("statTrendSub").textContent =
+      "linear fit of yearly means (" + startYear + "–" + endYear + ")";
+
+    document.getElementById("statHotYear").textContent = agg.hottest.year;
+    document.getElementById("statHotYearSub").textContent = fmt(agg.hottest.mean) + " °C mean";
+    document.getElementById("statColdYear").textContent = agg.coldest.year;
+    document.getElementById("statColdYearSub").textContent = fmt(agg.coldest.mean) + " °C mean";
+
+    document.getElementById("statHotDays").textContent = agg.totalHot.toLocaleString();
+    document.getElementById("statHotDaysSub").textContent =
+      fmt(agg.totalHot / agg.nDays * 365, 1) + " per year avg";
+    document.getElementById("statColdDays").textContent = agg.totalCold.toLocaleString();
+    document.getElementById("statColdDaysSub").textContent =
+      fmt(agg.totalCold / agg.nDays * 365, 1) + " per year avg";
+
+    // --- Charts ---
+    const yearLabels = agg.annual.map(a => a.year);
+
+    // Annual mean line chart
+    annualChart.data.labels = yearLabels;
+    annualChart.data.datasets[0].data = agg.annual.map(a => +a.mean.toFixed(2));
+    annualChart.data.datasets[1].data = agg.annual.map(a => +a.max.toFixed(2));
+    annualChart.data.datasets[2].data = agg.annual.map(a => +a.min.toFixed(2));
+    annualChart.update();
+
+    // Monthly mean chart
+    monthlyChart.data.datasets[0].data = agg.monthlyMeans.map(v => v == null ? null : +v.toFixed(2));
+    monthlyChart.update();
+
+    // Extremes bar chart
+    extremesChart.data.labels = yearLabels;
+    extremesChart.data.datasets[0].data = agg.annual.map(a => a.hot);
+    extremesChart.data.datasets[1].data = agg.annual.map(a => a.cold);
+    extremesChart.update();
+  }
+
+  function initCharts() {
+    Chart.defaults.color = "#94a3b8";
+    Chart.defaults.borderColor = "rgba(148,163,184,0.15)";
+    Chart.defaults.font.family = '"Segoe UI", system-ui, sans-serif';
+
+    const gridOpts = { color: "rgba(148,163,184,0.12)" };
+
+    annualChart = new Chart(document.getElementById("annualChart"), {
+      type: "line",
+      data: {
+        labels: [],
+        datasets: [
+          {
+            label: "Yearly mean (°C)",
+            data: [],
+            borderColor: "#38bdf8",
+            backgroundColor: "rgba(56,189,248,0.15)",
+            borderWidth: 2,
+            pointRadius: 2,
+            tension: 0.25,
+            fill: true
+          },
+          {
+            label: "Warmest day (°C)",
+            data: [],
+            borderColor: "#f97316",
+            borderWidth: 1,
+            borderDash: [4, 4],
+            pointRadius: 0,
+            tension: 0.25
+          },
+          {
+            label: "Coldest day (°C)",
+            data: [],
+            borderColor: "#3b82f6",
+            borderWidth: 1,
+            borderDash: [4, 4],
+            pointRadius: 0,
+            tension: 0.25
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: "index", intersect: false },
+        plugins: {
+          tooltip: {
+            callbacks: {
+              label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y} °C`
+            }
+          }
+        },
+        scales: {
+          y: { grid: gridOpts, title: { display: true, text: "°C" } },
+          x: { grid: gridOpts }
+        }
+      }
+    });
+
+    monthlyChart = new Chart(document.getElementById("monthlyChart"), {
+      type: "line",
+      data: {
+        labels: MONTHS,
+        datasets: [{
+          label: "Monthly mean (°C)",
+          data: [],
+          borderColor: "#a78bfa",
+          backgroundColor: "rgba(167,139,250,0.2)",
+          borderWidth: 2,
+          pointRadius: 4,
+          pointBackgroundColor: "#a78bfa",
+          tension: 0.35,
+          fill: true
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          tooltip: {
+            callbacks: { label: ctx => ` Mean: ${ctx.parsed.y} °C` }
+          }
+        },
+        scales: {
+          y: { grid: gridOpts, title: { display: true, text: "°C" } },
+          x: { grid: gridOpts }
+        }
+      }
+    });
+
+    extremesChart = new Chart(document.getElementById("extremesChart"), {
+      type: "bar",
+      data: {
+        labels: [],
+        datasets: [
+          {
+            label: "Very hot days (TMAX ≥ 30 °C)",
+            data: [],
+            backgroundColor: "rgba(249,115,22,0.75)",
+            borderRadius: 2
+          },
+          {
+            label: "Very cold days (TMIN ≤ −10 °C)",
+            data: [],
+            backgroundColor: "rgba(59,130,246,0.75)",
+            borderRadius: 2
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: "index", intersect: false },
+        plugins: {
+          tooltip: {
+            callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y} days` }
+          }
+        },
+        scales: {
+          y: { grid: gridOpts, beginAtZero: true, title: { display: true, text: "days / year" } },
+          x: { grid: gridOpts, ticks: { maxRotation: 90, autoSkip: true, maxTicksLimit: 20 } }
+        }
+      }
+    });
+  }
+
+  // ---------- Boot ----------
+
+  async function init() {
+    const status = document.getElementById("status");
+    try {
+      await loadCSV();
+    } catch (err) {
+      status.textContent = "⚠ Could not load CSV file: " + err.message +
+        ". Make sure the file \"" + CSV_FILE + "\" is in the same folder and served over HTTP (e.g. `python -m http.server`).";
+      status.classList.add("error");
+      return;
+    }
+
+    status.style.display = "none";
+    document.getElementById("dashboard").style.display = "block";
+
+    populateYearSelects();
+    initCharts();
+
+    document.getElementById("startYear").addEventListener("change", update);
+    document.getElementById("endYear").addEventListener("change", update);
+
+    update();
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>

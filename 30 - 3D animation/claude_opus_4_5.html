@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Japanese Garden - Cinematic 3D</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            overflow: hidden; 
+            background: linear-gradient(180deg, #e8f0f5 0%, #ffffff 100%);
+            font-family: 'Segoe UI', sans-serif;
+        }
+        canvas { display: block; }
+        #info {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #5a3d3d;
+            font-size: 14px;
+            opacity: 0.7;
+            text-align: center;
+            pointer-events: none;
+        }
+        #loading {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: linear-gradient(135deg, #fff5f8 0%, #f8fff5 100%);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            transition: opacity 1s;
+        }
+        #loading.hidden { opacity: 0; pointer-events: none; }
+        .loader {
+            width: 60px; height: 60px;
+            border: 4px solid #ffb7c5;
+            border-top-color: #c41e3a;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        #loading p { margin-top: 20px; color: #8b4557; }
+    </style>
+</head>
+<body>
+    <div id="loading">
+        <div class="loader"></div>
+        <p>Loading Japanese Garden...</p>
+    </div>
+    <div id="info">🌸 Drag to rotate • Scroll to zoom 🌸</div>
+    <script>
+    // Minimal Three.js-like 3D Engine embedded
+    (function() {
+        const canvas = document.createElement('canvas');
+        document.body.appendChild(canvas);
+        const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+        
+        let width = window.innerWidth;
+        let height = window.innerHeight;
+        canvas.width = width;
+        canvas.height = height;
+        
+        // Matrix utilities
+        const mat4 = {
+            create: () => new Float32Array([1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]),
+            perspective: (out, fovy, aspect, near, far) => {
+                const f = 1.0 / Math.tan(fovy / 2);
+                out[0] = f / aspect; out[1] = 0; out[2] = 0; out[3] = 0;
+                out[4] = 0; out[5] = f; out[6] = 0; out[7] = 0;
+                out[8] = 0; out[9] = 0; out[10] = (far + near) / (near - far); out[11] = -1;
+                out[12] = 0; out[13] = 0; out[14] = (2 * far * near) / (near - far); out[15] = 0;
+                return out;
+            },
+            lookAt: (out, eye, center, up) => {
+                let x0, x1, x2, y0, y1, y2, z0, z1, z2, len;
+                z0 = eye[0] - center[0]; z1 = eye[1] - center[1]; z2 = eye[2] - center[2];
+                len = 1 / Math.sqrt(z0*z0 + z1*z1 + z2*z2);
+                z0 *= len; z1 *= len; z2 *= len;
+                x0 = up[1]*z2 - up[2]*z1; x1 = up[2]*z0 - up[0]*z2; x2 = up[0]*z1 - up[1]*z0;
+                len = Math.sqrt(x0*x0 + x1*x1 + x2*x2);
+                if(len) { len = 1/len; x0 *= len; x1 *= len; x2 *= len; }
+                y0 = z1*x2 - z2*x1; y1 = z2*x0 - z0*x2; y2 = z0*x1 - z1*x0;
+                out[0] = x0; out[1] = y0; out[2] = z0; out[3] = 0;
+                out[4] = x1; out[5] = y1; out[6] = z1; out[7] = 0;
+                out[8] = x2; out[9] = y2; out[10] = z2; out[11] = 0;
+                out[12] = -(x0*eye[0] + x1*eye[1] + x2*eye[2]);
+                out[13] = -(y0*eye[0] + y1*eye[1] + y2*eye[2]);
+                out[14] = -(z0*eye[0] + z1*eye[1] + z2*eye[2]);
+                out[15] = 1;
+                return out;
+            },
+            multiply: (out, a, b) => {
+                const a00 = a[0], a01 = a[1], a02 = a[2], a03 = a[3];
+                const a10 = a[4], a11 = a[5], a12 = a[6], a13 = a[7];
+                const a20 = a[8], a21 = a[9], a22 = a[10], a23 = a[11];
+                const a30 = a[12], a31 = a[13], a32 = a[14], a33 = a[15];
+                let b0 = b[0], b1 = b[1], b2 = b[2], b3 = b[3];
+                out[0] = b0*a00 + b1*a10 + b2*a20 + b3*a30;
+                out[1] = b0*a01 + b1*a11 + b2*a21 + b3*a31;
+                out[2] = b0*a02 + b1*a12 + b2*a22 + b3*a32;
+                out[3] = b0*a03 + b1*a13 + b2*a23 + b3*a33;
+                b0 = b[4]; b1 = b[5]; b2 = b[6]; b3 = b[7];
+                out[4] = b0*a00 + b1*a10 + b2*a20 + b3*a30;
+                out[5] = b0*a01 + b1*a11 + b2*a21 + b3*a31;
+                out[6] = b0*a02 + b1*a12 + b2*a22 + b3*a32;
+                out[7] = b0*a03 + b1*a13 + b2*a23 + b3*a33;
+                b0 = b[8]; b1 = b[9]; b2 = b[10]; b3 = b[11];
+                out[8] = b0*a00 + b1*a10 + b2*a20 + b3*a30;
+                out[9] = b0*a01 + b1*a11 + b2*a21 + b3*a31;
+                out[10] = b0*a02 + b1*a12 + b2*a22 + b3*a32;
+                out[11] = b0*a03 + b1*a13 + b2*a23 + b3*a33;
+                b0 = b[12]; b1 = b[13]; b2 = b[14]; b3 = b[15];
+                out[12] = b0*a00 + b1*a10 + b2*a20 + b3*a30;
+                out[13] = b0*a01 + b1*a11 + b2*a21 + b3*a31;
+                out[14] = b0*a02 + b1*a12 + b2*a22 + b3*a32;
+                out[15] = b0*a03 + b1*a13 + b2*a23 + b3*a33;
+                return out;
+            }
+        };
+
+        // Shaders
+        const vertexShaderSource = `
+            attribute vec3 aPosition;
+            attribute vec3 aNormal;
+            attribute vec3 aColor;
+            uniform mat4 uProjection;
+            uniform mat4 uView;
+            uniform mat4 uModel;
+            varying vec3 vColor;
+            varying vec3 vNormal;
+            varying vec3 vPosition;
+            varying float vDepth;
+            void main() {
+                vec4 worldPos = uModel * vec4(aPosition, 1.0);
+                vec4 viewPos = uView * worldPos;
+                gl_Position = uProjection * viewPos;
+                vColor = aColor;
+                vNormal = mat3(uModel) * aNormal;
+                vPosition = worldPos.xyz;
+                vDepth = -viewPos.z;
+            }
+        `;
+
+        const fragmentShaderSource = `
+            precision mediump float;
+            varying vec3 vColor;
+            varying vec3 vNormal;
+            varying vec3 vPosition;
+            varying float vDepth;
+            uniform vec3 uLightDir;
+            uniform float uTime;
+            uniform float uFocalDistance;
+            uniform float uAperture;
+            
+            void main() {
+                vec3 normal = normalize(vNormal);
+                vec3 lightDir = normalize(uLightDir);
+                float diff = max(dot(normal, lightDir), 0.0);
+                float ambient = 0.4;
+                vec3 lighting = vColor * (ambient + diff * 0.7);
+                
+                // Soft shadows/AO simulation
+                float ao = 0.9 + 0.1 * normal.y;
+                lighting *= ao;
+                
+                // Rim light
+                vec3 viewDir = normalize(-vPosition);
+                float rim = pow(1.0 - max(dot(normal, viewDir), 0.0), 3.0);
+                lighting += rim * 0.15 * vec3(1.0, 0.95, 0.9);
+                
+                // Depth of field blur (simulated)
+                float blur = abs(vDepth - uFocalDistance) * uAperture;
+                blur = clamp(blur, 0.0, 1.0);
+                
+                // Atmospheric perspective
+                float fog = 1.0 - exp(-vDepth * 0.015);
+                vec3 fogColor = vec3(0.95, 0.97, 1.0);
+                lighting = mix(lighting, fogColor, fog * 0.3);
+                
+                // Tone mapping
+                lighting = lighting / (lighting + vec3(1.0));
+                lighting = pow(lighting, vec3(1.0/2.2));
+                
+                gl_FragColor = vec4(lighting, 1.0 - blur * 0.3);
+            }
+        `;
+
+        // Compile shaders
+        function createShader(type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            return shader;
+        }
+
+        const vertexShader = createShader(gl.VERTEX_SHADER, vertexShaderSource);
+        const fragmentShader = createShader(gl.FRAGMENT_SHADER, fragmentShaderSource);
+
+        const program = gl.createProgram();
+        gl.attachShader(program, vertexShader);
+        gl.attachShader(program, fragmentShader);
+        gl.linkProgram(program);
+        gl.useProgram(program);
+
+        const aPosition = gl.getAttribLocation(program, 'aPosition');
+        const aNormal = gl.getAttribLocation(program, 'aNormal');
+        const aColor = gl.getAttribLocation(program, 'aColor');
+        const uProjection = gl.getUniformLocation(program, 'uProjection');
+        const uView = gl.getUniformLocation(program, 'uView');
+        const uModel = gl.getUniformLocation(program, 'uModel');
+        const uLightDir = gl.getUniformLocation(program, 'uLightDir');
+        const uTime = gl.getUniformLocation(program, 'uTime');
+        const uFocalDistance = gl.getUniformLocation(program, 'uFocalDistance');
+        const uAperture = gl.getUniformLocation(program, 'uAperture');
+
+        // Geometry generation
+        const meshes = [];
+
+        function addVertex(arr, x, y, z, nx, ny, nz, r, g, b) {
+            arr.push(x, y, z, nx, ny, nz, r, g, b);
+        }
+
+        function createBox(cx, cy, cz, w, h, d, r, g, b) {
+            const v = [];
+            const hw = w/2, hh = h/2, hd = d/2;
+            // Front
+            addVertex(v, cx-hw, cy-hh, cz+hd, 0, 0, 1, r, g, b);
+            addVertex(v, cx+hw, cy-hh, cz+hd, 0, 0, 1, r, g, b);
+            addVertex(v, cx+hw, cy+hh, cz+hd, 0, 0, 1, r, g, b);
+            addVertex(v, cx-hw, cy-hh, cz+hd, 0, 0, 1, r, g, b);
+            addVertex(v, cx+hw, cy+hh, cz+hd, 0, 0, 1, r, g, b);
+            addVertex(v, cx-hw, cy+hh, cz+hd, 0, 0, 1, r, g, b);
+            // Back
+            addVertex(v, cx+hw, cy-hh, cz-hd, 0, 0, -1, r*0.85, g*0.85, b*0.85);
+            addVertex(v, cx-hw, cy-hh, cz-hd, 0, 0, -1, r*0.85, g*0.85, b*0.85);
+            addVertex(v, cx-hw, cy+hh, cz-hd, 0, 0, -1, r*0.85, g*0.85, b*0.85);
+            addVertex(v, cx+hw, cy-hh, cz-hd, 0, 0, -1, r*0.85, g*0.85, b*0.85);
+            addVertex(v, cx-hw, cy+hh, cz-hd, 0, 0, -1, r*0.85, g*0.85, b*0.85);
+            addVertex(v, cx+hw, cy+hh, cz-hd, 0, 0, -1, r*0.85, g*0.85, b*0.85);
+            // Top
+            addVertex(v, cx-hw, cy+hh, cz+hd, 0, 1, 0, r*1.1, g*1.1, b*1.1);
+            addVertex(v, cx+hw, cy+hh, cz+hd, 0, 1, 0, r*1.1, g*1.1, b*1.1);
+            addVertex(v, cx+hw, cy+hh, cz-hd, 0, 1, 0, r*1.1, g*1.1, b*1.1);
+            addVertex(v, cx-hw, cy+hh, cz+hd, 0, 1, 0, r*1.1, g*1.1, b*1.1);
+            addVertex(v, cx+hw, cy+hh, cz-hd, 0, 1, 0, r*1.1, g*1.1, b*1.1);
+            addVertex(v, cx-hw, cy+hh, cz-hd, 0, 1, 0, r*1.1, g*1.1, b*1.1);
+            // Bottom
+            addVertex(v, cx-hw, cy-hh, cz-hd, 0, -1, 0, r*0.7, g*0.7, b*0.7);
+            addVertex(v, cx+hw, cy-hh, cz-hd, 0, -1, 0, r*0.7, g*0.7, b*0.7);
+            addVertex(v, cx+hw, cy-hh, cz+hd, 0, -1, 0, r*0.7, g*0.7, b*0.7);
+            addVertex(v, cx-hw, cy-hh, cz-hd, 0, -1, 0, r*0.7, g*0.7, b*0.7);
+            addVertex(v, cx+hw, cy-hh, cz+hd, 0, -1, 0, r*0.7, g*0.7, b*0.7);
+            addVertex(v, cx-hw, cy-hh, cz+hd, 0, -1, 0, r*0.7, g*0.7, b*0.7);
+            // Right
+            addVertex(v, cx+hw, cy-hh, cz+hd, 1, 0, 0, r*0.9, g*0.9, b*0.9);
+            addVertex(v, cx+hw, cy-hh, cz-hd, 1, 0, 0, r*0.9, g*0.9, b*0.9);
+            addVertex(v, cx+hw, cy+hh, cz-hd, 1, 0, 0, r*0.9, g*0.9, b*0.9);
+            addVertex(v, cx+hw, cy-hh, cz+hd, 1, 0, 0, r*0.9, g*0.9, b*0.9);
+            addVertex(v, cx+hw, cy+hh, cz-hd, 1, 0, 0, r*0.9, g*0.9, b*0.9);
+            addVertex(v, cx+hw, cy+hh, cz+hd, 1, 0, 0, r*0.9, g*0.9, b*0.9);
+            // Left
+            addVertex(v, cx-hw, cy-hh, cz-hd, -1, 0, 0, r*0.8, g*0.8, b*0.8);
+            addVertex(v, cx-hw, cy-hh, cz+hd, -1, 0, 0, r*0.8, g*0.8, b*0.8);
+            addVertex(v, cx-hw, cy+hh, cz+hd, -1, 0, 0, r*0.8, g*0.8, b*0.8);
+            addVertex(v, cx-hw, cy-hh, cz-hd, -1, 0, 0, r*0.8, g*0.8, b*0.8);
+            addVertex(v, cx-hw, cy+hh, cz+hd, -1, 0, 0, r*0.8, g*0.8, b*0.8);
+            addVertex(v, cx-hw, cy+hh, cz-hd, -1, 0, 0, r*0.8, g*0.8, b*0.8);
+            return v;
+        }
+
+        function createCylinder(cx, cy, cz, radius, height, segments, r, g, b) {
+            const v = [];
+            for (let i = 0; i < segments; i++) {
+                const a1 = (i / segments) * Math.PI * 2;
+                const a2 = ((i + 1) / segments) * Math.PI * 2;
+                const x1 = Math.cos(a1) * radius;
+                const z1 = Math.sin(a1) * radius;
+                const x2 = Math.cos(a2) * radius;
+                const z2 = Math.sin(a2) * radius;
+                const nx1 = Math.cos(a1), nz1 = Math.sin(a1);
+                const nx2 = Math.cos(a2), nz2 = Math.sin(a2);
+                // Side
+                addVertex(v, cx+x1, cy, cz+z1, nx1, 0, nz1, r, g, b);
+                addVertex(v, cx+x2, cy, cz+z2, nx2, 0, nz2, r, g, b);
+                addVertex(v, cx+x2, cy+height, cz+z2, nx2, 0, nz2, r, g, b);
+                addVertex(v, cx+x1, cy, cz+z1, nx1, 0, nz1, r, g, b);
+                addVertex(v, cx+x2, cy+height, cz+z2, nx2, 0, nz2, r, g, b);
+                addVertex(v, cx+x1, cy+height, cz+z1, nx1, 0, nz1, r, g, b);
+                // Top
+                addVertex(v, cx, cy+height, cz, 0, 1, 0, r*1.1, g*1.1, b*1.1);
+                addVertex(v, cx+x1, cy+height, cz+z1, 0, 1, 0, r*1.1, g*1.1, b*1.1);
+                addVertex(v, cx+x2, cy+height, cz+z2, 0, 1, 0, r*1.1, g*1.1, b*1.1);
+            }
+            return v;
+        }
+
+        function createPyramid(cx, cy, cz, baseSize, height, r, g, b) {
+            const v = [];
+            const h = baseSize / 2;
+            // Front
+            addVertex(v, cx-h, cy, cz+h, 0, 0.5, 0.5, r, g, b);
+            addVertex(v, cx+h, cy, cz+h, 0, 0.5, 0.5, r, g, b);
+            addVertex(v, cx, cy+height, cz, 0, 0.5, 0.5, r*1.1, g*1.1, b*1.1);
+            // Right
+            addVertex(v, cx+h, cy, cz+h, 0.5, 0.5, 0, r*0.9, g*0.9, b*0.9);
+            addVertex(v, cx+h, cy, cz-h, 0.5, 0.5, 0, r*0.9, g*0.9, b*0.9);
+            addVertex(v, cx, cy+height, cz, 0.5, 0.5, 0, r, g, b);
+            // Back
+            addVertex(v, cx+h, cy, cz-h, 0, 0.5, -0.5, r*0.8, g*0.8, b*0.8);
+            addVertex(v, cx-h, cy, cz-h, 0, 0.5, -0.5, r*0.8, g*0.8, b*0.8);
+            addVertex(v, cx, cy+height, cz, 0, 0.5, -0.5, r*0.9, g*0.9, b*0.9);
+            // Left
+            addVertex(v, cx-h, cy, cz-h, -0.5, 0.5, 0, r*0.85, g*0.85, b*0.85);
+            addVertex(v, cx-h, cy, cz+h, -0.5, 0.5, 0, r*0.85, g*0.85, b*0.85);
+            addVertex(v, cx, cy+height, cz, -0.5, 0.5, 0, r*0.95, g*0.95, b*0.95);
+            return v;
+        }
+
+        function createRoof(cx, cy, cz, baseSize, overhang, height, r, g, b) {
+            const v = [];
+            const b1 = baseSize / 2 + overhang;
+            const b2 = baseSize / 2;
+            // Create a curved roof approximation
+            for (let layer = 0; layer < 3; layer++) {
+                const y1 = cy + (height * layer / 3);
+                const y2 = cy + (height * (layer + 1) / 3);
+                const s1 = b1 * (1 - layer * 0.25);
+                const s2 = b1 * (1 - (layer + 1) * 0.25);
+                // Front slope
+                addVertex(v, cx-s1, y1, cz+s1, 0, 0.7, 0.7, r, g, b);
+                addVertex(v, cx+s1, y1, cz+s1, 0, 0.7, 0.7, r, g, b);
+                addVertex(v, cx+s2, y2, cz+s2, 0, 0.7, 0.7, r*1.05, g*1.05, b*1.05);
+                addVertex(v, cx-s1, y1, cz+s1, 0, 0.7, 0.7, r, g, b);
+                addVertex(v, cx+s2, y2, cz+s2, 0, 0.7, 0.7, r*1.05, g*1.05, b*1.05);
+                addVertex(v, cx-s2, y2, cz+s2, 0, 0.7, 0.7, r*1.05, g*1.05, b*1.05);
+                // Back slope
+                addVertex(v, cx+s1, y1, cz-s1, 0, 0.7, -0.7, r*0.85, g*0.85, b*0.85);
+                addVertex(v, cx-s1, y1, cz-s1, 0, 0.7, -0.7, r*0.85, g*0.85, b*0.85);
+                addVertex(v, cx-s2, y2, cz-s2, 0, 0.7, -0.7, r*0.9, g*0.9, b*0.9);
+                addVertex(v, cx+s1, y1, cz-s1, 0, 0.7, -0.7, r*0.85, g*0.85, b*0.85);
+                addVertex(v, cx-s2, y2, cz-s2, 0, 0.7, -0.7, r*0.9, g*0.9, b*0.9);
+                addVertex(v, cx+s2, y2, cz-s2, 0, 0.7, -0.7, r*0.9, g*0.9, b*0.9);
+                // Right slope
+                addVertex(v, cx+s1, y1, cz+s1, 0.7, 0.7, 0, r*0.9, g*0.9, b*0.9);
+                addVertex(v, cx+s1, y1, cz-s1, 0.7, 0.7, 0, r*0.9, g*0.9, b*0.9);
+                addVertex(v, cx+s2, y2, cz-s2, 0.7, 0.7, 0, r*0.95, g*0.95, b*0.95);
+                addVertex(v, cx+s1, y1, cz+s1, 0.7, 0.7, 0, r*0.9, g*0.9, b*0.9);
+                addVertex(v, cx+s2, y2, cz-s2, 0.7, 0.7, 0, r*0.95, g*0.95, b*0.95);
+                addVertex(v, cx+s2, y2, cz+s2, 0.7, 0.7, 0, r*0.95, g*0.95, b*0.95);
+                // Left slope
+                addVertex(v, cx-s1, y1, cz-s1, -0.7, 0.7, 0, r*0.8, g*0.8, b*0.8);
+                addVertex(v, cx-s1, y1, cz+s1, -0.7, 0.7, 0, r*0.8, g*0.8, b*0.8);
+                addVertex(v, cx-s2, y2, cz+s2, -0.7, 0.7, 0, r*0.85, g*0.85, b*0.85);
+                addVertex(v, cx-s1, y1, cz-s1, -0.7, 0.7, 0, r*0.8, g*0.8, b*0.8);
+                addVertex(v, cx-s2, y2, cz+s2, -0.7, 0.7, 0, r*0.85, g*0.85, b*0.85);
+                addVertex(v, cx-s2, y2, cz-s2, -0.7, 0.7, 0, r*0.85, g*0.85, b*0.85);
+            }
+            return v;
+        }
+
+        function createSphere(cx, cy, cz, radius, segments, r, g, b) {
+            const v = [];
+            for (let lat = 0; lat < segments; lat++) {
+                const theta1 = (lat / segments) * Math.PI;
+                const theta2 = ((lat + 1) / segments) * Math.PI;
+                for (let lon = 0; lon < segments; lon++) {
+                    const phi1 = (lon / segments) * Math.PI * 2;
+                    const phi2 = ((lon + 1) / segments) * Math.PI * 2;
+                    const x1 = Math.sin(theta1) * Math.cos(phi1);
+                    const y1 = Math.cos(theta1);
+                    const z1 = Math.sin(theta1) * Math.sin(phi1);
+                    const x2 = Math.sin(theta1) * Math.cos(phi2);
+                    const y2 = Math.cos(theta1);
+                    const z2 = Math.sin(theta1) * Math.sin(phi2);
+                    const x3 = Math.sin(theta2) * Math.cos(phi2);
+                    const y3 = Math.cos(theta2);
+                    const z3 = Math.sin(theta2) * Math.sin(phi2);
+                    const x4 = Math.sin(theta2) * Math.cos(phi1);
+                    const y4 = Math.cos(theta2);
+                    const z4 = Math.sin(theta2) * Math.sin(phi1);
+                    
+                    addVertex(v, cx+x1*radius, cy+y1*radius, cz+z1*radius, x1, y1, z1, r, g, b);
+                    addVertex(v, cx+x2*radius, cy+y2*radius, cz+z2*radius, x2, y2, z2, r, g, b);
+                    addVertex(v, cx+x3*radius, cy+y3*radius, cz+z3*radius, x3, y3, z3, r, g, b);
+                    addVertex(v, cx+x1*radius, cy+y1*radius, cz+z1*radius, x1, y1, z1, r, g, b);
+                    addVertex(v, cx+x3*radius, cy+y3*radius, cz+z3*radius, x3, y3, z3, r, g, b);
+                    addVertex(v, cx+x4*radius, cy+y4*radius, cz+z4*radius, x4, y4, z4, r, g, b);
+                }
+            }
+            return v;
+        }
+
+        // Build scene geometry
+        let allVertices = [];
+
+        // Ground - Island base
+        function createIsland() {
+            const v = [];
+            const segments = 32;
+            const radius = 8;
+            for (let i = 0; i < segments; i++) {
+                const a1 = (i / segments) * Math.PI * 2;
+                const a2 = ((i + 1) / segments) * Math.PI * 2;
+                const x1 = Math.cos(a1) * radius * (0.9 + Math.sin(a1 * 3) * 0.1);
+                const z1 = Math.sin(a1) * radius * (0.9 + Math.cos(a1 * 2) * 0.1);
+                const x2 = Math.cos(a2) * radius * (0.9 + Math.sin(a2 * 3) * 0.1);
+                const z2 = Math.sin(a2) * radius * (0.9 + Math.cos(a2 * 2) * 0.1);
+                // Top grass
+                addVertex(v, 0, 0.1, 0, 0, 1, 0, 0.45, 0.65, 0.35);
+                addVertex(v, x1, 0.1, z1, 0, 1, 0, 0.4, 0.6, 0.3);
+                addVertex(v, x2, 0.1, z2, 0, 1, 0, 0.4, 0.6, 0.3);
+                // Side
+                const nx = Math.cos((a1 + a2) / 2);
+                const nz = Math.sin((a1 + a2) / 2);
+                addVertex(v, x1, 0.1, z1, nx, 0, nz, 0.55, 0.45, 0.35);
+                addVertex(v, x1, -0.5, z1, nx, 0, nz, 0.45, 0.35, 0.25);
+                addVertex(v, x2, -0.5, z2, nx, 0, nz, 0.45, 0.35, 0.25);
+                addVertex(v, x1, 0.1, z1, nx, 0, nz, 0.55, 0.45, 0.35);
+                addVertex(v, x2, -0.5, z2, nx, 0, nz, 0.45, 0.35, 0.25);
+                addVertex(v, x2, 0.1, z2, nx, 0, nz, 0.55, 0.45, 0.35);
+            }
+            return v;
+        }
+        allVertices.push(...createIsland());
+
+        // Koi Pond
+        function createPond() {
+            const v = [];
+            const segments = 24;
+            // Pond water surface
+            for (let i = 0; i < segments; i++) {
+                const a1 = (i / segments) * Math.PI * 2;
+                const a2 = ((i + 1) / segments) * Math.PI * 2;
+                const rx = 3.5, rz = 2.5;
+                const px = 1, pz = 2;
+                const x1 = Math.cos(a1) * rx + px;
+                const z1 = Math.sin(a1) * rz + pz;
+                const x2 = Math.cos(a2) * rx + px;
+                const z2 = Math.sin(a2) * rz + pz;
+                addVertex(v, px, 0.05, pz, 0, 1, 0, 0.5, 0.75, 0.8);
+                addVertex(v, x1, 0.05, z1, 0, 1, 0, 0.45, 0.7, 0.75);
+                addVertex(v, x2, 0.05, z2, 0, 1, 0, 0.45, 0.7, 0.75);
+                // Stone edge
+                addVertex(v, x1, 0.15, z1, 0, 1, 0, 0.6, 0.58, 0.55);
+                addVertex(v, x1 * 1.1, 0.12, z1 * 1.05, 0, 1, 0, 0.55, 0.53, 0.5);
+                addVertex(v, x2 * 1.1, 0.12, z2 * 1.05, 0, 1, 0, 0.55, 0.53, 0.5);
+                addVertex(v, x1, 0.15, z1, 0, 1, 0, 0.6, 0.58, 0.55);
+                addVertex(v, x2 * 1.1, 0.12, z2 * 1.05, 0, 1, 0, 0.55, 0.53, 0.5);
+                addVertex(v, x2, 0.15, z2, 0, 1, 0, 0.6, 0.58, 0.55);
+            }
+            return v;
+        }
+        allVertices.push(...createPond());
+
+        // Pagoda
+        function createPagoda() {
+            const v = [];
+            const px = -1.5, pz = -2;
+            // Foundation
+            v.push(...createBox(px, 0.3, pz, 3, 0.4, 3, 0.5, 0.48, 0.45));
+            // First floor
+            v.push(...createBox(px, 0.8, pz, 2.6, 1, 2.6, 0.85, 0.85, 0.82));
+            v.push(...createBox(px-0.9, 0.8, pz, 0.15, 1, 0.15, 0.55, 0.2, 0.15)); // Pillar
+            v.push(...createBox(px+0.9, 0.8, pz, 0.15, 1, 0.15, 0.55, 0.2, 0.15));
+            v.push(...createBox(px, 0.8, pz-0.9, 0.15, 1, 0.15, 0.55, 0.2, 0.15));
+            v.push(...createBox(px, 0.8, pz+0.9, 0.15, 1, 0.15, 0.55, 0.2, 0.15));
+            // Windows/decorations
+            v.push(...createBox(px-1.31, 1, pz, 0.02, 0.5, 0.6, 0.9, 0.9, 0.88));
+            v.push(...createBox(px+1.31, 1, pz, 0.02, 0.5, 0.6, 0.9, 0.9, 0.88));
+            v.push(...createBox(px, 1, pz-1.31, 0.6, 0.5, 0.02, 0.9, 0.9, 0.88));
+            v.push(...createBox(px, 1, pz+1.31, 0.6, 0.5, 0.02, 0.9, 0.9, 0.88));
+            v.push(...createRoof(px, 1.8, pz, 2.6, 0.8, 0.6, 0.25, 0.25, 0.28));
+            
+            // Second floor
+            v.push(...createBox(px, 2.6, pz, 2.2, 0.9, 2.2, 0.85, 0.85, 0.82));
+            v.push(...createBox(px-1.12, 2.9, pz, 0.02, 0.4, 0.5, 0.9, 0.9, 0.88));
+            v.push(...createBox(px+1.12, 2.9, pz, 0.02, 0.4, 0.5, 0.9, 0.9, 0.88));
+            v.push(...createRoof(px, 3.5, pz, 2.2, 0.7, 0.55, 0.25, 0.25, 0.28));
+            
+            // Third floor
+            v.push(...createBox(px, 4.2, pz, 1.8, 0.8, 1.8, 0.85, 0.85, 0.82));
+            v.push(...createRoof(px, 5, pz, 1.8, 0.6, 0.5, 0.25, 0.25, 0.28));
+            
+            // Spire
+            v.push(...createCylinder(px, 5.5, pz, 0.08, 0.6, 8, 0.8, 0.7, 0.2));
+            v.push(...createPyramid(px, 6.1, pz, 0.2, 0.3, 0.85, 0.75, 0.15));
+            
+            // Stairs
+            v.push(...createBox(px, 0.15, pz + 1.8, 0.8, 0.15, 0.4, 0.55, 0.53, 0.5));
+            v.push(...createBox(px, 0.25, pz + 1.5, 0.8, 0.15, 0.3, 0.55, 0.53, 0.5));
+            
+            // Railing
+            v.push(...createBox(px-1.15, 0.65, pz+0.8, 0.08, 0.35, 0.08, 0.55, 0.2, 0.15));
+            v.push(...createBox(px+1.15, 0.65, pz+0.8, 0.08, 0.35, 0.08, 0.55, 0.2, 0.15));
+            v.push(...createBox(px-1.15, 0.9, pz, 0.08, 0.08, 1.6, 0.55, 0.2, 0.15));
+            v.push(...createBox(px+1.15, 0.9, pz, 0.08, 0.08, 1.6, 0.55, 0.2, 0.15));
+            
+            return v;
+        }
+        allVertices.push(...createPagoda());
+
+        // Cherry Blossom Trees
+        function createCherryTree(tx, tz, scale = 1) {
+            const v = [];
+            // Trunk
+            v.push(...createCylinder(tx, 0.1, tz, 0.15 * scale, 1.5 * scale, 8, 0.4, 0.3, 0.25));
+            // Branches
+            const branchHeight = 1.5 * scale;
+            for (let i = 0; i < 5; i++) {
+                const angle = (i / 5) * Math.PI * 2 + Math.random() * 0.5;
+                const bx = Math.cos(angle) * 0.8 * scale;
+                const bz = Math.sin(angle) * 0.8 * scale;
+                v.push(...createCylinder(tx + bx * 0.3, branchHeight + 0.2, tz + bz * 0.3, 0.05 * scale, 0.5 * scale, 6, 0.35, 0.25, 0.2));
+            }
+            // Blossoms (pink spheres)
+            for (let i = 0; i < 8; i++) {
+                const angle = (i / 8) * Math.PI * 2;
+                const radius = 0.8 + Math.random() * 0.4;
+                const bx = Math.cos(angle) * radius * scale;
+                const bz = Math.sin(angle) * radius * scale;
+                const by = 1.8 + Math.random() * 0.5;
+                v.push(...createSphere(tx + bx, by * scale, tz + bz, 0.5 * scale, 6, 0.95, 0.75, 0.8));
+            }
+            // Central blossom cluster
+            v.push(...createSphere(tx, 2.2 * scale, tz, 0.6 * scale, 6, 0.98, 0.78, 0.82));
+            return v;
+        }
+        allVertices.push(...createCherryTree(-5, -1.5, 1.2));
+        allVertices.push(...createCherryTree(4, -2, 1));
+        allVertices.push(...createCherryTree(-4.5, 2, 0.8));
+
+        // Bamboo
+        function createBamboo(bx, bz) {
+            const v = [];
+            for (let i = 0; i < 4; i++) {
+                const ox = (Math.random() - 0.5) * 0.5;
+                const oz = (Math.random() - 0.5) * 0.5;
+                const height = 2 + Math.random() * 1.5;
+                v.push(...createCylinder(bx + ox, 0.1, bz + oz, 0.06, height, 6, 0.55, 0.75, 0.35));
+                // Bamboo segments
+                for (let s = 0; s < 4; s++) {
+                    v.push(...createCylinder(bx + ox, 0.1 + s * height/4, bz + oz, 0.07, 0.03, 6, 0.45, 0.65, 0.3));
+                }
+                // Leaves
+                v.push(...createBox(bx + ox + 0.15, height - 0.2, bz + oz, 0.3, 0.02, 0.05, 0.5, 0.7, 0.3));
+                v.push(...createBox(bx + ox - 0.15, height - 0.1, bz + oz + 0.1, 0.25, 0.02, 0.05, 0.5, 0.7, 0.3));
+            }
+            return v;
+        }
+        allVertices.push(...createBamboo(-6, 1));
+        allVertices.push(...createBamboo(-5.5, 0));
+        allVertices.push(...createBamboo(5.5, 0));
+        allVertices.push(...createBamboo(5, 1));
+
+        // Stone Lanterns
+        function createLantern(lx, lz) {
+            const v = [];
+            v.push(...createBox(lx, 0.2, lz, 0.3, 0.2, 0.3, 0.6, 0.58, 0.55));
+            v.push(...createCylinder(lx, 0.3, lz, 0.08, 0.4, 6, 0.55, 0.53, 0.5));
+            v.push(...createBox(lx, 0.85, lz, 0.35, 0.3, 0.35, 0.65, 0.63, 0.6));
+            v.push(...createPyramid(lx, 1.15, lz, 0.5, 0.3, 0.5, 0.48, 0.45));
+            return v;
+        }
+        allVertices.push(...createLantern(-4, 0.5));
+        allVertices.push(...createLantern(-3, 1.5));
+        allVertices.push(...createLantern(0, 0));
+
+        // Red Bridge
+        function createBridge() {
+            const v = [];
+            const bx = 4, bz = 3;
+            // Bridge deck (curved)
+            for (let i = 0; i < 10; i++) {
+                const t = i / 9;
+                const x = bx + (t - 0.5) * 2.5;
+                const y = 0.25 + Math.sin(t * Math.PI) * 0.3;
+                const x2 = bx + ((i+1) / 9 - 0.5) * 2.5;
+                const y2 = 0.25 + Math.sin((i+1)/9 * Math.PI) * 0.3;
+                v.push(...createBox(x, y, bz, 0.28, 0.08, 0.8, 0.65, 0.2, 0.15));
+            }
+            // Railings
+            for (let i = 0; i < 6; i++) {
+                const t = (i + 0.5) / 6;
+                const x = bx + (t - 0.5) * 2.5;
+                const y = 0.25 + Math.sin(t * Math.PI) * 0.3;
+                v.push(...createBox(x, y + 0.25, bz - 0.35, 0.05, 0.35, 0.05, 0.6, 0.18, 0.12));
+                v.push(...createBox(x, y + 0.25, bz + 0.35, 0.05, 0.35, 0.05, 0.6, 0.18, 0.12));
+            }
+            // Top rails
+            v.push(...createBox(bx, 0.8, bz - 0.35, 2.6, 0.06, 0.06, 0.55, 0.15, 0.1));
+            v.push(...createBox(bx, 0.8, bz + 0.35, 2.6, 0.06, 0.06, 0.55, 0.15, 0.1));
+            return v;
+        }
+        allVertices.push(...createBridge());
+
+        // Stone Path
+        function createPath() {
+            const v = [];
+            const pathPoints = [
+                [-3.5, 2.5], [-3, 1.8], [-2.5, 1.2], [-2, 0.5], [-1.5, 0],
+                [-1, -0.3], [-0.5, 0.2], [0, 0.8], [0.3, 1.5]
+            ];
+            pathPoints.forEach(([px, pz]) => {
+                for (let i = 0; i < 3; i++) {
+                    const ox = (Math.random() - 0.5) * 0.5;
+                    const oz = (Math.random() - 0.5) * 0.3;
+                    const size = 0.15 + Math.random() * 0.15;
+                    v.push(...createBox(px + ox, 0.12, pz + oz, size, 0.05, size, 0.58, 0.56, 0.53));
+                }
+            });
+            return v;
+        }
+        allVertices.push(...createPath());
+
+        // Bushes
+        function createBush(bx, bz, scale = 1) {
+            return createSphere(bx, 0.15 + 0.15 * scale, bz, 0.25 * scale, 6, 0.25, 0.45, 0.2);
+        }
+        const bushPositions = [
+            [-2, 1, 1], [-1.5, 1.5, 0.8], [0.5, 1, 1.2], [2, 2.5, 0.7],
+            [-3, -0.5, 0.9], [1, -1, 1], [3, 1, 0.8], [-2.5, 2.5, 0.6]
+        ];
+        bushPositions.forEach(([x, z, s]) => allVertices.push(...createBush(x, z, s)));
+
+        // Koi Fish (animated later)
+        const koiPositions = [];
+        for (let i = 0; i < 8; i++) {
+            koiPositions.push({
+                x: 1 + (Math.random() - 0.5) * 4,
+                z: 2 + (Math.random() - 0.5) * 3,
+                angle: Math.random() * Math.PI * 2,
+                speed: 0.3 + Math.random() * 0.3,
+                color: Math.random() > 0.5 ? [0.95, 0.5, 0.2] : [0.95, 0.95, 0.95]
+            });
+        }
+
+        function createKoi(kx, kz, angle, color) {
+            const v = [];
+            const ca = Math.cos(angle), sa = Math.sin(angle);
+            // Body
+            for (let i = 0; i < 8; i++) {
+                const t = i / 7;
+                const bodyX = (t - 0.5) * 0.3;
+                const bodyRadius = 0.04 * Math.sin(t * Math.PI);
+                const segments = 6;
+                for (let j = 0; j < segments; j++) {
+                    const a1 = (j / segments) * Math.PI * 2;
+                    const a2 = ((j + 1) / segments) * Math.PI * 2;
+                    const y1 = Math.sin(a1) * bodyRadius;
+                    const z1 = Math.cos(a1) * bodyRadius;
+                    const y2 = Math.sin(a2) * bodyRadius;
+                    const z2 = Math.cos(a2) * bodyRadius;
+                    const wx = kx + bodyX * ca;
+                    const wz = kz + bodyX * sa;
+                    addVertex(v, wx, 0.08 + y1, wz + z1 * ca, 0, y1, z1, color[0], color[1], color[2]);
+                    addVertex(v, wx, 0.08 + y2, wz + z2 * ca, 0, y2, z2, color[0], color[1], color[2]);
+                    addVertex(v, wx + 0.05 * ca, 0.08, wz + 0.05 * sa, 0, 1, 0, color[0] * 0.8, color[1] * 0.8, color[2] * 0.8);
+                }
+            }
+            return v;
+        }
+
+        // Fence
+        function createFence() {
+            const v = [];
+            const segments = 32;
+            const radius = 7;
+            for (let i = 0; i < segments; i++) {
+                const a = (i / segments) * Math.PI * 2;
+                const x = Math.cos(a) * radius;
+                const z = Math.sin(a) * radius;
+                // Posts
+                if (i % 2 === 0) {
+                    v.push(...createBox(x, 0.25, z, 0.08, 0.35, 0.08, 0.7, 0.68, 0.65));
+                }
+            }
+            return v;
+        }
+        allVertices.push(...createFence());
+
+        // People (simplified)
+        function createPerson(px, pz, shirtR, shirtG, shirtB) {
+            const v = [];
+            // Body
+            v.push(...createBox(px, 0.4, pz, 0.2, 0.35, 0.15, shirtR, shirtG, shirtB));
+            // Head
+            v.push(...createSphere(px, 0.7, pz, 0.1, 6, 0.9, 0.8, 0.75));
+            // Hair
+            v.push(...createSphere(px, 0.75, pz - 0.02, 0.09, 5, 0.15, 0.12, 0.1));
+            // Legs
+            v.push(...createBox(px - 0.05, 0.15, pz, 0.08, 0.2, 0.1, 0.2, 0.2, 0.3));
+            v.push(...createBox(px + 0.05, 0.15, pz, 0.08, 0.2, 0.1, 0.2, 0.2, 0.3));
+            return v;
+        }
+        allVertices.push(...createPerson(-2.5, 1.5, 0.3, 0.4, 0.5)); // Girl
+        allVertices.push(...createPerson(-2, 1.3, 0.3, 0.5, 0.3)); // Guy
+        allVertices.push(...createPerson(4.5, 3, 0.25, 0.25, 0.3)); // Person on bridge
+
+        // Create buffer
+        const vertexData = new Float32Array(allVertices);
+        const vertexBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, vertexData, gl.STATIC_DRAW);
+
+        const stride = 9 * 4;
+        gl.enableVertexAttribArray(aPosition);
+        gl.vertexAttribPointer(aPosition, 3, gl.FLOAT, false, stride, 0);
+        gl.enableVertexAttribArray(aNormal);
+        gl.vertexAttribPointer(aNormal, 3, gl.FLOAT, false, stride, 12);
+        gl.enableVertexAttribArray(aColor);
+        gl.vertexAttribPointer(aColor, 3, gl.FLOAT, false, stride, 24);
+
+        const vertexCount = allVertices.length / 9;
+
+        // Matrices
+        const projectionMatrix = mat4.create();
+        const viewMatrix = mat4.create();
+        const modelMatrix = mat4.create();
+
+        // Camera
+        let cameraAngle = 0.5;
+        let cameraDistance = 18;
+        let cameraHeight = 12;
+        let targetAngle = 0.5;
+        let autoRotate = true;
+        let mouseDown = false;
+        let lastMouseX = 0;
+
+        // Cherry blossom particles
+        const petals = [];
+        for (let i = 0; i < 100; i++) {
+            petals.push({
+                x: (Math.random() - 0.5) * 16,
+                y: 3 + Math.random() * 4,
+                z: (Math.random() - 0.5) * 16,
+                vx: (Math.random() - 0.5) * 0.01,
+                vy: -0.01 - Math.random() * 0.02,
+                vz: (Math.random() - 0.5) * 0.01,
+                rotation: Math.random() * Math.PI * 2
+            });
+        }
+
+        // Petal shader
+        const petalVS = `
+            attribute vec3 aPosition;
+            uniform mat4 uProjection;
+            uniform mat4 uView;
+            uniform float uPointSize;
+            varying float vAlpha;
+            void main() {
+                vec4 viewPos = uView * vec4(aPosition, 1.0);
+                gl_Position = uProjection * viewPos;
+                gl_PointSize = uPointSize / -viewPos.z * 50.0;
+                vAlpha = 0.8;
+            }
+        `;
+        const petalFS = `
+            precision mediump float;
+            varying float vAlpha;
+            void main() {
+                vec2 coord = gl_PointCoord - vec2(0.5);
+                float dist = length(coord);
+                if (dist > 0.5) discard;
+                float alpha = smoothstep(0.5, 0.3, dist) * vAlpha;
+                gl_FragColor = vec4(1.0, 0.85, 0.88, alpha);
+            }
+        `;
+
+        const petalProgram = gl.createProgram();
+        const pvs = createShader(gl.VERTEX_SHADER, petalVS);
+        const pfs = createShader(gl.FRAGMENT_SHADER, petalFS);
+        gl.attachShader(petalProgram, pvs);
+        gl.attachShader(petalProgram, pfs);
+        gl.linkProgram(petalProgram);
+
+        const paPosAttr = gl.getAttribLocation(petalProgram, 'aPosition');
+        const puProjection = gl.getUniformLocation(petalProgram, 'uProjection');
+        const puView = gl.getUniformLocation(petalProgram, 'uView');
+        const puPointSize = gl.getUniformLocation(petalProgram, 'uPointSize');
+
+        const petalBuffer = gl.createBuffer();
+
+        // Event listeners
+        canvas.addEventListener('mousedown', (e) => {
+            mouseDown = true;
+            lastMouseX = e.clientX;
+            autoRotate = false;
+        });
+        canvas.addEventListener('mouseup', () => mouseDown = false);
+        canvas.addEventListener('mouseleave', () => mouseDown = false);
+        canvas.addEventListener('mousemove', (e) => {
+            if (mouseDown) {
+                const dx = e.clientX - lastMouseX;
+                targetAngle += dx * 0.005;
+                lastMouseX = e.clientX;
+            }
+        });
+        canvas.addEventListener('wheel', (e) => {
+            cameraDistance += e.deltaY * 0.02;
+            cameraDistance = Math.max(10, Math.min(35, cameraDistance));
+            e.preventDefault();
+        });
+        canvas.addEventListener('touchstart', (e) => {
+            mouseDown = true;
+            lastMouseX = e.touches[0].clientX;
+            autoRotate = false;
+        });
+        canvas.addEventListener('touchend', () => mouseDown = false);
+        canvas.addEventListener('touchmove', (e) => {
+            if (mouseDown) {
+                const dx = e.touches[0].clientX - lastMouseX;
+                targetAngle += dx * 0.005;
+                lastMouseX = e.touches[0].clientX;
+            }
+        });
+
+        window.addEventListener('resize', () => {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+        });
+
+        // Animation loop
+        let time = 0;
+        let loaded = false;
+
+        function render() {
+            time += 0.016;
+            
+            if (!loaded && time > 0.5) {
+                document.getElementById('loading').classList.add('hidden');
+                loaded = true;
+            }
+
+            if (autoRotate) {
+                targetAngle += 0.002;
+            }
+            cameraAngle += (targetAngle - cameraAngle) * 0.05;
+
+            gl.viewport(0, 0, width, height);
+            gl.clearColor(0.95, 0.97, 0.99, 1.0);
+            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+            gl.enable(gl.DEPTH_TEST);
+            gl.enable(gl.BLEND);
+            gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+            // Camera position with gentle bob
+            const camX = Math.sin(cameraAngle) * cameraDistance;
+            const camZ = Math.cos(cameraAngle) * cameraDistance;
+            const camY = cameraHeight + Math.sin(time * 0.5) * 0.3;
+
+            mat4.perspective(projectionMatrix, Math.PI / 5, width / height, 0.1, 100);
+            mat4.lookAt(viewMatrix, [camX, camY, camZ], [0, 1.5, 0], [0, 1, 0]);
+
+            // Main scene
+            gl.useProgram(program);
+            gl.uniformMatrix4fv(uProjection, false, projectionMatrix);
+            gl.uniformMatrix4fv(uView, false, viewMatrix);
+            gl.uniformMatrix4fv(uModel, false, modelMatrix);
+            gl.uniform3f(uLightDir, 0.5, 0.8, 0.3);
+            gl.uniform1f(uTime, time);
+            gl.uniform1f(uFocalDistance, cameraDistance);
+            gl.uniform1f(uAperture, 0.02);
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+            gl.enableVertexAttribArray(aPosition);
+            gl.vertexAttribPointer(aPosition, 3, gl.FLOAT, false, stride, 0);
+            gl.enableVertexAttribArray(aNormal);
+            gl.vertexAttribPointer(aNormal, 3, gl.FLOAT, false, stride, 12);
+            gl.enableVertexAttribArray(aColor);
+            gl.vertexAttribPointer(aColor, 3, gl.FLOAT, false, stride, 24);
+
+            gl.drawArrays(gl.TRIANGLES, 0, vertexCount);
+
+            // Update and render koi
+            koiPositions.forEach(koi => {
+                koi.angle += 0.02 * koi.speed;
+                koi.x = 1 + Math.cos(koi.angle) * 2;
+                koi.z = 2 + Math.sin(koi.angle * 0.7) * 1.5;
+            });
+
+            // Update and render petals
+            petals.forEach(p => {
+                p.x += p.vx + Math.sin(time + p.rotation) * 0.005;
+                p.y += p.vy;
+                p.z += p.vz + Math.cos(time + p.rotation) * 0.005;
+                p.rotation += 0.02;
+                
+                if (p.y < 0) {
+                    p.y = 4 + Math.random() * 2;
+                    p.x = (Math.random() - 0.5) * 14;
+                    p.z = (Math.random() - 0.5) * 14;
+                }
+            });
+
+            const petalData = new Float32Array(petals.flatMap(p => [p.x, p.y, p.z]));
+            gl.useProgram(petalProgram);
+            gl.uniformMatrix4fv(puProjection, false, projectionMatrix);
+            gl.uniformMatrix4fv(puView, false, viewMatrix);
+            gl.uniform1f(puPointSize, 8);
+            
+            gl.bindBuffer(gl.ARRAY_BUFFER, petalBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, petalData, gl.DYNAMIC_DRAW);
+            gl.enableVertexAttribArray(paPosAttr);
+            gl.vertexAttribPointer(paPosAttr, 3, gl.FLOAT, false, 0, 0);
+            
+            gl.drawArrays(gl.POINTS, 0, petals.length);
+
+            requestAnimationFrame(render);
+        }
+
+        render();
+    })();
+    </script>
+</body>
+</html>

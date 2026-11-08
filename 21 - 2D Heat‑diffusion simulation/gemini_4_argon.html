@@ -1,0 +1,2178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>2D Heat-Diffusion PDE Simulation — p5.js + WebGL</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
+  <style>
+    :root {
+      --bg-dark: #0b0f17;
+      --panel-bg: #111826;
+      --panel-border: #1f2b42;
+      --card-bg: #162032;
+      --text-main: #e6edf7;
+      --text-muted: #8b9bb4;
+      --accent-hot: #ff5238;
+      --accent-cold: #28a9ff;
+      --accent-gold: #f5b041;
+      --accent-teal: #2dd4bf;
+    }
+
+    * {
+      box-sizing: border-box;
+      user-select: none;
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* Main Left Area: Header + Canvas + Telemetry Footer */
+    #main-stage {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 12px 14px;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    header.top-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-radius: 10px;
+      padding: 8px 16px;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-title {
+      font-weight: 700;
+      font-size: 1.05rem;
+      letter-spacing: 0.3px;
+      background: linear-gradient(90deg, #38bdf8, #fbbf24, #f87171);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .pde-formula {
+      font-family: "Cambria Math", "Times New Roman", serif;
+      font-size: 0.92rem;
+      color: var(--text-muted);
+      background: rgba(255, 255, 255, 0.04);
+      padding: 4px 10px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.07);
+    }
+
+    .quick-keys {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      font-size: 0.76rem;
+      color: var(--text-muted);
+    }
+
+    .key-badge {
+      background: var(--card-bg);
+      border: 1px solid #2b3b59;
+      padding: 3px 8px;
+      border-radius: 5px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .key-badge kbd {
+      background: #0b101b;
+      color: #7dd3fc;
+      border: 1px solid #33476b;
+      border-radius: 3px;
+      padding: 1px 5px;
+      font-family: monospace;
+      font-size: 0.73rem;
+      font-weight: 600;
+    }
+
+    /* Canvas Container */
+    #canvas-wrapper {
+      flex: 1;
+      position: relative;
+      background: #070a10;
+      border: 1px solid var(--panel-border);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.7);
+    }
+
+    #canvas-wrapper canvas {
+      display: block;
+      cursor: crosshair;
+      border-radius: 6px;
+    }
+
+    /* Colorbar Legend Overlay */
+    .colorbar-overlay {
+      position: absolute;
+      left: 14px;
+      bottom: 14px;
+      background: rgba(11, 15, 23, 0.86);
+      backdrop-filter: blur(6px);
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+      padding: 7px 11px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      pointer-events: none;
+      width: 220px;
+    }
+
+    .colorbar-gradient {
+      height: 10px;
+      width: 100%;
+      border-radius: 4px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .colorbar-labels {
+      display: flex;
+      justify-content: space-between;
+      font-family: monospace;
+      font-size: 0.7rem;
+      color: #cbd5e1;
+    }
+
+    /* Bottom Telemetry + Probe Oscilloscope */
+    .bottom-hud {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 10px;
+      height: 106px;
+    }
+
+    .telemetry-card, .probe-card {
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-radius: 10px;
+      padding: 9px 14px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .telemetry-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+    }
+
+    .stat-box {
+      background: var(--card-bg);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 6px;
+      padding: 6px 9px;
+    }
+
+    .stat-label {
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-muted);
+    }
+
+    .stat-val {
+      font-family: "JetBrains Mono", Consolas, monospace;
+      font-size: 0.88rem;
+      font-weight: 600;
+      margin-top: 2px;
+      color: #f8fafc;
+    }
+
+    /* Right Control Sidebar */
+    #sidebar {
+      width: 350px;
+      background: var(--panel-bg);
+      border-left: 1px solid var(--panel-border);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      padding: 12px;
+      gap: 10px;
+    }
+
+    #sidebar::-webkit-scrollbar {
+      width: 6px;
+    }
+    #sidebar::-webkit-scrollbar-thumb {
+      background: #2b3a55;
+      border-radius: 3px;
+    }
+
+    .control-section {
+      background: var(--card-bg);
+      border: 1px solid var(--panel-border);
+      border-radius: 9px;
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .section-header {
+      font-size: 0.76rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.7px;
+      color: #93c5fd;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      padding-bottom: 5px;
+    }
+
+    .btn-row {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 6px;
+    }
+
+    .btn-row-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 5px;
+    }
+
+    button, select {
+      background: #1e2c46;
+      color: var(--text-main);
+      border: 1px solid #31466e;
+      border-radius: 6px;
+      padding: 6px 9px;
+      font-size: 0.78rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.14s ease;
+    }
+
+    button:hover, select:hover {
+      background: #283b5c;
+      border-color: #4b6a9e;
+    }
+
+    button.active {
+      background: linear-gradient(135deg, #2563eb, #1d4ed8);
+      border-color: #60a5fa;
+      color: #ffffff;
+      box-shadow: 0 0 10px rgba(37, 99, 235, 0.4);
+    }
+
+    button.active-hot {
+      background: linear-gradient(135deg, #dc2626, #b91c1c);
+      border-color: #f87171;
+      color: #fff;
+      box-shadow: 0 0 10px rgba(220, 38, 38, 0.4);
+    }
+
+    button.active-cold {
+      background: linear-gradient(135deg, #0284c7, #0369a1);
+      border-color: #38bdf8;
+      color: #fff;
+      box-shadow: 0 0 10px rgba(2, 132, 199, 0.4);
+    }
+
+    button.danger:hover {
+      background: #7f1d1d;
+      border-color: #f87171;
+    }
+
+    .slider-group {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .slider-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.76rem;
+      color: #cbd5e1;
+    }
+
+    .slider-label span.val {
+      font-family: monospace;
+      color: #7dd3fc;
+      font-weight: 600;
+    }
+
+    input[type="range"] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 5px;
+      background: #0d1422;
+      border-radius: 4px;
+      outline: none;
+      border: 1px solid #263552;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #38bdf8;
+      cursor: pointer;
+      border: 2px solid #0b0f17;
+    }
+
+    .mat-btn {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 0.74rem;
+      padding: 5px 8px;
+    }
+
+    .mat-swatch {
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+      display: inline-block;
+      margin-right: 5px;
+      border: 1px solid rgba(255,255,255,0.4);
+    }
+
+    .mat-alpha {
+      font-family: monospace;
+      font-size: 0.67rem;
+      color: #94a3b8;
+    }
+
+    .checkbox-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      font-size: 0.76rem;
+    }
+
+    .checkbox-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      color: #cbd5e1;
+    }
+
+    .checkbox-item input {
+      accent-color: #38bdf8;
+      cursor: pointer;
+    }
+
+    .probe-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      margin-bottom: 3px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- LEFT / CENTER STAGE -->
+  <div id="main-stage">
+    <header class="top-bar">
+      <div class="brand">
+        <div class="brand-title">THERMAL LAB 2D</div>
+        <div class="pde-formula">∂T/∂t = ∇·(α(x,y)∇T) − v·∇T − γ(T − T₀) + S</div>
+      </div>
+      <div class="quick-keys">
+        <span class="key-badge"><kbd>Click/Drag</kbd> Active Tool</span>
+        <span class="key-badge"><kbd>Hold C</kbd> / <kbd>Right-Click</kbd> Cool Region</span>
+        <span class="key-badge"><kbd>K</kbd> Cryo Quench Pulse</span>
+        <span class="key-badge"><kbd>F</kbd> Heat Flash</span>
+        <span class="key-badge"><kbd>Space</kbd> Pause</span>
+        <span class="key-badge"><kbd>R</kbd> Reset T</span>
+      </div>
+    </header>
+
+    <div id="canvas-wrapper">
+      <!-- p5.js canvas mounts here -->
+      <div class="colorbar-overlay">
+        <div style="display:flex; justify-content:space-between; font-size:0.7rem; color:#94a3b8;">
+          <span>Temperature Field T(x,y)</span>
+          <span id="cmap-name-label">Blue–Red Thermal</span>
+        </div>
+        <div id="colorbar-grad" class="colorbar-gradient"></div>
+        <div class="colorbar-labels">
+          <span>0°C (Cold)</span>
+          <span>25°C</span>
+          <span>50°C</span>
+          <span>75°C</span>
+          <span>100°C (Hot)</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="bottom-hud">
+      <div class="telemetry-card">
+        <div style="display:flex; justify-content:space-between; font-size:0.72rem; color:#93c5fd; font-weight:600;">
+          <span>REAL-TIME PDE TELEMETRY & CURSOR INSPECTOR</span>
+          <span id="solver-status-badge" style="color:#34d399; font-family:monospace;">● STABLE (Fo = 0.20)</span>
+        </div>
+        <div class="telemetry-grid">
+          <div class="stat-box">
+            <div class="stat-label">Cursor Temp</div>
+            <div class="stat-val" id="stat-cursor-t">-- °C</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-label">Cursor Material</div>
+            <div class="stat-val" id="stat-cursor-mat">Air (α=0.18)</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-label">Mean / Max Temp</div>
+            <div class="stat-val" id="stat-mean-max">15.0° / 100.0°</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-label">Heat Flux |q| / FPS</div>
+            <div class="stat-val" id="stat-flux-fps">0.00 | 60 FPS</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="probe-card">
+        <div class="probe-header">
+          <span>THERMAL OSCILLOSCOPE PROBES (T vs Time)</span>
+          <span id="probe-readout" style="font-family:monospace; color:#f8fafc;">P1: --°C | P2: --°C</span>
+        </div>
+        <canvas id="probe-chart" width="420" height="62" style="width:100%; height:62px; background:#090d15; border-radius:5px; border:1px solid #1f2b42;"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT CONTROL SIDEBAR -->
+  <div id="sidebar">
+
+    <!-- 1. SCENARIO PRESETS -->
+    <div class="control-section">
+      <div class="section-header">
+        <span>1. Experiment Presets</span>
+        <span style="font-size:0.68rem; color:#64748b;">Load Setup</span>
+      </div>
+      <select id="preset-select">
+        <option value="heatsink">CPU Copper Heatsink & Plumes</option>
+        <option value="bridge">Insulated Room & Thermal Bridge</option>
+        <option value="fourier">Fourier 4-Material Conduction Race</option>
+        <option value="rayleigh">Rayleigh–Bénard Convection Cells</option>
+        <option value="sandbox">Clean Multi-Source Sandbox</option>
+      </select>
+      <div class="btn-row-3">
+        <button id="btn-pause">⏸ Pause</button>
+        <button id="btn-reset-temp">↺ Reset T</button>
+        <button id="btn-clear-all" class="danger">✕ Clear All</button>
+      </div>
+    </div>
+
+    <!-- 2. INTERACTIVE TOOLS -->
+    <div class="control-section">
+      <div class="section-header">
+        <span>2. Left-Click Brush Tool</span>
+        <span id="active-tool-indicator" style="color:#f87171;">Heat Brush</span>
+      </div>
+      <div class="btn-row">
+        <button class="tool-btn active-hot" data-tool="heat">🔥 Heat Brush</button>
+        <button class="tool-btn" data-tool="cool">❄️ Cool Brush (C)</button>
+        <button class="tool-btn" data-tool="heater_node">☀️ Add Heater Node</button>
+        <button class="tool-btn" data-tool="cooler_node">🧊 Add Cooler Node</button>
+        <button class="tool-btn" data-tool="material">🧱 Paint Material</button>
+        <button class="tool-btn" data-tool="probe">📈 Place T-Probe</button>
+      </div>
+
+      <div class="slider-group">
+        <div class="slider-label">
+          <span>Brush Radius</span>
+          <span class="val" id="val-brush-radius">10 cells</span>
+        </div>
+        <input type="range" id="slider-brush-radius" min="2" max="35" step="1" value="10" />
+      </div>
+
+      <div class="slider-group">
+        <div class="slider-label">
+          <span>Heat Brush / Node Temp</span>
+          <span class="val" id="val-brush-temp">100 °C</span>
+        </div>
+        <input type="range" id="slider-brush-temp" min="0" max="100" step="1" value="100" />
+      </div>
+    </div>
+
+    <!-- 3. MATERIAL PALETTE -->
+    <div class="control-section">
+      <div class="section-header">
+        <span>3. Material Conductivity (α)</span>
+        <span style="font-size:0.68rem; color:#64748b;">Click to Paint</span>
+      </div>
+      <div class="btn-row">
+        <button class="mat-btn active" data-mat="1">
+          <span><span class="mat-swatch" style="background:#d97706;"></span>Copper</span>
+          <span class="mat-alpha">α=1.00</span>
+        </button>
+        <button class="mat-btn" data-mat="2">
+          <span><span class="mat-swatch" style="background:#94a3b8;"></span>Aluminum</span>
+          <span class="mat-alpha">α=0.52</span>
+        </button>
+        <button class="mat-btn" data-mat="3">
+          <span><span class="mat-swatch" style="background:#38bdf8;"></span>Glass</span>
+          <span class="mat-alpha">α=0.08</span>
+        </button>
+        <button class="mat-btn" data-mat="4">
+          <span><span class="mat-swatch" style="background:#a855f7;"></span>Aerogel</span>
+          <span class="mat-alpha">α=0.005</span>
+        </button>
+        <button class="mat-btn" data-mat="5">
+          <span><span class="mat-swatch" style="background:#334155;"></span>Vacuum Wall</span>
+          <span class="mat-alpha">α=0.00</span>
+        </button>
+        <button class="mat-btn" data-mat="0">
+          <span><span class="mat-swatch" style="background:#0f172a;"></span>Air (Erase)</span>
+          <span class="mat-alpha">α=0.18</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- 4. PDE SOLVER & PHYSICS PARAMETERS -->
+    <div class="control-section">
+      <div class="section-header">
+        <span>4. PDE Solver & Physics</span>
+      </div>
+
+      <div class="slider-group">
+        <div class="slider-label">
+          <span>Finite-Difference Scheme</span>
+        </div>
+        <select id="select-solver">
+          <option value="explicit">Explicit FTCS (Sub-stepped Conservative)</option>
+          <option value="implicit">Implicit Crank-Nicolson / Red-Black SOR</option>
+        </select>
+      </div>
+
+      <div class="slider-group">
+        <div class="slider-label">
+          <span>Boundary Conditions (∂Ω)</span>
+        </div>
+        <select id="select-boundary">
+          <option value="insulated">Insulated Adiabatic Edges (∂T/∂n = 0)</option>
+          <option value="dirichlet_cold">Constant Cold Borders (T = 0°C)</option>
+          <option value="dirichlet_amb">Constant Ambient Borders (T = T₀)</option>
+          <option value="gradient_lr">Left Hot (100°C) → Right Cold (0°C)</option>
+          <option value="bottom_hot">Heated Bottom Plate (100°C) / Cool Top</option>
+          <option value="periodic">Periodic Wrap-Around (Toroidal)</option>
+        </select>
+      </div>
+
+      <div class="slider-group">
+        <div class="slider-label">
+          <span>Global Diffusivity Scale (α)</span>
+          <span class="val" id="val-conductivity">1.00×</span>
+        </div>
+        <input type="range" id="slider-conductivity" min="0.05" max="2.50" step="0.05" value="1.00" />
+      </div>
+
+      <div class="slider-group">
+        <div class="slider-label">
+          <span>Diffusion Speed (Substeps/Frame)</span>
+          <span class="val" id="val-speed">10 steps</span>
+        </div>
+        <input type="range" id="slider-speed" min="1" max="30" step="1" value="10" />
+      </div>
+
+      <div class="slider-group">
+        <div class="slider-label">
+          <span>Thermal Buoyancy Convection</span>
+          <span class="val" id="val-convection">0.35</span>
+        </div>
+        <input type="range" id="slider-convection" min="0.0" max="1.5" step="0.05" value="0.35" />
+      </div>
+
+      <div class="slider-group">
+        <div class="slider-label">
+          <span>Ambient Newton Cooling (γ)</span>
+          <span class="val" id="val-cooling">0.0008</span>
+        </div>
+        <input type="range" id="slider-cooling" min="0.0" max="0.008" step="0.0002" value="0.0008" />
+      </div>
+
+      <div class="slider-group">
+        <div class="slider-label">
+          <span>Ambient Temperature (T₀)</span>
+          <span class="val" id="val-ambient">15 °C</span>
+        </div>
+        <input type="range" id="slider-ambient" min="0" max="60" step="1" value="15" />
+      </div>
+
+      <div class="slider-group">
+        <div class="slider-label">
+          <span>Grid Resolution</span>
+        </div>
+        <select id="select-resolution">
+          <option value="160x100">160 × 100 (Fastest / Coarse)</option>
+          <option value="240x150" selected>240 × 150 (Balanced HD)</option>
+          <option value="320x200">320 × 200 (Fine Detail)</option>
+          <option value="400x250">400 × 250 (Ultra High-Res)</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- 5. VISUALIZATION & GPU SHADER -->
+    <div class="control-section">
+      <div class="section-header">
+        <span>5. Visualization & GPU Shader</span>
+      </div>
+
+      <div class="slider-group">
+        <div class="slider-label">
+          <span>Heatmap Color Gradient</span>
+        </div>
+        <select id="select-colormap">
+          <option value="0" selected>Blue → Cyan → Yellow → Red (Classic)</option>
+          <option value="1">FLIR Ironbow (Black → Violet → Orange → White)</option>
+          <option value="2">Cool–Warm Diverging (Arctic Blue ↔ Crimson)</option>
+          <option value="3">Turbo High-Contrast Rainbow</option>
+        </select>
+      </div>
+
+      <div class="checkbox-grid">
+        <label class="checkbox-item">
+          <input type="checkbox" id="chk-gpu" checked />
+          <span>WebGL Shader</span>
+        </label>
+        <label class="checkbox-item">
+          <input type="checkbox" id="chk-isotherms" checked />
+          <span>Isotherm Lines</span>
+        </label>
+        <label class="checkbox-item">
+          <input type="checkbox" id="chk-flux" />
+          <span>Heat Flux Arrows</span>
+        </label>
+        <label class="checkbox-item">
+          <input type="checkbox" id="chk-materials" checked />
+          <span>Show Materials</span>
+        </label>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    // =========================================================================
+    // 2D HEAT-DIFFUSION PDE SIMULATION (p5.js + WebGL Fragment Shader)
+    // Solves: ∂T/∂t = ∇·(α(x,y)∇T) - v·∇T - γ(T - T_amb) + S(x,y,t)
+    // =========================================================================
+
+    // Material Definitions
+    const MATERIALS = [
+      { id: 0, name: "Air / Fluid",  alpha: 0.18,  fluid: true,  color: [15, 23, 42]   },
+      { id: 1, name: "Copper",       alpha: 1.00,  fluid: false, color: [217, 119, 6]  },
+      { id: 2, name: "Aluminum",     alpha: 0.52,  fluid: false, color: [148, 163, 184]},
+      { id: 3, name: "Glass",        alpha: 0.08,  fluid: false, color: [56, 189, 248] },
+      { id: 4, name: "Aerogel Ins.", alpha: 0.005, fluid: false, color: [168, 85, 247] },
+      { id: 5, name: "Vacuum Wall",  alpha: 0.00,  fluid: false, color: [51, 65, 85]   }
+    ];
+
+    // Simulation Grid State
+    let cols = 240;
+    let rows = 150;
+    let T;          // Float32Array: Current temperature field [0 .. 100]
+    let T_next;     // Float32Array: Scratch temperature buffer
+    let matGrid;    // Uint8Array: Material ID per cell [0 .. 5]
+    let alphaGrid;  // Float32Array: Base thermal diffusivity per cell
+
+    // Persistent Emitters & Probes
+    let emitters = []; // { x, y, radius, temp, oscillate, phase }
+    let probes = [];   // { x, y, label, color, history: [] }
+    let draggingItem = null;
+
+    // Configurable Parameters
+    let params = {
+      paused: false,
+      tool: "heat",           // 'heat', 'cool', 'heater_node', 'cooler_node', 'material', 'probe'
+      selectedMat: 1,         // Default Copper when painting material
+      brushRadius: 10,
+      brushTemp: 100,
+      solver: "explicit",     // 'explicit' or 'implicit'
+      boundary: "insulated",  // 'insulated', 'dirichlet_cold', 'dirichlet_amb', 'gradient_lr', 'bottom_hot', 'periodic'
+      conductivityMult: 1.0,
+      substeps: 10,
+      convection: 0.35,
+      coolingRate: 0.0008,
+      ambientTemp: 15.0,
+      colormap: 0,
+      useGPU: true,
+      showIsotherms: true,
+      showFlux: false,
+      showMaterials: true
+    };
+
+    // Rendering Buffers & WebGL Shader
+    let simImage;     // p5.Image carrying packed 16-bit T in (R,G) and Material in (B)
+    let cpuImage;     // Fallback / CPU direct LUT p5.Image
+    let glLayer;      // WebGL p5.Graphics layer for GPU shader rendering
+    let heatShader;   // GLSL Shader
+    let shaderReady = false;
+    let colorLUT = new Uint32Array(4 * 1024); // 4 colormaps x 1024 entries for CPU fallback
+    let simTime = 0;
+    let lastFo = 0.20;
+
+    // GLSL Vertex Shader
+    const VERT_SRC = `
+      precision highp float;
+      attribute vec3 aPosition;
+      attribute vec2 aTexCoord;
+      varying vec2 vTexCoord;
+      void main() {
+        vTexCoord = aTexCoord;
+        vec4 positionVec4 = vec4(aPosition, 1.0);
+        positionVec4.xy = positionVec4.xy * 2.0 - 1.0;
+        gl_Position = positionVec4;
+      }
+    `;
+
+    // GLSL Fragment Shader: Bicubic/Bilinear 16-bit temperature decoding,
+    // scientific colormaps, screen-space anti-aliased isotherms, and material hatching
+    const FRAG_SRC = `
+      precision highp float;
+      varying vec2 vTexCoord;
+      uniform sampler2D uTex;
+      uniform vec2 uGridSize;
+      uniform vec2 uResolution;
+      uniform int uColormap;
+      uniform bool uShowIsotherms;
+      uniform bool uShowMaterials;
+
+      // Decode 16-bit normalized temperature [0..1] packed into R (high byte) & G (low byte)
+      float sampleTempRaw(vec2 uv) {
+        vec4 c = texture2D(uTex, clamp(uv, vec2(0.001), vec2(0.999)));
+        return (c.r * 255.0 + c.g) / 256.0;
+      }
+
+      // Smooth bilinear interpolation of decoded 16-bit temperature
+      float sampleTempSmooth(vec2 uv) {
+        vec2 gridPos = uv * uGridSize - 0.5;
+        vec2 f = fract(gridPos);
+        vec2 base = (floor(gridPos) + 0.5) / uGridSize;
+        vec2 dx = vec2(1.0 / uGridSize.x, 0.0);
+        vec2 dy = vec2(0.0, 1.0 / uGridSize.y);
+
+        float t00 = sampleTempRaw(base);
+        float t10 = sampleTempRaw(base + dx);
+        float t01 = sampleTempRaw(base + dy);
+        float t11 = sampleTempRaw(base + dx + dy);
+
+        // Smoothstep hermite blend for silky gradients
+        vec2 sf = f * f * (3.0 - 2.0 * f);
+        return mix(mix(t00, t10, sf.x), mix(t01, t11, sf.x), sf.y);
+      }
+
+      // Sample exact material ID at nearest cell center
+      float sampleMatID(vec2 uv) {
+        vec2 centerUV = (floor(uv * uGridSize) + 0.5) / uGridSize;
+        vec4 c = texture2D(uTex, clamp(centerUV, vec2(0.0), vec2(1.0)));
+        return floor(c.b * 255.0 / 40.0 + 0.5);
+      }
+
+      // Scientific Heatmap Gradients (t in [0..1], where 0 = Cold Blue, 1 = Hot Red/White)
+      vec3 evaluateColormap(float t, int mapID) {
+        t = clamp(t, 0.0, 1.0);
+        if (mapID == 0) {
+          // Classic Blue -> Cyan -> Green -> Yellow -> Red -> White-Hot
+          vec3 c0 = vec3(0.04, 0.09, 0.36); // 0.00 Deep Cold Blue
+          vec3 c1 = vec3(0.05, 0.48, 0.88); // 0.22 Royal/Sky Blue
+          vec3 c2 = vec3(0.08, 0.82, 0.78); // 0.42 Cyan-Teal
+          vec3 c3 = vec3(0.96, 0.84, 0.16); // 0.66 Warm Yellow
+          vec3 c4 = vec3(0.95, 0.20, 0.12); // 0.88 Bright Red
+          vec3 c5 = vec3(1.00, 0.92, 0.82); // 1.00 Incandescent White-Red
+          if (t < 0.22) return mix(c0, c1, t / 0.22);
+          if (t < 0.44) return mix(c1, c2, (t - 0.22) / 0.22);
+          if (t < 0.68) return mix(c2, c3, (t - 0.44) / 0.24);
+          if (t < 0.90) return mix(c3, c4, (t - 0.68) / 0.22);
+          return mix(c4, c5, (t - 0.90) / 0.10);
+        } else if (mapID == 1) {
+          // FLIR Ironbow / Inferno
+          vec3 c0 = vec3(0.03, 0.03, 0.10);
+          vec3 c1 = vec3(0.28, 0.06, 0.48);
+          vec3 c2 = vec3(0.74, 0.16, 0.38);
+          vec3 c3 = vec3(0.98, 0.54, 0.08);
+          vec3 c4 = vec3(0.99, 0.96, 0.65);
+          if (t < 0.25) return mix(c0, c1, t / 0.25);
+          if (t < 0.52) return mix(c1, c2, (t - 0.25) / 0.27);
+          if (t < 0.80) return mix(c2, c3, (t - 0.52) / 0.28);
+          return mix(c3, c4, (t - 0.80) / 0.20);
+        } else if (mapID == 2) {
+          // Cool-Warm Diverging
+          vec3 c0 = vec3(0.05, 0.30, 0.75);
+          vec3 c1 = vec3(0.22, 0.65, 0.92);
+          vec3 c2 = vec3(0.16, 0.20, 0.28);
+          vec3 c3 = vec3(0.92, 0.42, 0.22);
+          vec3 c4 = vec3(0.88, 0.08, 0.16);
+          if (t < 0.25) return mix(c0, c1, t / 0.25);
+          if (t < 0.50) return mix(c1, c2, (t - 0.25) / 0.25);
+          if (t < 0.75) return mix(c2, c3, (t - 0.50) / 0.25);
+          return mix(c3, c4, (t - 0.75) / 0.25);
+        } else {
+          // Turbo Spectrum
+          vec3 c0 = vec3(0.19, 0.07, 0.23);
+          vec3 c1 = vec3(0.16, 0.55, 0.96);
+          vec3 c2 = vec3(0.18, 0.92, 0.52);
+          vec3 c3 = vec3(0.97, 0.82, 0.14);
+          vec3 c4 = vec3(0.82, 0.12, 0.05);
+          if (t < 0.25) return mix(c0, c1, t / 0.25);
+          if (t < 0.50) return mix(c1, c2, (t - 0.25) / 0.25);
+          if (t < 0.75) return mix(c2, c3, (t - 0.50) / 0.25);
+          return mix(c3, c4, (t - 0.75) / 0.25);
+        }
+      }
+
+      void main() {
+        vec2 uv = vec2(vTexCoord.x, 1.0 - vTexCoord.y);
+        float t = sampleTempSmooth(uv);
+        float matID = sampleMatID(uv);
+
+        vec3 col = evaluateColormap(t, uColormap);
+
+        // Isotherm Contour Lines (every 8.33°C = 12 bands)
+        if (uShowIsotherms && matID < 4.5) {
+          vec2 px = 1.0 / uResolution;
+          float tx = sampleTempSmooth(uv + vec2(px.x, 0.0)) - sampleTempSmooth(uv - vec2(px.x, 0.0));
+          float ty = sampleTempSmooth(uv + vec2(0.0, px.y)) - sampleTempSmooth(uv - vec2(0.0, px.y));
+          float gradMag = length(vec2(tx, ty)) * 12.0;
+
+          float phase = fract(t * 12.0);
+          float distToLine = min(phase, 1.0 - phase);
+          float lineAlpha = 1.0 - smoothstep(0.0, max(gradMag * 1.35, 0.012), distToLine);
+          if (gradMag > 0.0015) {
+            col = mix(col, vec3(1.0, 1.0, 1.0), lineAlpha * 0.34);
+          }
+        }
+
+        // Material Structural Shading & Hatching
+        if (uShowMaterials && matID > 0.5) {
+          vec2 screenPx = gl_FragCoord.xy;
+          float diag1 = mod(screenPx.x + screenPx.y, 8.0);
+          float diag2 = mod(screenPx.x - screenPx.y, 8.0);
+
+          if (matID < 1.5) {
+            // Copper: metallic warm bronze sheen + fine brushed lines
+            vec3 copperTint = vec3(0.88, 0.52, 0.20);
+            float brush = 0.5 + 0.5 * sin(screenPx.y * 1.6);
+            col = mix(col, copperTint * (0.45 + 0.85 * t), 0.30 + 0.08 * brush);
+          } else if (matID < 2.5) {
+            // Aluminum: cool brushed silver-steel sheen
+            vec3 aluTint = vec3(0.75, 0.82, 0.90);
+            float brush = 0.5 + 0.5 * sin(screenPx.x * 1.4);
+            col = mix(col, aluTint * (0.4 + 0.8 * t), 0.28 + 0.07 * brush);
+          } else if (matID < 3.5) {
+            // Glass: translucent cyan tint + diagonal specular hatch
+            float hatch = step(6.5, diag1);
+            col = mix(col, vec3(0.35, 0.82, 0.98), 0.22 + 0.20 * hatch);
+          } else if (matID < 4.5) {
+            // Aerogel Insulator: cross-hatched violet-slate porous pattern
+            float cross = max(step(6.8, diag1), step(6.8, diag2));
+            col = mix(col, vec3(0.55, 0.32, 0.78), 0.38 + 0.25 * cross);
+          } else {
+            // Vacuum / Adiabatic Wall: solid dark slate with hazard border stripe
+            float stripe = step(4.0, diag1);
+            col = mix(vec3(0.11, 0.14, 0.20), vec3(0.19, 0.24, 0.33), stripe);
+          }
+
+          // Crisp edge outline between different materials
+          vec2 dCell = 1.0 / uGridSize;
+          float mR = sampleMatID(uv + vec2(dCell.x, 0.0));
+          float mD = sampleMatID(uv + vec2(0.0, dCell.y));
+          if (abs(matID - mR) > 0.1 || abs(matID - mD) > 0.1) {
+            col = mix(col, vec3(0.92, 0.96, 1.0), 0.55);
+          }
+        }
+
+        gl_FragColor = vec4(col, 1.0);
+      }
+    `;
+
+    // =========================================================================
+    // p5.js LIFECYCLE
+    // =========================================================================
+
+    function setup() {
+      const wrapper = document.getElementById("canvas-wrapper");
+      const w = Math.max(640, wrapper.clientWidth - 20);
+      const h = Math.max(400, wrapper.clientHeight - 20);
+
+      const cnv = createCanvas(w, h);
+      cnv.parent("canvas-wrapper");
+      pixelDensity(1);
+
+      // Disable browser context menu on right-click so right-click cools smoothly
+      cnv.elt.addEventListener("contextmenu", (e) => e.preventDefault());
+
+      // Build CPU LUTs & UI colorbar
+      buildColorLUTs();
+      updateColorbarCSS();
+
+      // Initialize WebGL Shader Layer
+      initWebGLLayer(w, h);
+
+      // Allocate Simulation Grid & Load Default Preset
+      initSimulationGrid(cols, rows);
+      loadPreset("heatsink");
+
+      // Bind UI Controls
+      setupUIHandlers();
+    }
+
+    function initWebGLLayer(w, h) {
+      try {
+        glLayer = createGraphics(w, h, WEBGL);
+        glLayer.pixelDensity(1);
+        glLayer.noStroke();
+        heatShader = glLayer.createShader(VERT_SRC, FRAG_SRC);
+        shaderReady = true;
+      } catch (err) {
+        console.warn("WebGL Shader fallback to CPU LUT:", err);
+        shaderReady = false;
+        params.useGPU = false;
+      }
+    }
+
+    function windowResized() {
+      const wrapper = document.getElementById("canvas-wrapper");
+      const w = Math.max(480, wrapper.clientWidth - 20);
+      const h = Math.max(320, wrapper.clientHeight - 20);
+      resizeCanvas(w, h);
+      if (glLayer) {
+        glLayer.resizeCanvas(w, h);
+      }
+    }
+
+    // =========================================================================
+    // GRID ALLOCATION & MATERIAL / PRESET INITIALIZATION
+    // =========================================================================
+
+    function initSimulationGrid(newCols, newRows) {
+      cols = newCols;
+      rows = newRows;
+      const n = cols * rows;
+
+      T = new Float32Array(n);
+      T_next = new Float32Array(n);
+      matGrid = new Uint8Array(n);
+      alphaGrid = new Float32Array(n);
+
+      for (let i = 0; i < n; i++) {
+        T[i] = params.ambientTemp;
+        T_next[i] = params.ambientTemp;
+        matGrid[i] = 0;
+        alphaGrid[i] = MATERIALS[0].alpha;
+      }
+
+      simImage = createImage(cols, rows);
+      simImage.loadPixels();
+      cpuImage = createImage(cols, rows);
+      cpuImage.loadPixels();
+    }
+
+    function setCellMaterial(gx, gy, matID) {
+      if (gx < 0 || gx >= cols || gy < 0 || gy >= rows) return;
+      const idx = gy * cols + gx;
+      matGrid[idx] = matID;
+      alphaGrid[idx] = MATERIALS[matID].alpha;
+    }
+
+    function fillRectMaterial(x0, y0, w, h, matID, initialTemp = null) {
+      const ix0 = Math.max(0, Math.floor(x0));
+      const iy0 = Math.max(0, Math.floor(y0));
+      const ix1 = Math.min(cols - 1, Math.floor(x0 + w));
+      const iy1 = Math.min(rows - 1, Math.floor(y0 + h));
+      for (let y = iy0; y <= iy1; y++) {
+        for (let x = ix0; x <= ix1; x++) {
+          const idx = y * cols + x;
+          matGrid[idx] = matID;
+          alphaGrid[idx] = MATERIALS[matID].alpha;
+          if (initialTemp !== null) {
+            T[idx] = initialTemp;
+            T_next[idx] = initialTemp;
+          }
+        }
+      }
+    }
+
+    function loadPreset(presetName) {
+      emitters = [];
+      probes = [];
+      const n = cols * rows;
+      for (let i = 0; i < n; i++) {
+        T[i] = params.ambientTemp;
+        T_next[i] = params.ambientTemp;
+        matGrid[i] = 0;
+        alphaGrid[i] = MATERIALS[0].alpha;
+      }
+
+      if (presetName === "heatsink") {
+        // CPU Package + Copper Heatspreader + 7 Copper Fins + Air Plume Space
+        params.boundary = "insulated";
+        params.convection = 0.40;
+        params.coolingRate = 0.0009;
+        syncUIFromParams();
+
+        const cx = Math.floor(cols * 0.5);
+        const baseY = Math.floor(rows * 0.72);
+        const spreaderW = Math.floor(cols * 0.44);
+        const spreaderH = Math.max(4, Math.floor(rows * 0.055));
+
+        // Ceramic/Aerogel PCB substrate below CPU
+        fillRectMaterial(cx - spreaderW * 0.6, baseY + spreaderH + 4, spreaderW * 1.2, Math.max(4, rows * 0.04), 4);
+
+        // Copper Base Plate
+        fillRectMaterial(cx - spreaderW / 2, baseY, spreaderW, spreaderH, 1, 55);
+
+        // 7 Vertical Copper Heatsink Fins
+        const numFins = 7;
+        const finW = Math.max(3, Math.floor(cols * 0.022));
+        const finH = Math.floor(rows * 0.36);
+        for (let f = 0; f < numFins; f++) {
+          const fx = Math.floor(cx - spreaderW / 2 + (f / (numFins - 1)) * (spreaderW - finW));
+          fillRectMaterial(fx, baseY - finH, finW, finH, 1, 35);
+        }
+
+        // Persistent Hot CPU Core Die Emitter
+        emitters.push({
+          x: cx,
+          y: baseY + Math.floor(spreaderH * 0.5),
+          radius: Math.max(5, Math.floor(cols * 0.04)),
+          temp: 100.0
+        });
+
+        // Two cooling fan intakes on upper sides
+        emitters.push({
+          x: Math.floor(cols * 0.14),
+          y: Math.floor(rows * 0.25),
+          radius: Math.max(4, Math.floor(cols * 0.03)),
+          temp: 2.0
+        });
+        emitters.push({
+          x: Math.floor(cols * 0.86),
+          y: Math.floor(rows * 0.25),
+          radius: Math.max(4, Math.floor(cols * 0.03)),
+          temp: 2.0
+        });
+
+        // Probes: Fin Base vs Fin Tip
+        probes.push({ x: cx, y: baseY - 2, label: "P1 (Base)", color: "#f87171", history: [] });
+        probes.push({ x: cx, y: baseY - finH + 3, label: "P2 (Fin Tip)", color: "#38bdf8", history: [] });
+
+      } else if (presetName === "bridge") {
+        // Insulated Enclosure pierced by a High-Conductivity Copper Thermal Bridge
+        params.boundary = "dirichlet_cold";
+        params.convection = 0.10;
+        params.coolingRate = 0.0003;
+        syncUIFromParams();
+
+        const bx = Math.floor(cols * 0.18);
+        const by = Math.floor(rows * 0.20);
+        const bw = Math.floor(cols * 0.42);
+        const bh = Math.floor(rows * 0.60);
+        const wallT = Math.max(5, Math.floor(cols * 0.035));
+
+        // Aerogel Insulated Box Walls
+        fillRectMaterial(bx, by, bw, wallT, 4);
+        fillRectMaterial(bx, by + bh - wallT, bw, wallT, 4);
+        fillRectMaterial(bx, by, wallT, bh, 4);
+        fillRectMaterial(bx + bw - wallT, by, wallT, bh, 4);
+
+        // Glass Window on Top Wall
+        fillRectMaterial(bx + bw * 0.35, by, bw * 0.3, wallT, 3);
+
+        // Copper Thermal Bridge Rod piercing the right insulated wall!
+        const rodY = Math.floor(rows * 0.5);
+        const rodH = Math.max(6, Math.floor(rows * 0.08));
+        fillRectMaterial(bx + bw * 0.55, rodY - rodH / 2, cols * 0.36, rodH, 1, 45);
+
+        // Heater inside the room
+        emitters.push({
+          x: Math.floor(bx + bw * 0.32),
+          y: Math.floor(rows * 0.5),
+          radius: Math.max(6, Math.floor(cols * 0.04)),
+          temp: 100.0
+        });
+
+        // Cooler sink on the outside right
+        emitters.push({
+          x: Math.floor(cols * 0.84),
+          y: Math.floor(rows * 0.5),
+          radius: Math.max(6, Math.floor(cols * 0.04)),
+          temp: 0.0
+        });
+
+        probes.push({ x: Math.floor(bx + bw * 0.72), y: rodY, label: "P1 (Bridge)", color: "#fbbf24", history: [] });
+        probes.push({ x: Math.floor(bx + bw + cols * 0.12), y: rodY, label: "P2 (Exit)", color: "#34d399", history: [] });
+
+      } else if (presetName === "fourier") {
+        // 4 Horizontal Bars (Copper, Aluminum, Glass, Aerogel) heated on the left
+        params.boundary = "insulated";
+        params.convection = 0.0;
+        params.coolingRate = 0.0002;
+        syncUIFromParams();
+
+        const barX = Math.floor(cols * 0.16);
+        const barW = Math.floor(cols * 0.70);
+        const barH = Math.max(8, Math.floor(rows * 0.11));
+        const mats = [1, 2, 3, 4]; // Copper, Aluminum, Glass, Aerogel
+
+        // Vertical Copper Header Manifold on the left
+        fillRectMaterial(barX - Math.floor(cols * 0.05), Math.floor(rows * 0.12), Math.floor(cols * 0.05), Math.floor(rows * 0.76), 1, 95);
+
+        for (let i = 0; i < 4; i++) {
+          const yCenter = Math.floor(rows * (0.20 + i * 0.20));
+          fillRectMaterial(barX, yCenter - Math.floor(barH / 2), barW, barH, mats[i]);
+          // Vacuum insulation separators between bars so they don't cross-talk
+          if (i < 3) {
+            const sepY = Math.floor(rows * (0.30 + i * 0.20));
+            fillRectMaterial(barX, sepY - 1, barW, 3, 5);
+          }
+        }
+
+        emitters.push({
+          x: barX - Math.floor(cols * 0.025),
+          y: Math.floor(rows * 0.50),
+          radius: Math.max(7, Math.floor(cols * 0.04)),
+          temp: 100.0
+        });
+
+        probes.push({ x: Math.floor(barX + barW * 0.6), y: Math.floor(rows * 0.20), label: "P1 (Copper)", color: "#f97316", history: [] });
+        probes.push({ x: Math.floor(barX + barW * 0.6), y: Math.floor(rows * 0.40), label: "P2 (Alum.)", color: "#38bdf8", history: [] });
+
+      } else if (presetName === "rayleigh") {
+        // Rayleigh-Bénard Thermal Plumes (Heated Bottom, Cooled Top, Obstacles)
+        params.boundary = "bottom_hot";
+        params.convection = 0.85;
+        params.coolingRate = 0.0004;
+        syncUIFromParams();
+
+        // Seed warm perturbations along bottom and a couple of copper/glass baffles
+        fillRectMaterial(Math.floor(cols * 0.28), Math.floor(rows * 0.52), Math.floor(cols * 0.12), Math.max(4, Math.floor(rows * 0.035)), 1, 70);
+        fillRectMaterial(Math.floor(cols * 0.60), Math.floor(rows * 0.52), Math.floor(cols * 0.12), Math.max(4, Math.floor(rows * 0.035)), 2, 40);
+
+        emitters.push({ x: Math.floor(cols * 0.34), y: Math.floor(rows * 0.88), radius: 7, temp: 100.0 });
+        emitters.push({ x: Math.floor(cols * 0.66), y: Math.floor(rows * 0.88), radius: 7, temp: 100.0 });
+        probes.push({ x: Math.floor(cols * 0.50), y: Math.floor(rows * 0.40), label: "P1 (Plume)", color: "#f43f5e", history: [] });
+
+      } else {
+        // Clean Sandbox with one Heater and one Cooler
+        params.boundary = "insulated";
+        params.convection = 0.25;
+        params.coolingRate = 0.0005;
+        syncUIFromParams();
+
+        emitters.push({ x: Math.floor(cols * 0.35), y: Math.floor(rows * 0.5), radius: 8, temp: 100.0 });
+        emitters.push({ x: Math.floor(cols * 0.65), y: Math.floor(rows * 0.5), radius: 8, temp: 0.0 });
+        probes.push({ x: Math.floor(cols * 0.50), y: Math.floor(rows * 0.5), label: "P1 (Center)", color: "#38bdf8", history: [] });
+      }
+    }
+
+    // =========================================================================
+    // FINITE-DIFFERENCE PDE SOLVERS (EXPLICIT FTCS & IMPLICIT RED-BLACK SOR)
+    // =========================================================================
+
+    function stepPhysics() {
+      simTime += 0.016;
+      const kMult = params.conductivityMult;
+      const maxAlpha = 1.0 * kMult;
+
+      // Apply Active Emitters before stepping
+      applyEmittersToGrid(T);
+
+      if (params.solver === "explicit") {
+        // CFL Stability condition for 2D explicit diffusion: dt <= 0.25 / maxAlpha
+        const dtSafe = Math.min(0.22, 0.22 / Math.max(0.05, maxAlpha));
+        lastFo = maxAlpha * dtSafe;
+
+        for (let s = 0; s < params.substeps; s++) {
+          stepExplicitFTCS(dtSafe, kMult);
+          applyEmittersToGrid(T);
+          applyBoundaryConditions(T);
+        }
+      } else {
+        // Implicit Crank-Nicolson / Backward Euler via Red-Black Gauss-Seidel SOR
+        // Unconditionally stable even for large dt!
+        const dtImplicit = 0.45 * (params.substeps / 5.0);
+        lastFo = maxAlpha * dtImplicit;
+
+        stepImplicitRedBlackSOR(dtImplicit, kMult, 8);
+        if (params.convection > 0.001) {
+          stepBuoyancyAdvection(0.25);
+        }
+        applyEmittersToGrid(T);
+        applyBoundaryConditions(T);
+      }
+
+      // Record Probe Temperatures every frame
+      updateProbeHistories();
+    }
+
+    // Harmonic mean of thermal diffusivity at cell interfaces:
+    // Ensures exact heat flux continuity q = -k ∇T across sharp material boundaries
+    // and strictly zero flux into Vacuum/Adiabatic walls (alpha = 0).
+    function stepExplicitFTCS(dt, kMult) {
+      const w = cols;
+      const h = rows;
+      const cool = params.coolingRate;
+      const tamb = params.ambientTemp;
+      const conv = params.convection * 0.018;
+      const isPeriodic = params.boundary === "periodic";
+
+      for (let y = 1; y < h - 1; y++) {
+        const rowOffset = y * w;
+        for (let x = 1; x < w - 1; x++) {
+          const i = rowOffset + x;
+          const mC = matGrid[i];
+          if (mC === 5) {
+            // Perfect Vacuum Wall remains at ambient
+            T_next[i] = tamb;
+            continue;
+          }
+
+          const aC = alphaGrid[i];
+          const aE = alphaGrid[i + 1];
+          const aW = alphaGrid[i - 1];
+          const aS = alphaGrid[i + w];
+          const aN = alphaGrid[i - w];
+
+          // Harmonic interface diffusivities: 2*a1*a2 / (a1 + a2)
+          const kE = (aC + aE > 1e-7) ? (2.0 * aC * aE) / (aC + aE) : 0.0;
+          const kW = (aC + aW > 1e-7) ? (2.0 * aC * aW) / (aC + aW) : 0.0;
+          const kS = (aC + aS > 1e-7) ? (2.0 * aC * aS) / (aC + aS) : 0.0;
+          const kN = (aC + aN > 1e-7) ? (2.0 * aC * aN) / (aC + aN) : 0.0;
+
+          const tc = T[i];
+          const laplacian =
+            kE * (T[i + 1] - tc) +
+            kW * (T[i - 1] - tc) +
+            kS * (T[i + w] - tc) +
+            kN * (T[i - w] - tc);
+
+          let dT = dt * kMult * laplacian;
+
+          // Upwind thermal buoyancy convection in fluid (Air) cells:
+          // Warm fluid rises (-y direction), cool fluid sinks (+y direction)
+          if (mC === 0 && conv > 0.0) {
+            const buoyancyVel = conv * (tc - tamb);
+            if (buoyancyVel > 0) {
+              // Rising plume: sample from below (y + 1) if also fluid
+              if (matGrid[i + w] === 0) {
+                dT -= Math.min(0.35, buoyancyVel) * (tc - T[i + w]);
+              }
+            } else {
+              // Sinking cool downdraft: sample from above (y - 1) if also fluid
+              if (matGrid[i - w] === 0) {
+                dT += Math.min(0.35, -buoyancyVel) * (T[i - w] - tc);
+              }
+            }
+          }
+
+          // Newton cooling to ambient environment
+          dT -= cool * (tc - tamb);
+
+          let nextVal = tc + dT;
+          if (nextVal < 0.0) nextVal = 0.0;
+          if (nextVal > 100.0) nextVal = 100.0;
+          T_next[i] = nextVal;
+        }
+      }
+
+      // Swap buffers
+      const tmp = T;
+      T = T_next;
+      T_next = tmp;
+
+      if (isPeriodic) {
+        applyBoundaryConditions(T);
+      }
+    }
+
+    // Implicit Solver: Red-Black Gauss-Seidel with Successive Over-Relaxation (SOR)
+    // Solves (I - dt * kMult * ∇·(α∇) + cool) T^(n+1) = T^n
+    function stepImplicitRedBlackSOR(dt, kMult, iterations) {
+      const w = cols;
+      const h = rows;
+      const cool = params.coolingRate * params.substeps;
+      const tamb = params.ambientTemp;
+      const omega = 1.28; // SOR relaxation factor
+
+      // Copy T into T_next as RHS known vector b = T^n
+      T_next.set(T);
+
+      for (let iter = 0; iter < iterations; iter++) {
+        // Pass 0: Red cells ((x + y) & 1 === 0), Pass 1: Black cells ((x + y) & 1 === 1)
+        for (let pass = 0; pass < 2; pass++) {
+          for (let y = 1; y < h - 1; y++) {
+            const rowOffset = y * w;
+            const xStart = 1 + ((y + pass) & 1);
+            for (let x = xStart; x < w - 1; x += 2) {
+              const i = rowOffset + x;
+              if (matGrid[i] === 5) {
+                T[i] = tamb;
+                continue;
+              }
+
+              const aC = alphaGrid[i];
+              const aE = alphaGrid[i + 1];
+              const aW = alphaGrid[i - 1];
+              const aS = alphaGrid[i + w];
+              const aN = alphaGrid[i - w];
+
+              const kE = (aC + aE > 1e-7) ? (2.0 * aC * aE) / (aC + aE) * kMult : 0.0;
+              const kW = (aC + aW > 1e-7) ? (2.0 * aC * aW) / (aC + aW) * kMult : 0.0;
+              const kS = (aC + aS > 1e-7) ? (2.0 * aC * aS) / (aC + aS) * kMult : 0.0;
+              const kN = (aC + aN > 1e-7) ? (2.0 * aC * aN) / (aC + aN) * kMult : 0.0;
+
+              const sumK = kE + kW + kS + kN;
+              const neighborSum = kE * T[i + 1] + kW * T[i - 1] + kS * T[i + w] + kN * T[i - w];
+
+              const rhs = T_next[i] + cool * tamb;
+              const gsVal = (rhs + dt * neighborSum) / (1.0 + dt * sumK + cool);
+
+              let updated = T[i] + omega * (gsVal - T[i]);
+              if (updated < 0.0) updated = 0.0;
+              if (updated > 100.0) updated = 100.0;
+              T[i] = updated;
+            }
+          }
+          applyEmittersToGrid(T);
+          applyBoundaryConditions(T);
+        }
+      }
+    }
+
+    function stepBuoyancyAdvection(scale) {
+      const w = cols;
+      const h = rows;
+      const tamb = params.ambientTemp;
+      const conv = params.convection * 0.03 * scale;
+      T_next.set(T);
+
+      for (let y = 1; y < h - 1; y++) {
+        const rowOffset = y * w;
+        for (let x = 1; x < w - 1; x++) {
+          const i = rowOffset + x;
+          if (matGrid[i] !== 0) continue;
+          const tc = T_next[i];
+          const v = conv * (tc - tamb);
+          if (v > 0 && matGrid[i + w] === 0) {
+            T[i] = tc - Math.min(0.4, v) * (tc - T_next[i + w]);
+          } else if (v < 0 && matGrid[i - w] === 0) {
+            T[i] = tc + Math.min(0.4, -v) * (T_next[i - w] - tc);
+          }
+        }
+      }
+    }
+
+    function applyBoundaryConditions(field) {
+      const w = cols;
+      const h = rows;
+      const mode = params.boundary;
+      const tamb = params.ambientTemp;
+
+      if (mode === "insulated") {
+        // Zero normal derivative (Neumann: ∂T/∂n = 0)
+        for (let x = 0; x < w; x++) {
+          field[x] = field[w + x];
+          field[(h - 1) * w + x] = field[(h - 2) * w + x];
+        }
+        for (let y = 0; y < h; y++) {
+          field[y * w] = field[y * w + 1];
+          field[y * w + (w - 1)] = field[y * w + (w - 2)];
+        }
+      } else if (mode === "dirichlet_cold") {
+        // Constant 0°C ice bath borders
+        for (let x = 0; x < w; x++) {
+          field[x] = 0.0;
+          field[(h - 1) * w + x] = 0.0;
+        }
+        for (let y = 0; y < h; y++) {
+          field[y * w] = 0.0;
+          field[y * w + (w - 1)] = 0.0;
+        }
+      } else if (mode === "dirichlet_amb") {
+        // Constant Ambient T₀ borders
+        for (let x = 0; x < w; x++) {
+          field[x] = tamb;
+          field[(h - 1) * w + x] = tamb;
+        }
+        for (let y = 0; y < h; y++) {
+          field[y * w] = tamb;
+          field[y * w + (w - 1)] = tamb;
+        }
+      } else if (mode === "gradient_lr") {
+        // Left Wall = 100°C, Right Wall = 0°C, Top/Bottom Insulated
+        for (let y = 0; y < h; y++) {
+          field[y * w] = 100.0;
+          field[y * w + 1] = 100.0;
+          field[y * w + (w - 1)] = 0.0;
+          field[y * w + (w - 2)] = 0.0;
+        }
+        for (let x = 2; x < w - 2; x++) {
+          field[x] = field[w + x];
+          field[(h - 1) * w + x] = field[(h - 2) * w + x];
+        }
+      } else if (mode === "bottom_hot") {
+        // Bottom Plate = 100°C, Top Plate = 0°C, Left/Right Insulated
+        for (let x = 0; x < w; x++) {
+          field[x] = 0.0;
+          field[w + x] = 0.0;
+          field[(h - 1) * w + x] = 100.0;
+          field[(h - 2) * w + x] = 100.0;
+        }
+        for (let y = 2; y < h - 2; y++) {
+          field[y * w] = field[y * w + 1];
+          field[y * w + (w - 1)] = field[y * w + (w - 2)];
+        }
+      } else if (mode === "periodic") {
+        // Toroidal wrap-around
+        for (let x = 0; x < w; x++) {
+          field[x] = field[(h - 2) * w + x];
+          field[(h - 1) * w + x] = field[w + x];
+        }
+        for (let y = 0; y < h; y++) {
+          field[y * w] = field[y * w + (w - 2)];
+          field[y * w + (w - 1)] = field[y * w + 1];
+        }
+      }
+    }
+
+    function applyEmittersToGrid(field) {
+      for (let e of emitters) {
+        const r = e.radius;
+        const r2 = r * r;
+        const x0 = Math.max(1, Math.floor(e.x - r));
+        const x1 = Math.min(cols - 2, Math.ceil(e.x + r));
+        const y0 = Math.max(1, Math.floor(e.y - r));
+        const y1 = Math.min(rows - 2, Math.ceil(e.y + r));
+
+        for (let y = y0; y <= y1; y++) {
+          const dy = y - e.y;
+          for (let x = x0; x <= x1; x++) {
+            const dx = x - e.x;
+            const d2 = dx * dx + dy * dy;
+            if (d2 <= r2) {
+              const idx = y * cols + x;
+              if (matGrid[idx] !== 5) {
+                const falloff = 1.0 - Math.sqrt(d2) / (r + 0.5);
+                field[idx] = field[idx] + (e.temp - field[idx]) * Math.min(1.0, falloff * 1.6);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // =========================================================================
+    // RENDERING PIPELINE (GPU SHADER + CPU FALLBACK + VECTOR OVERLAYS)
+    // =========================================================================
+
+    function draw() {
+      // Handle Continuous Mouse & Keyboard Cooling/Heating Interactions
+      handleContinuousInput();
+
+      // Advance PDE Solver
+      if (!params.paused) {
+        stepPhysics();
+      }
+
+      // Render Thermal Field (WebGL Shader or CPU LUT)
+      if (params.useGPU && shaderReady) {
+        renderThermalFieldGPU();
+      } else {
+        renderThermalFieldCPU();
+      }
+
+      // Render 2D Vector Overlays (Heat Flux Arrows, Emitters, Probes, Brush Cursor)
+      if (params.showFlux) {
+        drawHeatFluxVectors();
+      }
+      drawEmittersAndProbes();
+      drawBrushPreview();
+
+      // Update Telemetry Readouts & Probe Chart
+      updateTelemetryDOM();
+      renderProbeOscilloscope();
+    }
+
+    function renderThermalFieldGPU() {
+      const n = cols * rows;
+      const px = simImage.pixels;
+
+      for (let i = 0; i < n; i++) {
+        const pIdx = i << 2;
+        const tNorm = Math.max(0.0, Math.min(1.0, T[i] * 0.01));
+        const scaled = tNorm * 65535.0;
+        px[pIdx]     = (scaled >> 8) & 255;       // High byte of temperature
+        px[pIdx + 1] = scaled & 255;              // Low byte of temperature
+        px[pIdx + 2] = matGrid[i] * 40;           // Material ID encoded
+        px[pIdx + 3] = 255;
+      }
+      simImage.updatePixels();
+
+      glLayer.shader(heatShader);
+      heatShader.setUniform("uTex", simImage);
+      heatShader.setUniform("uGridSize", [cols, rows]);
+      heatShader.setUniform("uResolution", [width, height]);
+      heatShader.setUniform("uColormap", params.colormap);
+      heatShader.setUniform("uShowIsotherms", params.showIsotherms);
+      heatShader.setUniform("uShowMaterials", params.showMaterials);
+
+      glLayer.rect(0, 0, width, height);
+      image(glLayer, 0, 0, width, height);
+    }
+
+    function renderThermalFieldCPU() {
+      const n = cols * rows;
+      const buf32 = new Uint32Array(cpuImage.pixels.buffer);
+      const mapOffset = params.colormap * 1024;
+      const showMat = params.showMaterials;
+
+      for (let i = 0; i < n; i++) {
+        const m = matGrid[i];
+        if (showMat && m === 5) {
+          buf32[i] = (255 << 24) | (48 << 16) | (35 << 8) | 28;
+          continue;
+        }
+        let cIdx = Math.floor(T[i] * 10.23);
+        if (cIdx < 0) cIdx = 0;
+        if (cIdx > 1023) cIdx = 1023;
+        let col = colorLUT[mapOffset + cIdx];
+
+        if (showMat && m > 0) {
+          const mc = MATERIALS[m].color;
+          const r = ((col & 255) * 3 + mc[0] * 2) / 5;
+          const g = (((col >> 8) & 255) * 3 + mc[1] * 2) / 5;
+          const b = (((col >> 16) & 255) * 3 + mc[2] * 2) / 5;
+          col = (255 << 24) | ((b & 255) << 16) | ((g & 255) << 8) | (r & 255);
+        }
+        buf32[i] = col;
+      }
+
+      cpuImage.updatePixels();
+      image(cpuImage, 0, 0, width, height);
+    }
+
+    // Draw Fourier Heat Flux Vectors: q = -α ∇T
+    function drawHeatFluxVectors() {
+      const stepX = Math.max(4, Math.floor(cols / 34));
+      const stepY = Math.max(4, Math.floor(rows / 22));
+      const scaleX = width / cols;
+      const scaleY = height / rows;
+
+      strokeWeight(1.3);
+      for (let gy = stepY; gy < rows - stepY; gy += stepY) {
+        for (let gx = stepX; gx < cols - stepX; gx += stepX) {
+          const i = gy * cols + gx;
+          if (matGrid[i] === 5) continue;
+
+          const a = alphaGrid[i] * params.conductivityMult;
+          const qx = -a * (T[i + 1] - T[i - 1]) * 0.5;
+          const qy = -a * (T[i + cols] - T[i - cols]) * 0.5;
+          const mag = Math.hypot(qx, qy);
+
+          if (mag > 0.04) {
+            const sx = (gx + 0.5) * scaleX;
+            const sy = (gy + 0.5) * scaleY;
+            const len = Math.min(20, 4 + mag * 7.5);
+            const ux = qx / mag;
+            const uy = qy / mag;
+            const ex = sx + ux * len;
+            const ey = sy + uy * len;
+
+            stroke(255, 255, 255, 195);
+            line(sx, sy, ex, ey);
+
+            // Arrowhead
+            const head = 4.0;
+            line(ex, ey, ex - ux * head - uy * head * 0.6, ey - uy * head + ux * head * 0.6);
+            line(ex, ey, ex - ux * head + uy * head * 0.6, ey - uy * head - ux * head * 0.6);
+          }
+        }
+      }
+    }
+
+    function drawEmittersAndProbes() {
+      const scaleX = width / cols;
+      const scaleY = height / rows;
+
+      // Persistent Emitters
+      for (let e of emitters) {
+        const sx = (e.x + 0.5) * scaleX;
+        const sy = (e.y + 0.5) * scaleY;
+        const rx = e.radius * scaleX;
+        const isHot = e.temp >= 50;
+
+        noFill();
+        strokeWeight(1.8);
+        stroke(isHot ? "rgba(255, 110, 70, 0.9)" : "rgba(56, 189, 248, 0.9)");
+        ellipse(sx, sy, rx * 2, rx * 2);
+
+        fill(isHot ? "#ef4444" : "#0284c7");
+        stroke(255);
+        strokeWeight(1.2);
+        circle(sx, sy, 9);
+
+        noStroke();
+        fill(255);
+        textAlign(CENTER, BOTTOM);
+        textSize(10);
+        text(`${Math.round(e.temp)}°C`, sx, sy - 7);
+      }
+
+      // Thermal Oscilloscope Probes
+      for (let p of probes) {
+        const sx = (p.x + 0.5) * scaleX;
+        const sy = (p.y + 0.5) * scaleY;
+        const idx = Math.min(rows - 1, Math.max(0, Math.floor(p.y))) * cols +
+                    Math.min(cols - 1, Math.max(0, Math.floor(p.x)));
+        const curT = T[idx] || 0;
+
+        stroke(p.color);
+        strokeWeight(1.6);
+        noFill();
+        circle(sx, sy, 14);
+        line(sx - 9, sy, sx + 9, sy);
+        line(sx, sy - 9, sx, sy + 9);
+
+        noStroke();
+        fill(11, 15, 23, 215);
+        rect(sx + 8, sy - 18, 66, 17, 4);
+        fill(p.color);
+        textAlign(LEFT, CENTER);
+        textSize(10);
+        text(`${p.label.split(" ")[0]}: ${curT.toFixed(1)}°`, sx + 12, sy - 9.5);
+      }
+    }
+
+    function drawBrushPreview() {
+      if (mouseX < 0 || mouseX > width || mouseY < 0 || mouseY > height) return;
+      const scaleX = width / cols;
+      const rx = params.brushRadius * scaleX;
+
+      const coolingHeld = keyIsDown(67) || keyIsDown(SHIFT) || (mouseIsPressed && mouseButton === RIGHT);
+
+      noFill();
+      strokeWeight(1.5);
+      if (coolingHeld || params.tool === "cool" || params.tool === "cooler_node") {
+        stroke(56, 189, 248, 220);
+      } else if (params.tool === "heat" || params.tool === "heater_node") {
+        stroke(255, 100, 70, 220);
+      } else {
+        stroke(255, 255, 255, 190);
+      }
+      circle(mouseX, mouseY, rx * 2);
+    }
+
+    // =========================================================================
+    // USER INTERACTION (MOUSE PAINTING & KEYBOARD COOLING / HEATING)
+    // =========================================================================
+
+    function screenToGrid(sx, sy) {
+      return {
+        x: Math.floor((sx / width) * cols),
+        y: Math.floor((sy / height) * rows)
+      };
+    }
+
+    function handleContinuousInput() {
+      const insideCanvas = mouseX >= 0 && mouseX < width && mouseY >= 0 && mouseY < height;
+      if (!insideCanvas) return;
+
+      const g = screenToGrid(mouseX, mouseY);
+      const coolingKeyHeld = keyIsDown(67) || keyIsDown(SHIFT); // 'C' key or Shift key cools!
+
+      // Keyboard-only cooling if holding 'K' (Cryo Quench without needing to click)
+      if (keyIsDown(75)) {
+        paintThermalBrush(g.x, g.y, params.brushRadius * 1.25, 0.0, 0.45);
+      }
+      // Keyboard-only heat flash if holding 'F'
+      if (keyIsDown(70)) {
+        paintThermalBrush(g.x, g.y, params.brushRadius * 1.25, 100.0, 0.45);
+      }
+
+      if (!mouseIsPressed) return;
+
+      // Dragging an existing emitter or probe
+      if (draggingItem) {
+        draggingItem.x = Math.max(2, Math.min(cols - 3, g.x));
+        draggingItem.y = Math.max(2, Math.min(rows - 3, g.y));
+        return;
+      }
+
+      // Right-click OR holding 'C' / 'Shift' always cools the region
+      if (mouseButton === RIGHT || coolingKeyHeld) {
+        paintThermalBrush(g.x, g.y, params.brushRadius, 0.0, 0.65);
+        return;
+      }
+
+      // Left-click tool actions
+      if (params.tool === "heat") {
+        paintThermalBrush(g.x, g.y, params.brushRadius, params.brushTemp, 0.65);
+      } else if (params.tool === "cool") {
+        paintThermalBrush(g.x, g.y, params.brushRadius, 0.0, 0.65);
+      } else if (params.tool === "material") {
+        paintMaterialBrush(g.x, g.y, params.brushRadius, params.selectedMat);
+      }
+    }
+
+    function mousePressed() {
+      if (mouseX < 0 || mouseX > width || mouseY < 0 || mouseY > height) return;
+      const g = screenToGrid(mouseX, mouseY);
+
+      // Check if clicking near an existing emitter or probe to drag it (or right-click to delete emitter)
+      for (let i = emitters.length - 1; i >= 0; i--) {
+        const e = emitters[i];
+        if (Math.hypot(g.x - e.x, g.y - e.y) <= Math.max(5, e.radius)) {
+          if (mouseButton === RIGHT) {
+            emitters.splice(i, 1);
+            return;
+          }
+          draggingItem = e;
+          return;
+        }
+      }
+
+      for (let p of probes) {
+        if (Math.hypot(g.x - p.x, g.y - p.y) <= 6) {
+          draggingItem = p;
+          return;
+        }
+      }
+
+      if (mouseButton === LEFT && !keyIsDown(67) && !keyIsDown(SHIFT)) {
+        if (params.tool === "heater_node") {
+          emitters.push({
+            x: g.x,
+            y: g.y,
+            radius: Math.max(3, Math.floor(params.brushRadius * 0.6)),
+            temp: params.brushTemp
+          });
+        } else if (params.tool === "cooler_node") {
+          emitters.push({
+            x: g.x,
+            y: g.y,
+            radius: Math.max(3, Math.floor(params.brushRadius * 0.6)),
+            temp: 0.0
+          });
+        } else if (params.tool === "probe") {
+          const colors = ["#38bdf8", "#f87171", "#34d399", "#fbbf24"];
+          if (probes.length >= 3) probes.shift();
+          const idx = probes.length + 1;
+          probes.push({
+            x: g.x,
+            y: g.y,
+            label: `P${idx}`,
+            color: colors[(idx - 1) % colors.length],
+            history: []
+          });
+        }
+      }
+    }
+
+    function mouseReleased() {
+      draggingItem = null;
+    }
+
+    function keyPressed() {
+      if (key === " ") {
+        togglePause();
+        return false;
+      }
+      if (key === "r" || key === "R") {
+        resetTemperaturesOnly();
+      }
+      if (key === "x" || key === "X") {
+        clearAllSandbox();
+      }
+      // Instant keyboard cooling quench around cursor when pressing 'C' or 'K'
+      if (key === "c" || key === "C" || key === "k" || key === "K") {
+        if (mouseX >= 0 && mouseX <= width && mouseY >= 0 && mouseY <= height) {
+          const g = screenToGrid(mouseX, mouseY);
+          paintThermalBrush(g.x, g.y, params.brushRadius * 1.3, 0.0, 0.85);
+        }
+      }
+    }
+
+    function paintThermalBrush(cx, cy, r, targetTemp, strength) {
+      const r2 = r * r;
+      const x0 = Math.max(1, Math.floor(cx - r));
+      const x1 = Math.min(cols - 2, Math.ceil(cx + r));
+      const y0 = Math.max(1, Math.floor(cy - r));
+      const y1 = Math.min(rows - 2, Math.ceil(cy + r));
+
+      for (let y = y0; y <= y1; y++) {
+        const dy = y - cy;
+        for (let x = x0; x <= x1; x++) {
+          const dx = x - cx;
+          const d2 = dx * dx + dy * dy;
+          if (d2 <= r2) {
+            const idx = y * cols + x;
+            if (matGrid[idx] !== 5) {
+              const falloff = 1.0 - Math.sqrt(d2) / (r + 0.5);
+              const blend = Math.min(1.0, falloff * strength);
+              T[idx] = T[idx] + (targetTemp - T[idx]) * blend;
+            }
+          }
+        }
+      }
+    }
+
+    function paintMaterialBrush(cx, cy, r, matID) {
+      const r2 = r * r;
+      const x0 = Math.max(1, Math.floor(cx - r));
+      const x1 = Math.min(cols - 2, Math.ceil(cx + r));
+      const y0 = Math.max(1, Math.floor(cy - r));
+      const y1 = Math.min(rows - 2, Math.ceil(cy + r));
+
+      for (let y = y0; y <= y1; y++) {
+        const dy = y - cy;
+        for (let x = x0; x <= x1; x++) {
+          const dx = x - cx;
+          if (dx * dx + dy * dy <= r2) {
+            setCellMaterial(x, y, matID);
+            if (matID === 5) {
+              T[y * cols + x] = params.ambientTemp;
+            }
+          }
+        }
+      }
+    }
+
+    // =========================================================================
+    // TELEMETRY, OSCILLOSCOPE CHART & COLORMAP HELPERS
+    // =========================================================================
+
+    function updateProbeHistories() {
+      for (let p of probes) {
+        const gx = Math.max(0, Math.min(cols - 1, Math.floor(p.x)));
+        const gy = Math.max(0, Math.min(rows - 1, Math.floor(p.y)));
+        const val = T[gy * cols + gx] || 0;
+        p.history.push(val);
+        if (p.history.length > 180) p.history.shift();
+      }
+    }
+
+    function renderProbeOscilloscope() {
+      const canvas = document.getElementById("probe-chart");
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      const w = canvas.width;
+      const h = canvas.height;
+
+      ctx.clearRect(0, 0, w, h);
+
+      // Subtle grid lines at 25°, 50°, 75°
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.07)";
+      ctx.lineWidth = 1;
+      for (let frac of [0.25, 0.5, 0.75]) {
+        const y = h - frac * h;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+      }
+
+      let readoutStrings = [];
+      for (let p of probes) {
+        const hist = p.history;
+        if (hist.length < 2) continue;
+        ctx.strokeStyle = p.color;
+        ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        for (let i = 0; i < hist.length; i++) {
+          const px = (i / 179) * w;
+          const py = h - 3 - (hist[i] / 100.0) * (h - 6);
+          if (i === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+        readoutStrings.push(`${p.label}: ${hist[hist.length - 1].toFixed(1)}°C`);
+      }
+
+      document.getElementById("probe-readout").textContent =
+        readoutStrings.length ? readoutStrings.join("  |  ") : "Click 'Place T-Probe' to add sensors";
+    }
+
+    function updateTelemetryDOM() {
+      if (frameCount % 4 !== 0) return;
+
+      const n = cols * rows;
+      let sum = 0;
+      let maxT = -Infinity;
+      for (let i = 0; i < n; i++) {
+        const v = T[i];
+        sum += v;
+        if (v > maxT) maxT = v;
+      }
+      const meanT = sum / n;
+
+      // Cursor inspection
+      let cursorT = "-- °C";
+      let cursorMat = "Out of bounds";
+      let cursorFlux = 0.0;
+
+      if (mouseX >= 0 && mouseX < width && mouseY >= 0 && mouseY < height) {
+        const g = screenToGrid(mouseX, mouseY);
+        if (g.x >= 1 && g.x < cols - 1 && g.y >= 1 && g.y < rows - 1) {
+          const idx = g.y * cols + g.x;
+          const m = MATERIALS[matGrid[idx]];
+          const effAlpha = (m.alpha * params.conductivityMult).toFixed(2);
+          cursorT = `${T[idx].toFixed(1)} °C`;
+          cursorMat = `${m.name} (α=${effAlpha})`;
+
+          const qx = -m.alpha * params.conductivityMult * (T[idx + 1] - T[idx - 1]) * 0.5;
+          const qy = -m.alpha * params.conductivityMult * (T[idx + cols] - T[idx - cols]) * 0.5;
+          cursorFlux = Math.hypot(qx, qy);
+        }
+      }
+
+      document.getElementById("stat-cursor-t").textContent = cursorT;
+      document.getElementById("stat-cursor-mat").textContent = cursorMat;
+      document.getElementById("stat-mean-max").textContent = `${meanT.toFixed(1)}° / ${maxT.toFixed(1)}°`;
+      document.getElementById("stat-flux-fps").textContent = `${cursorFlux.toFixed(2)} | ${Math.round(frameRate())} FPS`;
+
+      const badge = document.getElementById("solver-status-badge");
+      const schemeName = params.solver === "explicit" ? "EXPLICIT FTCS" : "IMPLICIT RB-SOR";
+      badge.textContent = `● ${schemeName} (Fo = ${lastFo.toFixed(2)})`;
+    }
+
+    function buildColorLUTs() {
+      // Populate 4 colormaps x 1024 entries for fast CPU fallback
+      for (let m = 0; m < 4; m++) {
+        for (let i = 0; i < 1024; i++) {
+          const t = i / 1023.0;
+          const rgb = sampleColormapJS(t, m);
+          colorLUT[m * 1024 + i] =
+            (255 << 24) |
+            ((rgb[2] & 255) << 16) |
+            ((rgb[1] & 255) << 8) |
+            (rgb[0] & 255);
+        }
+      }
+    }
+
+    function sampleColormapJS(t, mapID) {
+      const lerp3 = (a, b, u) => [
+        Math.round(a[0] + (b[0] - a[0]) * u),
+        Math.round(a[1] + (b[1] - a[1]) * u),
+        Math.round(a[2] + (b[2] - a[2]) * u)
+      ];
+      if (mapID === 0) {
+        const c0 = [10, 23, 92], c1 = [13, 122, 224], c2 = [20, 209, 199], c3 = [245, 214, 41], c4 = [242, 51, 31], c5 = [255, 235, 209];
+        if (t < 0.22) return lerp3(c0, c1, t / 0.22);
+        if (t < 0.44) return lerp3(c1, c2, (t - 0.22) / 0.22);
+        if (t < 0.68) return lerp3(c2, c3, (t - 0.44) / 0.24);
+        if (t < 0.90) return lerp3(c3, c4, (t - 0.68) / 0.22);
+        return lerp3(c4, c5, (t - 0.90) / 0.10);
+      } else if (mapID === 1) {
+        const c0 = [8, 8, 26], c1 = [71, 15, 122], c2 = [189, 41, 97], c3 = [250, 138, 20], c4 = [252, 245, 166];
+        if (t < 0.25) return lerp3(c0, c1, t / 0.25);
+        if (t < 0.52) return lerp3(c1, c2, (t - 0.25) / 0.27);
+        if (t < 0.80) return lerp3(c2, c3, (t - 0.52) / 0.28);
+        return lerp3(c3, c4, (t - 0.80) / 0.20);
+      } else if (mapID === 2) {
+        const c0 = [13, 77, 191], c1 = [56, 166, 235], c2 = [41, 51, 71], c3 = [235, 107, 56], c4 = [224, 20, 41];
+        if (t < 0.25) return lerp3(c0, c1, t / 0.25);
+        if (t < 0.50) return lerp3(c1, c2, (t - 0.25) / 0.25);
+        if (t < 0.75) return lerp3(c2, c3, (t - 0.50) / 0.25);
+        return lerp3(c3, c4, (t - 0.75) / 0.25);
+      } else {
+        const c0 = [48, 18, 59], c1 = [41, 140, 245], c2 = [46, 235, 133], c3 = [247, 209, 36], c4 = [209, 31, 13];
+        if (t < 0.25) return lerp3(c0, c1, t / 0.25);
+        if (t < 0.50) return lerp3(c1, c2, (t - 0.25) / 0.25);
+        if (t < 0.75) return lerp3(c2, c3, (t - 0.50) / 0.25);
+        return lerp3(c3, c4, (t - 0.75) / 0.25);
+      }
+    }
+
+    function updateColorbarCSS() {
+      const gradEl = document.getElementById("colorbar-grad");
+      const nameEl = document.getElementById("cmap-name-label");
+      const names = ["Blue–Red Thermal", "FLIR Ironbow", "Cool–Warm Diverging", "Turbo Spectrum"];
+      nameEl.textContent = names[params.colormap];
+
+      const stops = [];
+      for (let i = 0; i <= 10; i++) {
+        const rgb = sampleColormapJS(i / 10, params.colormap);
+        stops.push(`rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]}) ${i * 10}%`);
+      }
+      gradEl.style.background = `linear-gradient(90deg, ${stops.join(", ")})`;
+    }
+
+    // =========================================================================
+    // UI EVENT BINDINGS
+    // =========================================================================
+
+    function togglePause() {
+      params.paused = !params.paused;
+      const btn = document.getElementById("btn-pause");
+      btn.textContent = params.paused ? "▶ Resume" : "⏸ Pause";
+      btn.classList.toggle("active", params.paused);
+    }
+
+    function resetTemperaturesOnly() {
+      const n = cols * rows;
+      for (let i = 0; i < n; i++) {
+        T[i] = params.ambientTemp;
+        T_next[i] = params.ambientTemp;
+      }
+      for (let p of probes) p.history = [];
+    }
+
+    function clearAllSandbox() {
+      emitters = [];
+      probes = [];
+      const n = cols * rows;
+      for (let i = 0; i < n; i++) {
+        T[i] = params.ambientTemp;
+        T_next[i] = params.ambientTemp;
+        matGrid[i] = 0;
+        alphaGrid[i] = MATERIALS[0].alpha;
+      }
+    }
+
+    function syncUIFromParams() {
+      document.getElementById("select-boundary").value = params.boundary;
+      document.getElementById("slider-convection").value = params.convection;
+      document.getElementById("val-convection").textContent = params.convection.toFixed(2);
+      document.getElementById("slider-cooling").value = params.coolingRate;
+      document.getElementById("val-cooling").textContent = params.coolingRate.toFixed(4);
+    }
+
+    function setActiveTool(toolName) {
+      params.tool = toolName;
+      const toolLabels = {
+        heat: "Heat Brush",
+        cool: "Cool Brush",
+        heater_node: "Add Heater Node",
+        cooler_node: "Add Cooler Node",
+        material: `Paint ${MATERIALS[params.selectedMat].name}`,
+        probe: "Place T-Probe"
+      };
+      const ind = document.getElementById("active-tool-indicator");
+      ind.textContent = toolLabels[toolName] || toolName;
+
+      document.querySelectorAll(".tool-btn").forEach((b) => {
+        b.classList.remove("active", "active-hot", "active-cold");
+        if (b.dataset.tool === toolName) {
+          if (toolName === "heat" || toolName === "heater_node") b.classList.add("active-hot");
+          else if (toolName === "cool" || toolName === "cooler_node") b.classList.add("active-cold");
+          else b.classList.add("active");
+        }
+      });
+    }
+
+    function setupUIHandlers() {
+      document.getElementById("preset-select").addEventListener("change", (e) => {
+        loadPreset(e.target.value);
+      });
+
+      document.getElementById("btn-pause").addEventListener("click", togglePause);
+      document.getElementById("btn-reset-temp").addEventListener("click", resetTemperaturesOnly);
+      document.getElementById("btn-clear-all").addEventListener("click", clearAllSandbox);
+
+      // Tool buttons
+      document.querySelectorAll(".tool-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          setActiveTool(btn.dataset.tool);
+        });
+      });
+
+      // Material buttons (automatically switches active tool to Material Painter)
+      document.querySelectorAll(".mat-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          document.querySelectorAll(".mat-btn").forEach((b) => b.classList.remove("active"));
+          btn.classList.add("active");
+          params.selectedMat = parseInt(btn.dataset.mat, 10);
+          setActiveTool("material");
+        });
+      });
+
+      // Sliders & Selects
+      const bindSlider = (id, valId, key, fmt) => {
+        const el = document.getElementById(id);
+        const vEl = document.getElementById(valId);
+        el.addEventListener("input", () => {
+          const v = parseFloat(el.value);
+          params[key] = v;
+          vEl.textContent = fmt(v);
+        });
+      };
+
+      bindSlider("slider-brush-radius", "val-brush-radius", "brushRadius", (v) => `${v} cells`);
+      bindSlider("slider-brush-temp", "val-brush-temp", "brushTemp", (v) => `${v} °C`);
+      bindSlider("slider-conductivity", "val-conductivity", "conductivityMult", (v) => `${v.toFixed(2)}×`);
+      bindSlider("slider-speed", "val-speed", "substeps", (v) => `${v} steps`);
+      bindSlider("slider-convection", "val-convection", "convection", (v) => v.toFixed(2));
+      bindSlider("slider-cooling", "val-cooling", "coolingRate", (v) => v.toFixed(4));
+      bindSlider("slider-ambient", "val-ambient", "ambientTemp", (v) => `${v} °C`);
+
+      document.getElementById("select-solver").addEventListener("change", (e) => {
+        params.solver = e.target.value;
+      });
+
+      document.getElementById("select-boundary").addEventListener("change", (e) => {
+        params.boundary = e.target.value;
+      });
+
+      document.getElementById("select-resolution").addEventListener("change", (e) => {
+        const [w, h] = e.target.value.split("x").map(Number);
+        initSimulationGrid(w, h);
+        loadPreset(document.getElementById("preset-select").value);
+      });
+
+      document.getElementById("select-colormap").addEventListener("change", (e) => {
+        params.colormap = parseInt(e.target.value, 10);
+        updateColorbarCSS();
+      });
+
+      document.getElementById("chk-gpu").addEventListener("change", (e) => {
+        params.useGPU = e.target.checked;
+      });
+      document.getElementById("chk-isotherms").addEventListener("change", (e) => {
+        params.showIsotherms = e.target.checked;
+      });
+      document.getElementById("chk-flux").addEventListener("change", (e) => {
+        params.showFlux = e.target.checked;
+      });
+      document.getElementById("chk-materials").addEventListener("change", (e) => {
+        params.showMaterials = e.target.checked;
+      });
+    }
+  </script>
+</body>
+</html>

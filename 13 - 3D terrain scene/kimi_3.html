@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Osogovo 3D Terrain — Babylon.js</title>
+<style>
+  html, body { width:100%; height:100%; margin:0; overflow:hidden; background:#0e1116; }
+  #renderCanvas { width:100%; height:100%; display:block; touch-action:none; }
+  #err {
+    position:absolute; top:12px; left:12px; max-width:420px; padding:10px 14px;
+    font:13px/1.5 Arial, sans-serif; color:#ffd27f; background:rgba(0,0,0,.65);
+    border:1px solid #a33; border-radius:6px; display:none; z-index:10;
+  }
+</style>
+<script src="https://cdn.babylonjs.com/babylon.js"></script>
+</head>
+<body>
+<canvas id="renderCanvas"></canvas>
+<div id="err"></div>
+<script>
+(function () {
+  "use strict";
+
+  // ---------- Configuration -------------------------------------------------
+  const HEIGHTMAP_URL = "Osogovo%20Height%20Map%20(Merged).png";
+  const TEXTURE_URL   = "Osogovo_map.jpg";
+
+  const GROUND_W      = 100;            // world units (X). Z derived from aspect.
+  const RELIEF        = 0.20;           // max terrain height as fraction of width
+  const PEDESTAL      = 0.09;           // pedestal depth as fraction of width
+  const SUBDIV        = 256;            // terrain resolution
+  const WALL_SAMPLES  = 256;            // samples per wall (stitches to edge)
+
+  const errBox = document.getElementById("err");
+  const showError = (msg) => { errBox.innerHTML += msg + "<br>"; errBox.style.display = "block"; };
+
+  // ---------- Engine / Scene ------------------------------------------------
+  const canvas = document.getElementById("renderCanvas");
+  const engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
+  const scene  = new BABYLON.Scene(engine);
+  scene.clearColor = new BABYLON.Color4(0.60, 0.72, 0.86, 1);
+
+  // Camera — orbit controlled, slow auto-rotate until the user grabs it
+  const camera = new BABYLON.ArcRotateCamera("cam",
+      -Math.PI / 2.4, Math.PI / 3.1, GROUND_W * 1.45,
+      new BABYLON.Vector3(0, GROUND_W * 0.06, 0), scene);
+  camera.attachControl(canvas, true);
+  camera.lowerRadiusLimit = GROUND_W * 0.25;
+  camera.upperRadiusLimit = GROUND_W * 3.5;
+  camera.maxZ = GROUND_W * 10;
+  camera.wheelDeltaPercentage = 0.01;
+  camera.useAutoRotationBehavior = true;
+  camera.autoRotationBehavior.idleRotationSpeed = 0.12;
+  camera.autoRotationBehavior.idleRotationWaitTime = 3000;
+
+  // Lights
+  const hemi = new BABYLON.HemisphericLight("hemi", new BABYLON.Vector3(0.2, 1, 0.1), scene);
+  hemi.intensity = 0.55;
+  hemi.groundColor = new BABYLON.Color3(0.45, 0.38, 0.30);
+
+  const sun = new BABYLON.DirectionalLight("sun", new BABYLON.Vector3(-0.45, -1, -0.35), scene);
+  sun.position = new BABYLON.Vector3(GROUND_W * 0.55, GROUND_W * 0.8, GROUND_W * 0.45);
+  sun.intensity = 1.15;
+  sun.autoCalcShadowZBounds = true;
+
+  const shadows = new BABYLON.ShadowGenerator(2048, sun);
+  shadows.useBlurExponentialShadowMap = true;
+  shadows.blurKernel = 16;
+  shadows.setDarkness(0.35);
+
+  // ---------- Peak detection (reads height map pixels) ----------------------
+  // Returns [{u,v,h}] in image-normalized space, or null if pixels are unreadable
+  // (e.g. file:// CORS taint — in that case fallback coordinates are used).
+  function findPeaks(img, count) {
+    const MAXD = 256;
+    const scale = Math.min(1, MAXD / Math.max(img.width, img.height));
+    const cw = Math.max(8, Math.round(img.width * scale));
+    const ch = Math.max(8, Math.round(img.height * scale));
+    const c = document.createElement("canvas"); c.width = cw; c.height = ch;
+    const ctx = c.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(img, 0, 0, cw, ch);
+    let data;
+    try { data = ctx.getImageData(0, 0, cw, ch).data; }
+    catch (e) { return null; }
+
+    const H = (x, y) => data[(y * cw + x) * 4];           // red channel = height
+    const radius = Math.max(3, Math.round(cw * 0.02));    // local-max window
+    const cand = [];
+    for (let y = 0; y < ch; y++) {
+      for (let x = 0; x < cw; x++) {
+        const v = H(x, y);
+        if (v < 12) continue;
+        let isMax = true;
+        for (let dy = -radius; dy <= radius && isMax; dy++) {
+          for (let dx = -radius; dx <= radius; dx++) {
+            if (!dx && !dy) continue;
+            const nx = x + dx, ny = y + dy;
+            if (nx < 0 || ny < 0 || nx >= cw || ny >= ch) continue;
+            if (H(nx, ny) > v) { isMax = false; break; }
+          }
+        }
+        if (isMax) cand.push({ x, y, v });
+      }
+    }
+    cand.sort((a, b) => b.v - a.v);
+    const minDist = Math.min(cw, ch) * 0.25;              // keep peaks separated
+    const picked = [];
+    for (const p of cand) {
+      if (picked.length >= count) break;
+      if (picked.every(q => Math.hypot(q.x - p.x, q.y - p.y) >= minDist)) picked.push(p);
+    }
+    if (!picked.length) return null;
+    return picked.map(p => ({ u: p.x / cw, v: p.y / ch, h: p.v / 255 }));
+  }
+
+  // Fallback peak locations (normalized) if pixel reading is blocked
+  const FALLBACK_PEAKS = [
+    { u: 0.50, v: 0.45 }, { u: 0.34, v: 0.63 }, { u: 0.68, v: 0.30 }
+  ];
+
+  // ---------- Billboard label factory ---------------------------------------
+  function makeLabel(text, width, scene) {
+    const texW = 512, texH = 160;
+    const dt = new BABYLON.DynamicTexture("lbl_" + text, { width: texW, height: texH }, scene, true);
+    dt.hasAlpha = true;
+    const ctx = dt.getContext();
+    const font = "bold 64px Arial";
+    ctx.font = font;
+    const tw = Math.min(ctx.measureText(text).width + 70, texW - 16);
+    const bx = (texW - tw) / 2, by = 18, bh = texH - 36, r = 34;
+    ctx.beginPath();
+    ctx.moveTo(bx + r, by);
+    ctx.arcTo(bx + tw, by, bx + tw, by + bh, r);
+    ctx.arcTo(bx + tw, by + bh, bx, by + bh, r);
+    ctx.arcTo(bx, by + bh, bx, by, r);
+    ctx.arcTo(bx, by, bx + tw, by, r);
+    ctx.closePath();
+    ctx.fillStyle = "rgba(12,16,24,0.80)";
+    ctx.fill();
+    ctx.lineWidth = 5; ctx.strokeStyle = "#ffc14d"; ctx.stroke();
+    ctx.fillStyle = "#ffffff";
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(text, texW / 2, texH / 2 + 4);
+    dt.update();
+
+    const mat = new BABYLON.StandardMaterial("lblMat_" + text, scene);
+    mat.diffuseTexture = dt;
+    mat.emissiveTexture = dt;
+    mat.opacityTexture = dt;
+    mat.disableLighting = true;
+    mat.backFaceCulling = false;
+
+    const plane = BABYLON.MeshBuilder.CreatePlane("lblPlane_" + text,
+        { width: width, height: width * texH / texW }, scene);
+    plane.material = mat;
+    plane.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;   // always faces camera
+    plane.isPickable = false;
+    return plane;
+  }
+
+  // ---------- Main build -----------------------------------------------------
+  const img = new Image();
+  img.onload = function () {
+    const aspect = img.height / img.width;
+    const GROUND_H = GROUND_W * aspect;
+    const MAX_H = GROUND_W * RELIEF;
+    const BOTTOM_Y = -GROUND_W * PEDESTAL;
+
+    const peaks = findPeaks(img, 3) || FALLBACK_PEAKS;
+
+    // --- Terrain (the "lid") ---
+    const ground = BABYLON.MeshBuilder.CreateGroundFromHeightMap("terrain",
+      HEIGHTMAP_URL, {
+        width: GROUND_W, height: GROUND_H,
+        subdivisions: SUBDIV,
+        minHeight: 0, maxHeight: MAX_H,
+        onReady: () => buildPedestalAndMarkers(ground),
+        onError: () => showError("⚠ Could not load <b>" + HEIGHTMAP_URL + "</b>. " +
+          "If you opened this file directly (file://), serve it over HTTP, e.g. " +
+          "<code>python -m http.server</code>, then open <code>http://localhost:8000</code>.")
+      }, scene);
+
+    const groundMat = new BABYLON.StandardMaterial("terrainMat", scene);
+    const diffuse = new BABYLON.Texture(TEXTURE_URL, scene);
+    diffuse.onLoadObservable.add((t, es) => {
+      if (es && es.isError) showError("⚠ Could not load texture <b>" + TEXTURE_URL + "</b>.");
+    });
+    groundMat.diffuseTexture = diffuse;
+    groundMat.specularColor = new BABYLON.Color3(0.02, 0.02, 0.02);
+    ground.material = groundMat;
+    ground.receiveShadows = true;
+    shadows.addShadowCaster(ground);   // terrain self-shadowing
+
+    function buildPedestalAndMarkers(ground) {
+      // --- Pedestal material ---
+      const wallMat = new BABYLON.StandardMaterial("wallMat", scene);
+      wallMat.diffuseColor = new BABYLON.Color3(0.30, 0.22, 0.15);
+      wallMat.specularColor = BABYLON.Color3.Black();
+      wallMat.backFaceCulling = false;
+
+      // --- Walls: ribbons stitched to each terrain edge, down to BOTTOM_Y ---
+      const hw = GROUND_W / 2, hh = GROUND_H / 2;
+      const edges = [
+        (t) => [-hw + t * GROUND_W,  hh],   // north
+        (t) => [ hw - t * GROUND_W, -hh],   // south
+        (t) => [ hw,  hh - t * GROUND_H],   // east
+        (t) => [-hw, -hh + t * GROUND_H]    // west
+      ];
+      edges.forEach((edgeFn, i) => {
+        const top = [], bottom = [];
+        for (let s = 0; s <= WALL_SAMPLES; s++) {
+          const [x, z] = edgeFn(s / WALL_SAMPLES);
+          let y = ground.getHeightAtCoordinates(x, z);
+          if (y === null || y === undefined || isNaN(y)) y = 0;
+          top.push(new BABYLON.Vector3(x, y, z));
+          bottom.push(new BABYLON.Vector3(x, BOTTOM_Y, z));
+        }
+        const wall = BABYLON.MeshBuilder.CreateRibbon("wall" + i, {
+          pathArray: [top, bottom],
+          sideOrientation: BABYLON.Mesh.DOUBLESIDE
+        }, scene);
+        wall.material = wallMat;
+        wall.receiveShadows = true;
+        shadows.addShadowCaster(wall);
+      });
+
+      // --- Flat closed bottom ---
+      const bottom = BABYLON.MeshBuilder.CreateGround("bottom",
+          { width: GROUND_W, height: GROUND_H }, scene);
+      bottom.position.y = BOTTOM_Y;
+      bottom.material = wallMat;
+      bottom.receiveShadows = true;
+
+      // --- Peak markers + billboard labels ---
+      const markerMat = new BABYLON.StandardMaterial("markerMat", scene);
+      markerMat.emissiveColor = new BABYLON.Color3(1.0, 0.25, 0.12);
+      markerMat.diffuseColor = new BABYLON.Color3(0.6, 0.05, 0.02);
+      markerMat.disableLighting = false;
+
+      const poleMat = new BABYLON.StandardMaterial("poleMat", scene);
+      poleMat.emissiveColor = new BABYLON.Color3(1, 1, 1);
+      poleMat.disableLighting = true;
+
+      const labelLift = GROUND_W * 0.065;
+      const poleR = GROUND_W * 0.0016;
+
+      peaks.slice(0, 3).forEach((pk, idx) => {
+        // image (u,v) -> world (x,z)
+        const x = (pk.u - 0.5) * GROUND_W;
+        const z = (0.5 - pk.v) * GROUND_H;
+        let y = ground.getHeightAtCoordinates(x, z);
+        if (y === null || y === undefined || isNaN(y)) y = (pk.h || 0.8) * MAX_H;
+
+        // marker sphere sitting on the peak
+        const sphere = BABYLON.MeshBuilder.CreateSphere("peak" + idx,
+            { diameter: GROUND_W * 0.014, segments: 16 }, scene);
+        sphere.position.set(x, y + GROUND_W * 0.004, z);
+        sphere.material = markerMat;
+        shadows.addShadowCaster(sphere);
+
+        // thin pole rising from the peak
+        const pole = BABYLON.MeshBuilder.CreateCylinder("pole" + idx, {
+          height: labelLift, diameter: poleR * 2, tessellation: 8
+        }, scene);
+        pole.position.set(x, y + labelLift / 2, z);
+        pole.material = poleMat;
+        pole.isPickable = false;
+
+        // billboard label on top of the pole
+        const label = makeLabel("Peak " + (idx + 1), GROUND_W * 0.085, scene);
+        label.position.set(x, y + labelLift + GROUND_W * 0.016, z);
+      });
+
+      // Aim the camera target slightly above the pedestal center
+      camera.setTarget(new BABYLON.Vector3(0, MAX_H * 0.35, 0));
+    }
+  };
+  img.onerror = () => showError("⚠ Could not load <b>" + HEIGHTMAP_URL + "</b>. " +
+      "Keep the HTML file and both images in the same folder and serve over HTTP.");
+  img.src = HEIGHTMAP_URL;   // preload to learn aspect ratio & detect peaks
+
+  // ---------- Render loop ----------------------------------------------------
+  engine.runRenderLoop(() => scene.render());
+  window.addEventListener("resize", () => engine.resize());
+})();
+</script>
+</body>
+</html>

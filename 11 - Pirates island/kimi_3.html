@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<title>Pirate Island Defense — Babylon.js Prototype</title>
+<style>
+  html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#0b2233;
+    font-family:'Segoe UI',Arial,sans-serif;-webkit-user-select:none;user-select:none;}
+  #renderCanvas{width:100%;height:100%;display:block;outline:none;touch-action:none;}
+  .panel{position:absolute;background:rgba(8,25,40,.78);border:1px solid rgba(120,200,255,.35);
+    border-radius:10px;color:#e8f4ff;padding:10px 14px;backdrop-filter:blur(3px);}
+  #topbar{top:10px;left:50%;transform:translateX(-50%);display:flex;gap:26px;align-items:center;
+    font-size:17px;font-weight:600;white-space:nowrap;}
+  #topbar .gold{color:#ffd75e;} #topbar .wave{color:#7fd4ff;}
+  .barWrap{width:170px;height:14px;background:#30151a;border:1px solid #0006;border-radius:7px;overflow:hidden;}
+  .barFill{height:100%;border-radius:7px;transition:width .2s;}
+  #islandBar{background:linear-gradient(90deg,#3ddc5f,#a5ff70);}
+  #shipPanel{left:12px;bottom:12px;min-width:250px;font-size:14px;}
+  #shipPanel h3{margin:0 0 4px 0;font-size:16px;color:#ffd75e;}
+  #shipPanel .stats{color:#bfe3ff;margin-bottom:8px;line-height:1.5;}
+  #shipPanel .hpWrap{width:100%;height:10px;background:#30151a;border-radius:5px;overflow:hidden;margin:4px 0 8px 0;}
+  #shipHp{background:linear-gradient(90deg,#3ddc5f,#a5ff70);height:100%;}
+  .upBtn{display:block;width:100%;margin:5px 0;padding:7px 10px;text-align:left;cursor:pointer;
+    background:#144a6e;color:#eaf6ff;border:1px solid #3f9fd8;border-radius:7px;font-size:13px;font-weight:600;}
+  .upBtn:hover:not(:disabled){background:#1d6491;}
+  .upBtn:disabled{opacity:.45;cursor:not-allowed;}
+  .upBtn .cost{float:right;color:#ffd75e;}
+  #help{right:12px;bottom:12px;font-size:12.5px;line-height:1.65;color:#cfe8ff;max-width:230px;}
+  #help b{color:#ffd75e;}
+  #banner{top:80px;left:50%;transform:translateX(-50%);text-align:center;font-size:22px;
+    font-weight:700;color:#fff;text-shadow:0 2px 8px #000;pointer-events:none;}
+  #banner .sub{font-size:15px;font-weight:500;color:#bfe3ff;margin-top:6px;}
+  #startWaveBtn{pointer-events:auto;margin-top:8px;padding:8px 22px;font-size:15px;font-weight:700;
+    background:#1d7a3d;color:#fff;border:1px solid #4cd97c;border-radius:8px;cursor:pointer;}
+  #startWaveBtn:hover{background:#27a24f;}
+  #gameOver{display:none;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;
+    padding:34px 60px;font-size:30px;font-weight:800;color:#ff7b7b;z-index:10;}
+  #gameOver button{margin-top:18px;padding:10px 30px;font-size:17px;font-weight:700;cursor:pointer;
+    background:#1d7a3d;color:#fff;border:1px solid #4cd97c;border-radius:8px;}
+</style>
+<script src="https://cdn.babylonjs.com/babylon.js"></script>
+</head>
+<body>
+<canvas id="renderCanvas"></canvas>
+
+<div id="topbar" class="panel">
+  <span class="gold">💰 <span id="gold">0</span></span>
+  <span class="wave">🌊 Wave <span id="wave">0</span></span>
+  <span>🏝️ <div class="barWrap" style="display:inline-block;vertical-align:middle;">
+    <div id="islandBar" class="barFill" style="width:100%;"></div></div>
+    <span id="islandHpTxt" style="font-size:13px;">100</span></span>
+  <span style="color:#ff9c9c;">☠️ Enemies: <span id="enemiesLeft">0</span></span>
+</div>
+
+<div id="shipPanel" class="panel">
+  <h3 id="shipName">Ship 1</h3>
+  <div class="hpWrap"><div id="shipHp" style="width:100%;"></div></div>
+  <div class="stats" id="shipStats"></div>
+  <button class="upBtn" id="upDmg">💥 Cannon Damage +12 <span class="cost" id="costDmg"></span></button>
+  <button class="upBtn" id="upRate">⏱️ Fire Rate +15% <span class="cost" id="costRate"></span></button>
+  <button class="upBtn" id="upSpd">💨 Sailing Speed +1.5 <span class="cost" id="costSpd"></span></button>
+  <button class="upBtn" id="upRepair">🔧 Repair Island +25 <span class="cost">80g</span></button>
+</div>
+
+<div id="help" class="panel">
+  <b>Controls</b><br>
+  🖱️ Drag — orbit camera · Wheel — zoom<br>
+  <b>1 / 2 / 3</b> — select ship (or click it)<br>
+  <b>W / S</b> — sail forward / reverse<br>
+  <b>A / D</b> — turn port / starboard<br>
+  <b>Space</b> — force cannon volley<br>
+  Ships auto-fire at enemies in range.<br>
+  Don't let enemies reach the island!
+</div>
+
+<div id="banner"></div>
+<div id="gameOver" class="panel">☠️ THE ISLAND HAS FALLEN ☠️<br>
+  <span id="finalScore" style="font-size:17px;color:#ffd75e;"></span><br>
+  <button onclick="location.reload()">⚓ Play Again</button>
+</div>
+
+<script>
+// ============================================================
+//  PIRATE ISLAND DEFENSE — single-file Babylon.js prototype
+// ============================================================
+const canvas = document.getElementById("renderCanvas");
+const engine = new BABYLON.Engine(canvas, true);
+const scene  = new BABYLON.Scene(engine);
+scene.clearColor = new BABYLON.Color4(0.55, 0.78, 0.95, 1);
+scene.fogMode  = BABYLON.Scene.FOGMODE_LINEAR;
+scene.fogStart = 130; scene.fogEnd = 260;
+scene.fogColor = new BABYLON.Color3(0.55, 0.78, 0.95);
+
+// ---------- camera ----------
+const camera = new BABYLON.ArcRotateCamera("cam", -Math.PI/2, 0.95, 70, new BABYLON.Vector3(0,2,0), scene);
+camera.attachControl(canvas, true);
+camera.lowerRadiusLimit = 25; camera.upperRadiusLimit = 150;
+camera.lowerBetaLimit = 0.3;  camera.upperBetaLimit = 1.35;
+camera.wheelDeltaPercentage = 0.01;
+camera.panningSensibility = 0;
+camera.keysUp = []; camera.keysDown = []; camera.keysLeft = []; camera.keysRight = [];
+
+// ---------- lights & shadows ----------
+const hemi = new BABYLON.HemisphericLight("hemi", new BABYLON.Vector3(0,1,0), scene);
+hemi.intensity = 0.95; hemi.groundColor = new BABYLON.Color3(0.3,0.4,0.5);
+const sun = new BABYLON.DirectionalLight("sun", new BABYLON.Vector3(-0.4,-1,0.35), scene);
+sun.intensity = 0.7; sun.position = new BABYLON.Vector3(60,120,-50);
+const shadowGen = new BABYLON.ShadowGenerator(1024, sun);
+shadowGen.useBlurExponentialShadowMap = true;
+
+// ---------- material helper ----------
+function mkMat(color, emissive){
+  const m = new BABYLON.StandardMaterial("m"+Math.random(), scene);
+  if(emissive){ m.emissiveColor = color; m.disableLighting = true; }
+  else { m.diffuseColor = color; m.specularColor = new BABYLON.Color3(0.04,0.04,0.04); }
+  return m;
+}
+
+// ---------- water ----------
+const WAVE_T = {t:0};
+function waveH(x,z,t){
+  return Math.sin(x*0.18 + t*1.3)*0.30 + Math.cos(z*0.15 + t*1.05)*0.30
+       + Math.sin((x+z)*0.07 + t*0.7)*0.25;
+}
+const water = BABYLON.MeshBuilder.CreateGround("water",
+  {width:420, height:420, subdivisions:90, updatable:true}, scene);
+const waterMat = mkMat(new BABYLON.Color3(0.08,0.42,0.62), true);
+waterMat.alpha = 0.96;
+water.material = waterMat; water.isPickable = false;
+const waterPos = water.getVerticesData(BABYLON.VertexBuffer.PositionKind);
+const waterBase = waterPos.slice();
+
+// ---------- island ----------
+const sand = BABYLON.MeshBuilder.CreateCylinder("sand",{diameter:32,height:1.4,tessellation:40},scene);
+sand.position.y = -0.2; sand.material = mkMat(new BABYLON.Color3(0.9,0.82,0.55));
+sand.receiveShadows = true;
+const grass = BABYLON.MeshBuilder.CreateSphere("grass",{diameter:27,segments:20},scene);
+grass.scaling.y = 0.20; grass.position.y = 0.5;
+grass.material = mkMat(new BABYLON.Color3(0.22,0.62,0.28));
+grass.receiveShadows = true;
+
+function islandY(x,z){ const r2=x*x+z*z; return r2>169 ? 0.4 : 0.5 + Math.sqrt(169-r2)*0.20; }
+
+function makePalm(x,z){
+  const g = new BABYLON.TransformNode("palm",scene);
+  const baseY = islandY(x,z);
+  const trunk = BABYLON.MeshBuilder.CreateCylinder("trunk",{height:4.4,diameterTop:0.22,diameterBottom:0.45,tessellation:8},scene);
+  trunk.material = mkMat(new BABYLON.Color3(0.45,0.3,0.15));
+  trunk.position.set(0, 2.0, 0); trunk.rotation.z = 0.15; trunk.parent = g;
+  for(let i=0;i<6;i++){
+    const leaf = BABYLON.MeshBuilder.CreateBox("leaf",{width:2.8,height:0.06,depth:0.75},scene);
+    leaf.setPivotPoint(new BABYLON.Vector3(-1.4,0,0));
+    leaf.material = mkMat(new BABYLON.Color3(0.15,0.55,0.2));
+    leaf.position.set(0.45, 4.25, 0);
+    leaf.rotation.y = i*(Math.PI*2/6); leaf.rotation.z = -0.55;
+    leaf.parent = g;
+  }
+  const coco = BABYLON.MeshBuilder.CreateSphere("coco",{diameter:0.45},scene);
+  coco.material = mkMat(new BABYLON.Color3(0.35,0.22,0.1));
+  coco.position.set(0.4,4.05,0); coco.parent = g;
+  g.position.set(x, baseY-0.2, z);
+  trunk.receiveShadows = true;
+  shadowGen.addShadowCaster(trunk);
+}
+makePalm(3,2); makePalm(-3.5,1); makePalm(0.5,-4);
+
+function makeRock(x,z,s){
+  const r = BABYLON.MeshBuilder.CreateIcoSphere("rock",{radius:s,subdivisions:1},scene);
+  r.material = mkMat(new BABYLON.Color3(0.5,0.52,0.55));
+  r.scaling.y = 0.65; r.position.set(x, islandY(x,z), z);
+  r.rotation.y = Math.random()*6;
+}
+makeRock(9,4,1.1); makeRock(-8,-6,0.9); makeRock(5,-9,1.3); makeRock(-10,5,0.8);
+
+// decorative drifting clouds
+const clouds = [];
+for(let i=0;i<5;i++){
+  const c = BABYLON.MeshBuilder.CreateSphere("cloud",{diameter:9+Math.random()*6,segments:8},scene);
+  c.scaling.y = 0.35;
+  c.material = mkMat(new BABYLON.Color3(1,1,1), true);
+  c.material.alpha = 0.85;
+  c.position.set(Math.random()*240-120, 26+Math.random()*12, Math.random()*240-120);
+  c.isPickable = false;
+  clouds.push(c);
+}
+
+// ---------- ship builder ----------
+function buildShip(hullColor, sailColor, flagColor, scale){
+  const root = new BABYLON.TransformNode("ship", scene);
+  const hullMat = mkMat(hullColor), sailMat = mkMat(sailColor);
+  sailMat.backFaceCulling = false;
+
+  const hull = BABYLON.MeshBuilder.CreateBox("hull",{width:2.0,height:1.3,depth:5.0},scene);
+  hull.position.y = 0.25; hull.material = hullMat; hull.parent = root;
+  const bow = BABYLON.MeshBuilder.CreateBox("bow",{width:1.5,height:1.2,depth:1.8},scene);
+  bow.rotation.y = Math.PI/4; bow.position.set(0,0.25,3.1); bow.material = hullMat; bow.parent = root;
+  const cabin = BABYLON.MeshBuilder.CreateBox("cabin",{width:1.6,height:0.9,depth:1.4},scene);
+  cabin.position.set(0,1.25,-1.6); cabin.material = mkMat(new BABYLON.Color3(0.55,0.38,0.2)); cabin.parent = root;
+  const mast = BABYLON.MeshBuilder.CreateCylinder("mast",{height:4.6,diameter:0.18,tessellation:8},scene);
+  mast.position.set(0,3.0,0.4); mast.material = hullMat; mast.parent = root;
+  const sail = BABYLON.MeshBuilder.CreatePlane("sail",{width:2.7,height:2.2},scene);
+  sail.position.set(0,3.2,0.28); sail.material = sailMat; sail.parent = root;
+  const flag = BABYLON.MeshBuilder.CreatePlane("flag",{width:0.9,height:0.5},scene);
+  flag.position.set(0.45,5.25,0.4); flag.material = mkMat(flagColor,true);
+  flag.material.backFaceCulling = false; flag.parent = root;
+
+  root.scaling.setAll(scale||1);
+  [hull,bow,cabin,mast].forEach(m=>{ shadowGen.addShadowCaster(m); m.receiveShadows = true; });
+  return root;
+}
+
+// ---------- health bars & labels ----------
+function makeHealthBar(parent, y, w, color){
+  const bg = BABYLON.MeshBuilder.CreatePlane("bg",{width:w,height:0.28},scene);
+  bg.material = mkMat(new BABYLON.Color3(0.12,0.12,0.12), true);
+  bg.parent = parent; bg.position.y = y;
+  bg.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL; bg.isPickable = false;
+  const fg = BABYLON.MeshBuilder.CreatePlane("fg",{width:w,height:0.18},scene);
+  fg.material = mkMat(color, true);
+  fg.parent = bg; fg.position.z = -0.03; fg.isPickable = false;
+  return {bg, fg, w,
+    set(frac){ frac = Math.max(0,Math.min(1,frac));
+      fg.scaling.x = frac; fg.position.x = -this.w*(1-frac)/2; }};
+}
+function makeLabel(parent, text, colorCss, y){
+  const dt = new BABYLON.DynamicTexture("dt",{width:128,height:128},scene,true);
+  dt.hasAlpha = true;
+  dt.drawText(text, null, 96, "bold 92px Arial", colorCss, "transparent", true);
+  const p = BABYLON.MeshBuilder.CreatePlane("lbl",{size:1.7},scene);
+  const m = new BABYLON.StandardMaterial("lm",scene);
+  m.diffuseTexture = dt; m.opacityTexture = dt;
+  m.emissiveColor = new BABYLON.Color3(1,1,1); m.disableLighting = true;
+  p.material = m; p.parent = parent; p.position.y = y;
+  p.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL; p.isPickable = false;
+}
+
+// ---------- game state ----------
+const state = { gold:140, wave:0, islandHp:100, maxIslandHp:100,
+  phase:"build", buildTimer:10, enemiesToSpawn:0, spawnTimer:0, spawnInterval:2 };
+let enemyHpBase = 40, enemySpeedBase = 3;
+
+const friendlies = [], enemies = [], balls = [], dying = [], effects = [];
+const shipColors  = [new BABYLON.Color3(0.25,0.6,1), new BABYLON.Color3(0.3,0.95,0.45), new BABYLON.Color3(0.95,0.55,1)];
+const shipCss     = ["#4da3ff","#4df27e","#f28cff"];
+
+// cannonball base (parked underground; instances used for shots)
+const ballBase = BABYLON.MeshBuilder.CreateSphere("ball",{diameter:0.55,segments:6},scene);
+ballBase.material = mkMat(new BABYLON.Color3(0.1,0.1,0.1));
+ballBase.position.y = -60; ballBase.isPickable = false;
+
+// ---------- friendly ships ----------
+for(let i=0;i<3;i++){
+  const a = i*(Math.PI*2/3) + Math.PI/6;
+  const root = buildShip(new BABYLON.Color3(0.42,0.26,0.12),
+                         new BABYLON.Color3(0.94,0.92,0.85), shipColors[i], 1);
+  root.position.set(Math.sin(a)*24, 0, Math.cos(a)*24);
+  const f = { idx:i, mesh:root, slotAngle:a, angle:a+Math.PI/2, speed:0,
+    hp:120, maxHp:120, dmg:25, cooldown:1.6, cd:Math.random(), moveSpeed:8,
+    lvlDmg:1, lvlRate:1, lvlSpd:1, alive:true,
+    bar: makeHealthBar(root, 5.6, 2.6, new BABYLON.Color3(0.2,0.9,0.3)) };
+  const ring = BABYLON.MeshBuilder.CreateTorus("ring",{diameter:5.6,thickness:0.16,tessellation:32},scene);
+  ring.material = mkMat(shipColors[i], true);
+  ring.rotation.x = Math.PI/2; ring.position.y = -0.1; ring.parent = root; ring.isPickable = false;
+  f.ring = ring;
+  makeLabel(root, String(i+1), shipCss[i], 6.9);
+  root.getChildMeshes().forEach(m=>m.metadata = {shipIdx:i});
+  friendlies.push(f);
+}
+let selected = friendlies[0];
+
+// ---------- enemies ----------
+function spawnEnemy(){
+  const a = Math.random()*Math.PI*2;
+  const root = buildShip(new BABYLON.Color3(0.15,0.13,0.14),
+                         new BABYLON.Color3(0.55,0.12,0.12),
+                         new BABYLON.Color3(0.05,0.05,0.05), 0.92);
+  root.position.set(Math.sin(a)*100, 0, Math.cos(a)*100);
+  const e = { mesh:root, hp:enemyHpBase, maxHp:enemyHpBase,
+    speed: enemySpeedBase*(0.9+Math.random()*0.25),
+    vel: BABYLON.Vector3.Zero(), angle:a+Math.PI,
+    fireCd: 2+Math.random()*2, alive:true,
+    bar: makeHealthBar(root, 5.4, 2.2, new BABYLON.Color3(0.95,0.2,0.15)) };
+  root.getChildMeshes().forEach(m=>m.metadata = {enemy:e});
+  enemies.push(e);
+}
+
+// ---------- effects (impact bursts) ----------
+function burst(pos, color, maxScale){
+  const s = BABYLON.MeshBuilder.CreateSphere("fx",{diameter:1,segments:8},scene);
+  s.material = mkMat(color, true); s.material.alpha = 0.9;
+  s.position.copyFrom(pos); s.isPickable = false;
+  effects.push({mesh:s, t:0, dur:0.45, max:maxScale});
+}
+
+// ---------- cannons ----------
+function spawnBall(shooter, shooterPos, target, targetVel, dmg, fromEnemy){
+  const dist = BABYLON.Vector3.Distance(shooterPos, target.mesh.position);
+  const dur = Math.max(0.25, dist/36);
+  const end = target.mesh.position.add(targetVel.scale(dur));
+  end.y = Math.max(end.y+0.6, 0.8);
+  const b = ballBase.createInstance("b");
+  b.position.copyFrom(shooterPos);
+  balls.push({mesh:b, start:shooterPos.clone(), end, t:0, dur,
+    arc: 1.5 + dist*0.09, dmg, fromEnemy});
+}
+function friendlyFire(f, force){
+  let best=null, bd = force? 40 : 32;
+  for(const e of enemies){ if(!e.alive) continue;
+    const d = BABYLON.Vector3.Distance(f.mesh.position, e.mesh.position);
+    if(d<bd){bd=d;best=e;} }
+  if(best){
+    const toT = best.mesh.position.subtract(f.mesh.position);
+    const right = new BABYLON.Vector3(Math.cos(f.angle),0,-Math.sin(f.angle));
+    const side = Math.sign(BABYLON.Vector3.Dot(right, toT)) || 1;
+    const muzzle = f.mesh.position.add(right.scale(side*1.4));
+    muzzle.y += 1.3;
+    const vel = new BABYLON.Vector3(Math.sin(f.angle),0,Math.cos(f.angle)).scale(f.speed);
+    spawnBall(f, muzzle, best, vel, f.dmg, false);
+    f.cd = f.cooldown;
+  }
+}
+
+// ---------- waves ----------
+function startWave(){
+  state.wave++;
+  state.enemiesToSpawn = 2 + state.wave*2;
+  state.spawnInterval  = Math.max(0.7, 2.3 - state.wave*0.12);
+  enemyHpBase    = 40 + state.wave*14;
+  enemySpeedBase = Math.min(6.5, 2.6 + state.wave*0.3);
+  state.phase = "combat"; state.spawnTimer = 0.6;
+}
+function endWave(){
+  state.phase = "build"; state.buildTimer = 15;
+  state.gold += 40 + state.wave*10;
+  state.islandHp = Math.min(state.maxIslandHp, state.islandHp + 5);
+  friendlies.forEach(f=>{
+    if(!f.alive){ // respawn sunken ships at their slot
+      f.alive = true; f.hp = f.maxHp;
+      f.mesh.setEnabled(true);
+      f.mesh.position.set(Math.sin(f.slotAngle)*24, 0, Math.cos(f.slotAngle)*24);
+      f.mesh.rotation.set(0, f.angle, 0);
+    } else f.hp = f.maxHp;
+  });
+}
+
+// ---------- upgrades ----------
+const $ = id => document.getElementById(id);
+const costDmg  = f => 50*f.lvlDmg;
+const costRate = f => 60*f.lvlRate;
+const costSpd  = f => 40*f.lvlSpd;
+$("upDmg").onclick  = ()=>{ const f=selected,c=costDmg(f);  if(state.gold>=c){state.gold-=c; f.lvlDmg++;  f.dmg+=12;} };
+$("upRate").onclick = ()=>{ const f=selected,c=costRate(f); if(state.gold>=c){state.gold-=c; f.lvlRate++; f.cooldown*=0.85;} };
+$("upSpd").onclick  = ()=>{ const f=selected,c=costSpd(f);  if(state.gold>=c){state.gold-=c; f.lvlSpd++;  f.moveSpeed+=1.5;} };
+$("upRepair").onclick = ()=>{ if(state.gold>=80 && state.islandHp<state.maxIslandHp){
+  state.gold-=80; state.islandHp=Math.min(state.maxIslandHp,state.islandHp+25);} };
+
+// ---------- input ----------
+const keys = {};
+window.addEventListener("keydown", e=>{
+  keys[e.code]=true;
+  if(["Space","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.code)) e.preventDefault();
+  if(e.code==="Digit1" && friendlies[0].alive) selected=friendlies[0];
+  if(e.code==="Digit2" && friendlies[1].alive) selected=friendlies[1];
+  if(e.code==="Digit3" && friendlies[2].alive) selected=friendlies[2];
+  if(e.code==="Space" && selected.alive && state.phase!=="over") friendlyFire(selected, true);
+});
+window.addEventListener("keyup", e=>keys[e.code]=false);
+scene.onPointerObservable.add(pi=>{
+  if(pi.type === BABYLON.PointerEventTypes.POINTERDOWN){
+    const pick = scene.pick(scene.pointerX, scene.pointerY, m=>m.metadata && m.metadata.shipIdx!==undefined);
+    if(pick.hit && pick.pickedMesh){
+      const f = friendlies[pick.pickedMesh.metadata.shipIdx];
+      if(f.alive) selected = f;
+    }
+  }
+});
+
+// ---------- sinking ----------
+function sink(entity, isFriendly){
+  entity.alive = false;
+  entity.bar.bg.setEnabled(false);
+  dying.push({mesh:entity.mesh, t:0});
+  if(isFriendly && selected===entity){
+    const nxt = friendlies.find(f=>f.alive); if(nxt) selected=nxt;
+  }
+}
+
+// ---------- UI ----------
+function updateUI(){
+  $("gold").textContent = Math.floor(state.gold);
+  $("wave").textContent = state.wave;
+  $("islandBar").style.width = (state.islandHp/state.maxIslandHp*100)+"%";
+  $("islandHpTxt").textContent = Math.max(0,Math.ceil(state.islandHp));
+  const alive = enemies.filter(e=>e.alive).length;
+  $("enemiesLeft").textContent = alive + state.enemiesToSpawn;
+
+  const f = selected;
+  $("shipName").textContent = "Ship "+(f.idx+1)+(f.alive?"":"  (SUNK)");
+  $("shipName").style.color = shipCss[f.idx];
+  $("shipHp").style.width = (f.hp/f.maxHp*100)+"%";
+  $("shipStats").innerHTML =
+    "HP "+Math.ceil(f.hp)+"/"+f.maxHp+" &nbsp;·&nbsp; DMG "+f.dmg+
+    " &nbsp;·&nbsp; Reload "+f.cooldown.toFixed(2)+"s &nbsp;·&nbsp; Speed "+f.moveSpeed.toFixed(1);
+  $("costDmg").textContent  = "Lv"+f.lvlDmg+" · "+costDmg(f)+"g";
+  $("costRate").textContent = "Lv"+f.lvlRate+" · "+costRate(f)+"g";
+  $("costSpd").textContent  = "Lv"+f.lvlSpd+" · "+costSpd(f)+"g";
+  $("upDmg").disabled  = state.gold < costDmg(f)  || !f.alive;
+  $("upRate").disabled = state.gold < costRate(f) || !f.alive;
+  $("upSpd").disabled  = state.gold < costSpd(f)  || !f.alive;
+  $("upRepair").disabled = state.gold < 80 || state.islandHp >= state.maxIslandHp;
+
+  if(state.phase==="build"){
+    $("banner").innerHTML = "⚓ Build Phase — Wave "+(state.wave+1)+" in "+
+      Math.ceil(state.buildTimer)+"s<br><button id='startWaveBtn'>▶ Start Wave Now</button>";
+    const b = document.getElementById("startWaveBtn");
+    if(b) b.onclick = ()=>{ state.buildTimer = 0; };
+  } else if(state.phase==="combat" && state.spawnTimer>0 && state.wave>0){
+    $("banner").innerHTML = "⚔️ WAVE "+state.wave+" ⚔️";
+  } else $("banner").innerHTML = "";
+}
+
+// ---------- main update ----------
+function update(dt){
+  WAVE_T.t += dt;
+  const t = WAVE_T.t;
+
+  // water waves
+  for(let i=0;i<waterPos.length;i+=3)
+    waterPos[i+1] = waveH(waterBase[i], waterBase[i+2], t);
+  water.updateVerticesData(BABYLON.VertexBuffer.PositionKind, waterPos);
+
+  // clouds drift
+  for(const c of clouds){ c.position.x += dt*1.2; if(c.position.x>140) c.position.x=-140; }
+
+  // ---- friendly ships ----
+  for(const f of friendlies){
+    if(!f.alive) continue;
+    if(f===selected && state.phase!=="over"){
+      let acc=0, turn=0;
+      if(keys["KeyW"]||keys["ArrowUp"]) acc=1;
+      if(keys["KeyS"]||keys["ArrowDown"]) acc=-0.5;
+      if(keys["KeyA"]||keys["ArrowLeft"]) turn=1;
+      if(keys["KeyD"]||keys["ArrowRight"]) turn=-1;
+      f.speed += (acc*f.moveSpeed - f.speed)*Math.min(1, dt*2.2);
+      f.angle += turn*1.7*dt*(0.4+0.6*Math.min(1,Math.abs(f.speed)/4));
+    } else f.speed += (0-f.speed)*Math.min(1, dt*2);
+
+    const p = f.mesh.position;
+    p.x += Math.sin(f.angle)*f.speed*dt;
+    p.z += Math.cos(f.angle)*f.speed*dt;
+    let d = Math.hypot(p.x,p.z);
+    if(d<17){ p.x*=17/d; p.z*=17/d; }       // don't run aground
+    if(d>105){ p.x*=105/d; p.z*=105/d; }    // stay in the arena
+    // bobbing
+    p.y = waveH(p.x,p.z,t)+0.15;
+    f.mesh.rotation.y = f.angle;
+    f.mesh.rotation.z = Math.sin(t*1.6 + f.idx*2)*0.04;
+    f.mesh.rotation.x = Math.cos(t*1.3 + f.idx)*0.03;
+    f.ring.visibility = (f===selected ? 1 : 0);
+    f.ring.rotation.z += dt*0.8;
+    f.bar.set(f.hp/f.maxHp);
+    // auto cannons
+    f.cd -= dt;
+    if(f.cd<=0 && state.phase==="combat") friendlyFire(f, false);
+  }
+
+  // ---- enemies ----
+  if(state.phase==="combat"){
+    state.spawnTimer -= dt;
+    if(state.enemiesToSpawn>0 && state.spawnTimer<=0){
+      spawnEnemy(); state.enemiesToSpawn--;
+      state.spawnTimer = state.spawnInterval;
+    }
+  }
+  for(const e of enemies){
+    if(!e.alive) continue;
+    const p = e.mesh.position;
+    const d = Math.hypot(p.x,p.z);
+    if(d > 15.5){
+      const dir = new BABYLON.Vector3(-p.x/d, 0, -p.z/d);
+      e.vel.copyFrom(dir.scale(e.speed));
+      p.x += e.vel.x*dt; p.z += e.vel.z*dt;
+      e.angle = Math.atan2(dir.x, dir.z);
+      // separation
+      for(const o of enemies){ if(o===e||!o.alive) continue;
+        const dx=p.x-o.mesh.position.x, dz=p.z-o.mesh.position.z;
+        const dd=Math.hypot(dx,dz);
+        if(dd<4 && dd>0.001){ p.x+=dx/dd*(4-dd)*dt*2; p.z+=dz/dd*(4-dd)*dt*2; } }
+    } else {
+      // reached the island — ramming damage!
+      state.islandHp -= 20;
+      burst(new BABYLON.Vector3(p.x*0.85,3,p.z*0.85), new BABYLON.Color3(1,0.55,0.1), 9);
+      e.bar.bg.setEnabled(false); e.alive=false; dying.push({mesh:e.mesh, t:0});
+      if(state.islandHp<=0 && state.phase!=="over"){
+        state.phase="over";
+        $("finalScore").textContent = "Survived "+state.wave+" wave"+(state.wave===1?"":"s")+
+          " · "+Math.floor(state.gold)+" gold left";
+        $("gameOver").style.display = "block";
+      }
+      continue;
+    }
+    p.y = waveH(p.x,p.z,t)+0.15;
+    e.mesh.rotation.y = e.angle;
+    e.mesh.rotation.z = Math.sin(t*1.7 + e.mesh.uniqueId)*0.05;
+    e.bar.set(e.hp/e.maxHp);
+    // enemy returns fire
+    e.fireCd -= dt;
+    if(e.fireCd<=0){
+      let best=null,bd=26;
+      for(const f of friendlies){ if(!f.alive) continue;
+        const fd = BABYLON.Vector3.Distance(p, f.mesh.position);
+        if(fd<bd){bd=fd;best=f;} }
+      if(best){
+        const muzzle = p.clone(); muzzle.y += 1.3;
+        const fVel = new BABYLON.Vector3(Math.sin(best.angle),0,Math.cos(best.angle)).scale(best.speed);
+        spawnBall(e, muzzle, best, fVel, 8+state.wave, true);
+        e.fireCd = 3.2 + Math.random();
+      } else e.fireCd = 0.5;
+    }
+  }
+
+  // ---- cannonballs ----
+  for(let i=balls.length-1;i>=0;i--){
+    const b = balls[i]; b.t += dt;
+    const k = Math.min(1, b.t/b.dur);
+    const pos = BABYLON.Vector3.Lerp(b.start, b.end, k);
+    pos.y += Math.sin(k*Math.PI)*b.arc;
+    b.mesh.position.copyFrom(pos);
+    if(k>=1){
+      let hit=false;
+      if(b.fromEnemy){
+        for(const f of friendlies){ if(!f.alive) continue;
+          if(BABYLON.Vector3.Distance(b.end, f.mesh.position)<3.2){
+            f.hp -= b.dmg; hit=true;
+            if(f.hp<=0){ f.hp=0; sink(f,true); burst(f.mesh.position, new BABYLON.Color3(1,0.6,0.1), 7); }
+          } }
+      } else {
+        for(const e of enemies){ if(!e.alive) continue;
+          if(BABYLON.Vector3.Distance(b.end, e.mesh.position)<3.2){
+            e.hp -= b.dmg; hit=true;
+            if(e.hp<=0){
+              state.gold += 18 + state.wave*2;
+              burst(e.mesh.position, new BABYLON.Color3(1,0.6,0.1), 7);
+              e.bar.bg.setEnabled(false); e.alive=false; dying.push({mesh:e.mesh, t:0});
+            }
+          } }
+      }
+      burst(b.end, hit ? new BABYLON.Color3(1,0.75,0.3)
+                       : new BABYLON.Color3(0.85,0.95,1), hit?4:3);
+      b.mesh.dispose(); balls.splice(i,1);
+    }
+  }
+
+  // ---- sinking animation ----
+  for(let i=dying.length-1;i>=0;i--){
+    const d = dying[i]; d.t += dt;
+    d.mesh.position.y -= dt*1.6;
+    d.mesh.rotation.z += dt*0.7;
+    if(d.t>2){ d.mesh.setEnabled(false); d.mesh.position.y=-60; dying.splice(i,1); }
+  }
+
+  // ---- effects ----
+  for(let i=effects.length-1;i>=0;i--){
+    const fx = effects[i]; fx.t += dt;
+    const k = fx.t/fx.dur;
+    fx.mesh.scaling.setAll(1 + k*fx.max);
+    fx.mesh.material.alpha = 0.9*(1-k);
+    if(k>=1){ fx.mesh.dispose(); effects.splice(i,1); }
+  }
+
+  // cleanup dead enemies from array
+  for(let i=enemies.length-1;i>=0;i--)
+    if(!enemies[i].alive && !dying.some(d=>d.mesh===enemies[i].mesh)) enemies.splice(i,1);
+
+  // wave clear?
+  if(state.phase==="combat" && state.enemiesToSpawn===0 &&
+     enemies.filter(e=>e.alive).length===0 && dying.length===0) endWave();
+
+  // build timer
+  if(state.phase==="build"){
+    state.buildTimer -= dt;
+    if(state.buildTimer<=0) startWave();
+  }
+}
+
+// ---------- loops ----------
+scene.registerBeforeRender(()=>{
+  const dt = Math.min(engine.getDeltaTime()/1000, 0.05);
+  if(state.phase!=="over") update(dt);
+  else { // keep the sea alive behind the game-over screen
+    WAVE_T.t += dt;
+    for(let i=0;i<waterPos.length;i+=3)
+      waterPos[i+1] = waveH(waterBase[i], waterBase[i+2], WAVE_T.t);
+    water.updateVerticesData(BABYLON.VertexBuffer.PositionKind, waterPos);
+  }
+  updateUI();
+});
+engine.runRenderLoop(()=>scene.render());
+window.addEventListener("resize", ()=>engine.resize());
+</script>
+</body>
+</html>

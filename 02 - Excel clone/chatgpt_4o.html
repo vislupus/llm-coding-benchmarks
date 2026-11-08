@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Spreadsheet</title>
+    <style>
+        body, html { margin: 0; padding: 0; height: 100%; }
+        .toolbar { background-color: #f8f9fa; padding: 10px; display: flex; }
+        .formula-bar { margin: 5px 0; }
+        .grid { display: flex; }
+        .column-headers, .rows { overflow: hidden; }
+        .row-numbers { background-color: #f1f1f1; }
+        .cell { width: 100px; height: 25px; border: 1px solid #ccc; padding: 5px; box-sizing: border-box; }
+        .active { border: 2px solid #007bff; }
+    </style>
+</head>
+<body>
+    <!-- Toolbar -->
+    <div class="toolbar">
+        <button onclick="downloadCSV()">Download CSV</button>
+        <input type="file" id="uploadCSV" onchange="uploadCSV()" style="display:none" />
+        <button onclick="document.getElementById('uploadCSV').click()">Upload CSV</button>
+    </div>
+
+    <!-- Formula bar -->
+    <input type="text" class="formula-bar" id="formulaBar" oninput="updateCurrentCellFormula()" />
+
+    <!-- Spreadsheet grid -->
+    <div class="grid">
+        <div class="row-numbers">
+            <div class="cell"></div>
+            <div class="rows">
+                <div class="cell">1</div>
+            </div>
+        </div>
+        <div class="column-headers">
+            <div class="cell">A</div>
+        </div>
+        <div class="cells" id="cellsContainer">
+            <div class="rows">
+                <div class="cell" id="A1" contenteditable="true" oninput="onCellInput(this)"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const cells = {};
+
+        function onCellInput(cell) {
+            const value = cell.innerText;
+            cells[cell.id] = value;
+            recalculateAll();
+        }
+
+        function updateCurrentCellFormula() {
+            const formulaBar = document.getElementById("formulaBar");
+            const activeCell = document.querySelector(".active");
+            if (activeCell) {
+                activeCell.innerText = formulaBar.value;
+                onCellInput(activeCell);
+            }
+        }
+
+        function recalculateAll() {
+            for (let id in cells) {
+                const cell = document.getElementById(id);
+                calculateCell(cell);
+            }
+        }
+
+        function calculateCell(cell) {
+            let value = cells[cell.id];
+
+            // Simple formula handling
+            if (value.startsWith("=")) {
+                try {
+                    value = eval(value.substring(1).replace(/([A-Z]+\d+)/g, "cells['$1'] || 0"));
+                } catch (e) {
+                    value = "ERROR";
+                }
+            }
+
+            cell.innerText = value;
+        }
+
+        function downloadCSV() {
+            let csv = '';
+            const rows = document.querySelectorAll('.rows');
+            rows.forEach(row => {
+                let data = [];
+                row.querySelectorAll('.cell').forEach(cell => data.push(cell.innerText));
+                csv += data.join(',') + '\n';
+            });
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'spreadsheet.csv';
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function uploadCSV() {
+            const fileInput = document.getElementById('uploadCSV');
+            const file = fileInput.files[0];
+            const reader = new FileReader();
+
+            reader.onload = function(e) {
+                const content = e.target.result;
+                const rows = content.split('\n');
+                rows.forEach((row, rowIndex) => {
+                    const cells = row.split(',');
+                    cells.forEach((cellContent, colIndex) => {
+                        const cell = document.getElementById(`${String.fromCharCode(65+colIndex)}${rowIndex+1}`);
+                        if (cell) {
+                            cell.innerText = cellContent;
+                            onCellInput(cell);
+                        }
+                    });
+                });
+            };
+            reader.readAsText(file);
+        }
+
+        // Init cells
+        function initGrid() {
+            const numCols = 10;
+            const numRows = 10;
+            const cellsContainer = document.getElementById('cellsContainer');
+            for (let row = 1; row <= numRows; row++) {
+                const rowDiv = document.createElement('div');
+                rowDiv.className = 'rows';
+                for (let col = 0; col < numCols; col++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    cell.contentEditable = "true";
+                    cell.id = String.fromCharCode(65 + col) + row;
+                    cell.oninput = function() { onCellInput(cell); };
+                    cell.onclick = function() { selectCell(cell); };
+                    rowDiv.appendChild(cell);
+                }
+                cellsContainer.appendChild(rowDiv);
+            }
+        }
+
+        // Select cell
+        function selectCell(cell) {
+            document.querySelectorAll('.cell').forEach(c => c.classList.remove('active'));
+            cell.classList.add('active');
+            document.getElementById('formulaBar').value = cells[cell.id] || '';
+        }
+
+        initGrid();
+    </script>
+</body>
+</html>

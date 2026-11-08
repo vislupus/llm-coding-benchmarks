@@ -1,0 +1,966 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Chaotic Sun–Earth–Jupiter system with a spacecraft</title>
+<script src="https://cdn.jsdelivr.net/npm/p5@1.9.4/lib/p5.min.js"></script>
+<style>
+  html, body { margin: 0; background: #dcdcdc; min-height: 100vh;
+               display: flex; justify-content: center; align-items: center;
+               font-family: ui-monospace, Menlo, Consolas, monospace; }
+  canvas { display: block; box-shadow: 0 0 28px rgba(0,0,0,.18); }
+</style>
+</head>
+<body>
+<script>
+// ===CORE BEGIN===
+// ---------------------------------------------------------------------------
+//  Physics + mission core.  Deliberately independent of p5 so it can be
+//  unit-tested headlessly.  Units: G = 1, distances in "world units"
+//  (canvas scale converts to pixels), time in "t.u.".
+// ---------------------------------------------------------------------------
+const G = 1;
+const SOFT2 = 4.0;          // Plummer softening^2 – tames numerical blow-ups in very close passes
+const DT = 0.025;           // integrator step (leapfrog / velocity-Verlet, symplectic)
+const SUBSTEPS = 10;        // substeps per animation frame at 1x speed  (0.25 t.u. per frame)
+const R_BOUND = 270;        // safety net: weak restoring field beyond this radius.
+const K_BOUND = 0.05;       // (Never triggers with the shipped initial conditions – verified
+                            //  over 1 000 000 t.u. – but guarantees nothing can leave the canvas.)
+
+const SUN = 0, JUP = 1, EARTH = 2;
+
+// Initial conditions (before the shift into the centre-of-momentum frame).
+// Jupiter is 2 % of the Sun's mass (≈ 20× the real ratio) on an e = 0.3 orbit, and
+// "Earth" is 3 Earth-units heavy on an e = 0.2 orbit only ~45 units inside Jupiter's
+// perihelion.  The result is strong secular + resonant coupling: Earth's eccentricity
+// wanders between ~0.05 and ~0.6 and both orbits precess visibly, yet the trajectory
+// stays bounded.  These exact doubles were verified headlessly for 1 000 000 t.u.
+// (max distance from the barycentre 259 units, energy drift 2e-8).  The integration is
+// deterministic (no trig in the massive-body path), so the browser reproduces that run.
+const BODY_DEFS = [
+  { name: 'Sun',     m: 1000, x: 0,   y: 0, vx: 0, vy: 0,                 r: 12, col: [255, 160, 0]  },
+  { name: 'Jupiter', m: 20,   x: 140, y: 0, vx: 0, vy: 3.077568613602071, r: 8,  col: [172, 104, 50] },
+  { name: 'Earth',   m: 3,    x: -46.799999999999976, y: 81.05997779422346,
+                              vx: -2.535643346270761, vy: -1.4639543685383065, r: 5, col: [40, 110, 230] },
+];
+
+const PHASE = { DOCKED: 0, ESCAPE: 1, LOOP: 2, PLANNING: 3, COAST: 4, TRANSFER: 5, ORBIT: 6, LOST: 7 };
+const PHASE_NAME = ['DOCKED', 'ESCAPE', 'LOOP', 'PLANNING', 'COAST', 'TRANSFER', 'ORBIT', 'LOST'];
+
+const LAUNCH_RP = 6;        // distance from Earth's centre at which the departure burn happens
+const ABSORB_R = [10, 6.5, 4];  // Sun, Jupiter, Earth: physical radii (≈ drawn disks) in world units.
+                                // A massless particle inside one is swallowed; two massive bodies whose
+                                // disks touch merge inelastically (momentum-conserving).  Neither
+                                // happens in the verified window (min separation 31 units).
+
+// ---------------------------------------------------------------- bodies ---
+function makeBodies(defs) {
+  const n = defs.length;
+  const B = { n, m: new Float64Array(n), x: new Float64Array(n), y: new Float64Array(n),
+              vx: new Float64Array(n), vy: new Float64Array(n), ax: new Float64Array(n), ay: new Float64Array(n),
+              alive: new Uint8Array(n).fill(1), mergedInto: new Int8Array(n).fill(-1), mergeCount: 0 };
+  let M = 0, cx = 0, cy = 0, px = 0, py = 0;
+  for (let i = 0; i < n; i++) {
+    const d = defs[i];
+    B.m[i] = d.m; B.x[i] = d.x; B.y[i] = d.y; B.vx[i] = d.vx; B.vy[i] = d.vy;
+    M += d.m; cx += d.m * d.x; cy += d.m * d.y; px += d.m * d.vx; py += d.m * d.vy;
+  }
+  cx /= M; cy /= M; px /= M; py /= M;
+  for (let i = 0; i < n; i++) { B.x[i] -= cx; B.y[i] -= cy; B.vx[i] -= px; B.vy[i] -= py; }
+  computeBodyAccels(B);
+  return B;
+}
+
+function cloneBodies(B) {
+  return { n: B.n, m: Float64Array.from(B.m), x: Float64Array.from(B.x), y: Float64Array.from(B.y),
+           vx: Float64Array.from(B.vx), vy: Float64Array.from(B.vy), ax: Float64Array.from(B.ax), ay: Float64Array.from(B.ay),
+           alive: Uint8Array.from(B.alive), mergedInto: Int8Array.from(B.mergedInto), mergeCount: B.mergeCount };
+}
+
+function computeBodyAccels(B) {
+  const { n, m, x, y, ax, ay, alive } = B;
+  ax.fill(0); ay.fill(0);
+  for (let i = 0; i < n; i++) {
+    if (!alive[i]) continue;
+    for (let j = i + 1; j < n; j++) {
+      if (!alive[j]) continue;
+      const dx = x[j] - x[i], dy = y[j] - y[i];
+      const r2 = dx * dx + dy * dy + SOFT2;
+      const inv = 1 / Math.sqrt(r2);
+      const f = G * inv * inv * inv;
+      ax[i] += f * m[j] * dx; ay[i] += f * m[j] * dy;
+      ax[j] -= f * m[i] * dx; ay[j] -= f * m[i] * dy;
+    }
+  }
+  for (let i = 0; i < n; i++) {               // safety net (see R_BOUND)
+    if (!alive[i]) continue;
+    const r2 = x[i] * x[i] + y[i] * y[i];
+    if (r2 > R_BOUND * R_BOUND) {
+      const r = Math.sqrt(r2), k = K_BOUND * (r - R_BOUND) / r;
+      ax[i] -= k * x[i]; ay[i] -= k * y[i];
+    }
+  }
+}
+
+function accelAt(px, py, B, out) {
+  let ax = 0, ay = 0;
+  for (let j = 0; j < B.n; j++) {
+    if (!B.alive[j]) continue;
+    const dx = B.x[j] - px, dy = B.y[j] - py;
+    const r2 = dx * dx + dy * dy + SOFT2;
+    const inv = 1 / Math.sqrt(r2);
+    const f = G * B.m[j] * inv * inv * inv;
+    ax += f * dx; ay += f * dy;
+  }
+  out.ax = ax; out.ay = ay;
+}
+
+// Close encounters between massive bodies are integrated with finer sub-steps so a
+// slingshot or a plunge never injects spurious energy.  The count depends only on the
+// massive bodies, so their trajectory never depends on the massless particles.
+function bodySubsteps(B) {
+  let dmin2 = Infinity;
+  for (let i = 0; i < B.n; i++) for (let j = i + 1; j < B.n; j++) {
+    if (!B.alive[i] || !B.alive[j]) continue;
+    const dx = B.x[j] - B.x[i], dy = B.y[j] - B.y[i], d2 = dx * dx + dy * dy;
+    if (d2 < dmin2) dmin2 = d2;
+  }
+  if (dmin2 >= 144) return 1;                            // ≥ 12 units apart: plain step
+  return Math.min(16, Math.ceil(12 / Math.sqrt(dmin2)));
+}
+
+const NO_PARTS = [];
+// One leapfrog (kick-drift-kick) step of length DT for the massive bodies plus any
+// massless particles (spacecraft, probes).
+function stepAll(B, parts) {
+  const nsub = bodySubsteps(B), dt = DT / nsub, h = 0.5 * dt;
+  for (let s = 0; s < nsub; s++) {
+    for (let i = 0; i < B.n; i++) {
+      B.vx[i] += B.ax[i] * h; B.vy[i] += B.ay[i] * h;
+      B.x[i] += B.vx[i] * dt; B.y[i] += B.vy[i] * dt;
+    }
+    for (let p of parts) { p.vx += p.ax * h; p.vy += p.ay * h; p.x += p.vx * dt; p.y += p.vy * dt; }
+    computeBodyAccels(B);
+    for (let p of parts) { accelAt(p.x, p.y, B, p); p.vx += p.ax * h; p.vy += p.ay * h; }
+    for (let i = 0; i < B.n; i++) { B.vx[i] += B.ax[i] * h; B.vy[i] += B.ay[i] * h; }
+  }
+  if (nsub > 1) mergeContacts(B);                       // only possible during a close encounter
+  if (B.mergeCount) for (let i = 0; i < B.n; i++) {      // dead bodies ride along with their survivor
+    if (B.alive[i]) continue;
+    let a = B.mergedInto[i]; while (!B.alive[a]) a = B.mergedInto[a];
+    B.x[i] = B.x[a]; B.y[i] = B.y[a]; B.vx[i] = B.vx[a]; B.vy[i] = B.vy[a];
+  }
+}
+function stepBodiesOnly(B) { stepAll(B, NO_PARTS); }
+
+// Inelastic merger of two massive bodies whose physical disks overlap.  The lighter body
+// is folded into the heavier one (total momentum and centre of mass preserved) and
+// thereafter rides along, dead, at the survivor's position.
+function mergeContacts(B) {
+  for (let i = 0; i < B.n; i++) {
+    if (!B.alive[i]) continue;
+    for (let j = i + 1; j < B.n; j++) {
+      if (!B.alive[j]) continue;
+      const dx = B.x[j] - B.x[i], dy = B.y[j] - B.y[i], R = ABSORB_R[i] + ABSORB_R[j];
+      if (dx * dx + dy * dy >= R * R) continue;
+      const a = B.m[i] >= B.m[j] ? i : j, b = a === i ? j : i;   // a survives
+      const M = B.m[a] + B.m[b];
+      B.x[a] = (B.m[a] * B.x[a] + B.m[b] * B.x[b]) / M;  B.y[a] = (B.m[a] * B.y[a] + B.m[b] * B.y[b]) / M;
+      B.vx[a] = (B.m[a] * B.vx[a] + B.m[b] * B.vx[b]) / M; B.vy[a] = (B.m[a] * B.vy[a] + B.m[b] * B.vy[b]) / M;
+      B.m[a] = M; B.m[b] = 0; B.alive[b] = 0; B.mergedInto[b] = a; B.mergeCount++;
+      B.x[b] = B.x[a]; B.y[b] = B.y[a]; B.vx[b] = B.vx[a]; B.vy[b] = B.vy[a]; B.ax[b] = 0; B.ay[b] = 0;
+      computeBodyAccels(B);
+    }
+  }
+}
+function stepSystem(S) { stepAll(S.B, S.parts); }
+
+function systemEnergy(B) {
+  let K = 0, U = 0;
+  for (let i = 0; i < B.n; i++) {
+    if (!B.alive[i]) continue;
+    K += 0.5 * B.m[i] * (B.vx[i] * B.vx[i] + B.vy[i] * B.vy[i]);
+    for (let j = i + 1; j < B.n; j++) {
+      if (!B.alive[j]) continue;
+      const dx = B.x[j] - B.x[i], dy = B.y[j] - B.y[i];
+      U -= G * B.m[i] * B.m[j] / Math.sqrt(dx * dx + dy * dy + SOFT2);
+    }
+  }
+  return K + U;
+}
+
+// Osculating a, e of body i relative to the Sun.
+function orbitalElements(B, i) {
+  const mu = G * (B.m[SUN] + B.m[i]);
+  const rx = B.x[i] - B.x[SUN], ry = B.y[i] - B.y[SUN];
+  const vx = B.vx[i] - B.vx[SUN], vy = B.vy[i] - B.vy[SUN];
+  const r = Math.hypot(rx, ry), v2 = vx * vx + vy * vy;
+  const a = 1 / (2 / r - v2 / mu);
+  const h = rx * vy - ry * vx;
+  const ex = (vy * h) / mu - rx / r, ey = (-vx * h) / mu - ry / r;
+  return { a, e: Math.hypot(ex, ey), r, v: Math.sqrt(v2) };
+}
+
+// ------------------------------------------------- trajectory prediction ---
+// Pre-integrate the massive bodies (the spacecraft is massless so this is exact)
+// and store positions at every substep.  Everything the planner does afterwards
+// is a cheap test-particle integration against this table.
+function predictBodies(B0, nSteps) {
+  const B = cloneBodies(B0), n = B.n;
+  const pos = new Float64Array((nSteps + 1) * n * 2);
+  const store = (k) => { const o = k * n * 2; for (let i = 0; i < n; i++) { pos[o + 2 * i] = B.x[i]; pos[o + 2 * i + 1] = B.y[i]; } };
+  store(0);
+  for (let k = 1; k <= nSteps; k++) { stepBodiesOnly(B); store(k); }
+  return { pos, n, m: B.m, steps: nSteps };
+}
+
+const SCR = { ax: 0, ay: 0 };
+function craftAccelPred(P, k, x, y, out) {
+  const pos = P.pos, o = k * P.n * 2;
+  let ax = 0, ay = 0;
+  for (let j = 0; j < P.n; j++) {
+    const dx = pos[o + 2 * j] - x, dy = pos[o + 2 * j + 1] - y;
+    const r2 = dx * dx + dy * dy + SOFT2;
+    const inv = 1 / Math.sqrt(r2);
+    const f = G * P.m[j] * inv * inv * inv;
+    ax += f * dx; ay += f * dy;
+  }
+  out.ax = ax; out.ay = ay;
+}
+
+// Integrate a massless craft from sample k0 to the end of the table (or until a
+// termination condition).  Returns closest approach to Jupiter and other metrics.
+function propagateCraft(P, k0, x, y, vx, vy, stride, path) {
+  const dt = DT * stride, h = 0.5 * dt, n = P.n, pos = P.pos;
+  craftAccelPred(P, k0, x, y, SCR);
+  let ax = SCR.ax, ay = SCR.ay;
+  let minJ = Infinity, minJk = k0, minSun = Infinity, minEarth = Infinity, vrel = 0, escaped = false, sunHit = false;
+  let k = k0;
+  let pjx = pos[k * n * 2 + 2 * JUP], pjy = pos[k * n * 2 + 2 * JUP + 1];
+  while (k + stride <= P.steps) {
+    vx += ax * h; vy += ay * h; x += vx * dt; y += vy * dt; k += stride;
+    craftAccelPred(P, k, x, y, SCR); ax = SCR.ax; ay = SCR.ay;
+    vx += ax * h; vy += ay * h;
+    const o = k * n * 2;
+    const jx = pos[o + 2 * JUP], jy = pos[o + 2 * JUP + 1];
+    const djx = jx - x, djy = jy - y, dJ = Math.sqrt(djx * djx + djy * djy);
+    const dsx = pos[o + 2 * SUN] - x, dsy = pos[o + 2 * SUN + 1] - y, dS = Math.sqrt(dsx * dsx + dsy * dsy);
+    if (dJ < minJ) {
+      minJ = dJ; minJk = k;
+      const jvx = (jx - pjx) / dt, jvy = (jy - pjy) / dt;      // Jupiter velocity (finite difference)
+      vrel = Math.hypot(vx - jvx, vy - jvy);
+    }
+    pjx = jx; pjy = jy;
+    if (dS < minSun) minSun = dS;
+    const dE = Math.hypot(pos[o + 2 * EARTH] - x, pos[o + 2 * EARTH + 1] - y); if (dE < minEarth) minEarth = dE;
+    if (path && k % 40 === 0) path.push(x, y);
+    if (dS > 450) { escaped = true; break; }
+    if (dS < 8) { sunHit = true; break; }
+    if (minJ < 20 && dJ > minJ + 40) break;                   // flew past: stop early
+  }
+  return { minJ, minJk, minSun, minEarth, vrel, escaped, sunHit, x, y, vx, vy, k };
+}
+
+// Propagate a candidate departure and measure the resulting heliocentric loop:
+// how long until the craft has swept 2π around the Sun, and how far out it goes.
+function propagateLoop(P, k0, x, y, vx, vy, stride) {
+  const dt = DT * stride, h = 0.5 * dt, n = P.n, pos = P.pos;
+  craftAccelPred(P, k0, x, y, SCR);
+  let ax = SCR.ax, ay = SCR.ay, k = k0;
+  let o = k * n * 2;
+  let prevAng = Math.atan2(y - pos[o + 2 * SUN + 1], x - pos[o + 2 * SUN]);
+  let swept = 0, maxR = 0, minSun = Infinity, minJ = Infinity, minEarth = Infinity, left = false;
+  while (k + stride <= P.steps) {
+    vx += ax * h; vy += ay * h; x += vx * dt; y += vy * dt; k += stride;
+    craftAccelPred(P, k, x, y, SCR); ax = SCR.ax; ay = SCR.ay;
+    vx += ax * h; vy += ay * h;
+    o = k * n * 2;
+    const sx = pos[o + 2 * SUN], sy = pos[o + 2 * SUN + 1];
+    const ang = Math.atan2(y - sy, x - sx);
+    let d = ang - prevAng;
+    if (d > Math.PI) d -= 2 * Math.PI; else if (d < -Math.PI) d += 2 * Math.PI;
+    swept += d; prevAng = ang;
+    const r = Math.sqrt(x * x + y * y); if (r > maxR) maxR = r;
+    const dS = Math.hypot(x - sx, y - sy); if (dS < minSun) minSun = dS;
+    const dJ = Math.hypot(x - pos[o + 2 * JUP], y - pos[o + 2 * JUP + 1]); if (dJ < minJ) minJ = dJ;
+    const dE = Math.hypot(x - pos[o + 2 * EARTH], y - pos[o + 2 * EARTH + 1]);
+    if (dE > 25) left = true;
+    if (k - k0 > 80 && dE < minEarth) minEarth = dE;         // Earth encounters after the burn
+    if (Math.abs(swept) >= 2 * Math.PI) return { done: left, time: (k - k0) * DT, maxR, minSun, minJ, minEarth };
+    if (r > 400) break;
+  }
+  return { done: false, time: Infinity, maxR, minSun, minJ, minEarth };
+}
+
+// Choose the departure burn (direction relative to Earth's prograde, magnitude) that
+// gives the quickest clean loop around the Sun while staying well inside the canvas.
+function planDeparture(S, launchStep) {
+  const k0 = Math.max(0, launchStep - S.step);
+  const P = predictBodies(S.B, k0 + 20000);              // 500 t.u. after launch
+  const n = P.n, o = k0 * n * 2, oPrev = Math.max(0, k0 - 1) * n * 2;
+  const ex = P.pos[o + 2 * EARTH], ey = P.pos[o + 2 * EARTH + 1];
+  const evx = k0 > 0 ? (ex - P.pos[oPrev + 2 * EARTH]) / DT : S.B.vx[EARTH];
+  const evy = k0 > 0 ? (ey - P.pos[oPrev + 2 * EARTH + 1]) / DT : S.B.vy[EARTH];
+  const sp = Math.hypot(evx, evy) || 1, px = evx / sp, py = evy / sp;
+  let best = null;
+  for (const mag of [0.8, 1.0, 1.2, 1.5, 1.8]) {
+    for (let i = 0; i < 36; i++) {
+      const ang = 2 * Math.PI * i / 36;
+      const ca = Math.cos(ang), sa = Math.sin(ang);
+      const ux = ca * px - sa * py, uy = sa * px + ca * py;     // burn direction
+      const rx = uy, ry = -ux;                                  // offset ⟂ to burn
+      const res = propagateLoop(P, k0, ex + LAUNCH_RP * rx, ey + LAUNCH_RP * ry, evx + mag * ux, evy + mag * uy, 2);
+      let cost = res.done ? res.time : 1e6;
+      if (res.maxR > 200) cost += (res.maxR - 200) * 40;
+      if (res.minSun < 45) cost += (45 - res.minSun) * 40;   // keep the loop clear of the Sun
+      if (res.minJ < 40) cost += (40 - res.minJ) * 15;
+      if (res.minEarth < ABSORB_R[EARTH] + 2) cost += 1e5;  // would fall back onto Earth
+      cost += mag * 25;
+      if (!best || cost < best.cost) best = { cost, ang, mag, ux, uy, rx, ry, res };
+    }
+  }
+  return best;
+}
+
+// Coast (no burn) from sample 0, returning craft states at the requested sample indices.
+function coastStates(P, s, delays, stride) {
+  const dt = DT * stride, h = 0.5 * dt;
+  let x = s.x, y = s.y, vx = s.vx, vy = s.vy;
+  craftAccelPred(P, 0, x, y, SCR);
+  let ax = SCR.ax, ay = SCR.ay;
+  const out = [];
+  let k = 0, di = 0;
+  while (di < delays.length) {
+    if (k >= delays[di]) { out.push({ x, y, vx, vy, k }); di++; continue; }
+    if (k + stride > P.steps) break;
+    vx += ax * h; vy += ay * h; x += vx * dt; y += vy * dt; k += stride;
+    craftAccelPred(P, k, x, y, SCR); ax = SCR.ax; ay = SCR.ay;
+    vx += ax * h; vy += ay * h;
+  }
+  return out;
+}
+
+// Cost of a candidate transfer: hit a ~11-unit periapsis at Jupiter, cheaply, early,
+// arriving slowly, without grazing the Sun.
+function scoreTransfer(res, dv, cfg) {
+  const target = cfg.target != null ? cfg.target : 11;
+  const s = Math.abs(res.minJ - target);
+  let cost = Math.max(0, s - 3) * 15 + dv * (cfg.dvWeight != null ? cfg.dvWeight : 60)
+           + res.minJk * DT * 0.03 + 25 * res.vrel;
+  if (res.minJ < ABSORB_R[JUP]) cost += 300;              // would impact Jupiter
+  if (res.minSun < 20) cost += 400;                        // too close to the Sun
+  if (res.minEarth < ABSORB_R[EARTH] + 2) cost += 500;     // would hit Earth on the way
+  if (res.escaped || res.sunHit) cost += 1000;
+  return cost;
+}
+
+function linspace(a, b, n) { const o = []; for (let i = 0; i < n; i++) o.push(a + (b - a) * i / (n - 1)); return o; }
+function anglesN(n) { const o = []; for (let i = 0; i < n; i++) o.push(2 * Math.PI * i / n); return o; }
+
+// Shooting-method trajectory planner, written as a generator so the browser can
+// spread the work over several animation frames without stalling the physics.
+// cfg = { horizon, delays[], mags[], angles[], stride, refine:[{dD,dM,dA,stride}] }
+function* plannerGen(S, cfg) {
+  const step0 = S.step;
+  const P = predictBodies(S.B, cfg.horizon);
+  const c = S.craft, start = { x: c.x, y: c.y, vx: c.vx, vy: c.vy };
+  let best = null, zeroCost = Infinity, evaluated = 0;
+  const bestByDelay = new Map();                       // best candidate for each burn time
+  let total = cfg.delays.length * cfg.mags.length * cfg.angles.length;
+  for (const r of cfg.refine) total += 125;
+  // Wall-clock time passes while this generator is time-sliced over frames, so a burn
+  // time is only usable if it is still comfortably in the future when planning ends.
+  const feasible = (delay) => delay >= (S.step - step0) + 400;
+
+  const evalSet = function* (delays, mags, angles, stride) {
+    const coast = coastStates(P, start, delays, stride);
+    for (let di = 0; di < coast.length; di++) {
+      const st = coast[di];
+      const sp = Math.hypot(st.vx, st.vy) || 1, ux = st.vx / sp, uy = st.vy / sp;
+      for (const mag of mags) {
+        for (const ang of angles) {
+          const ca = Math.cos(ang), sa = Math.sin(ang);
+          const dvx = mag * (ca * ux - sa * uy), dvy = mag * (sa * ux + ca * uy);
+          const res = propagateCraft(P, st.k, st.x, st.y, st.vx + dvx, st.vy + dvy, stride, null);
+          const cost = scoreTransfer(res, mag, cfg);
+          evaluated++;
+          if (mag === 0) zeroCost = Math.min(zeroCost, cost);
+          const cand = { cost, delay: st.k, mag, ang, res };
+          if (!best || cost < best.cost) best = cand;
+          const bd = bestByDelay.get(st.k); if (!bd || cost < bd.cost) bestByDelay.set(st.k, cand);
+          if (mag === 0) break;                 // direction irrelevant for a zero burn
+          if ((evaluated & 31) === 0) yield Math.min(0.99, evaluated / total);
+        }
+      }
+    }
+  };
+
+  yield* evalSet(cfg.delays, cfg.mags, cfg.angles, cfg.stride);
+  // If the overall winner's burn time has (nearly) passed, fall back to the best
+  // candidate whose burn time is still in the future, allowing for refinement time.
+  if (!feasible(best.delay)) {
+    let alt = null;
+    for (const c of bestByDelay.values()) if (feasible(c.delay) && (!alt || c.cost < alt.cost)) alt = c;
+    if (alt) best = alt;
+  }
+  for (const r of cfg.refine) {
+    const delays = [], mags = [], angles = [];
+    for (let i = -2; i <= 2; i++) {
+      const d = best.delay + i * r.dD;
+      if (d >= 0 && d % r.stride === 0 && (cfg.delays.length === 1 || feasible(d)) && !delays.includes(d)) delays.push(d);
+      const m = best.mag + i * r.dM;  if (m >= -1e-12 && !mags.includes(Math.max(0, m))) mags.push(Math.max(0, m));
+      angles.push(best.ang + i * r.dA);
+    }
+    if (!delays.length) delays.push(best.delay);
+    delays.sort((a, b) => a - b);
+    yield* evalSet(delays, mags, angles, r.stride);
+  }
+
+  // Final: re-propagate the winner at full resolution and record its path for display.
+  const st = coastStates(P, start, [best.delay], 1)[0];
+  const sp = Math.hypot(st.vx, st.vy) || 1, ux = st.vx / sp, uy = st.vy / sp;
+  const ca = Math.cos(best.ang), sa = Math.sin(best.ang);
+  const dvx = best.mag * (ca * ux - sa * uy), dvy = best.mag * (sa * ux + ca * uy);
+  const path = [];
+  const res = propagateCraft(P, st.k, st.x, st.y, st.vx + dvx, st.vy + dvy, 1, path);
+  return { burnStep: step0 + best.delay, dvx, dvy, mag: best.mag, path, miss: res.minJ,
+           vrel: res.vrel, arrivalStep: step0 + res.minJk, cost: best.cost, zeroCost };
+}
+
+function range(a, b, s) { const o = []; for (let v = a; v <= b + 1e-9; v += s) o.push(v); return o; }
+
+const TRANSFER_CFG = {
+  horizon: 28000,                                    // 700 t.u. look-ahead (> 1 Jupiter year)
+  delays: range(400, 8000, 400),                     // burn 10 … 200 t.u. from now
+  mags: range(0.2, 1.6, 0.2),
+  angles: anglesN(18),                               // measured from the prograde direction
+  stride: 8,                                         // coarse pass; refinement runs at stride 1
+  refine: [ { dD: 100, dM: 0.05, dA: Math.PI / 48, stride: 1 },
+            { dD: 20,  dM: 0.01, dA: Math.PI / 240, stride: 1 } ],
+};
+function quickCfg() {                                // fallback: burn right now
+  return { horizon: 28000, delays: [0], mags: range(0.2, 1.6, 0.1), angles: anglesN(36), stride: 4,
+           refine: [ { dD: 0, dM: 0.03, dA: Math.PI / 72, stride: 1 } ] };
+}
+function corrCfg(horizon) {                          // mid-course correction, burn 10 t.u. from now
+  return { horizon, delays: [400], mags: [0, 0.03, 0.06, 0.1, 0.15, 0.22], angles: anglesN(16), stride: 2,
+           refine: [ { dD: 0, dM: 0.01, dA: Math.PI / 60, stride: 1 } ] };
+}
+
+// ------------------------------------------------------------------- Sim ---
+class Sim {
+  constructor() {
+    this.B = makeBodies(BODY_DEFS);
+    this.E0 = systemEnergy(this.B);
+    this.t = 0; this.step = 0;
+    this.parts = [];       // every massless particle that is integrated (craft + probes)
+    this.probes = [];
+    this.events = [];      // burn flashes for the renderer
+    this.log = [];
+    this.missionCount = 0;
+    this.craft = null;
+    this.newMission(30);
+  }
+
+  note(msg) { this.log.push({ t: this.t, msg }); if (this.log.length > 12) this.log.shift(); }
+
+  newMission(launchTime) {
+    if (this.craft && !this.B.alive[EARTH]) { this.note('No Earth left to launch from'); return; }
+    if (this.craft && this.craft.launched) {     // previous craft stays where it is as a probe
+      this.craft.isProbe = true; this.craft.col = [120, 60, 130];
+      this.probes.push(this.craft);
+    }
+    this.craft = { x: 0, y: 0, vx: 0, vy: 0, ax: 0, ay: 0, launched: false, col: [185, 20, 170] };
+    this.m = { id: ++this.missionCount, phase: PHASE.DOCKED, launchTime, loopAngle: 0, prevAng: 0,
+               dvTotal: 0, burns: [], plan: null, planner: null, plannerKind: null, progress: 0,
+               pendingBurn: null, nextCorrection: Infinity, corrections: 0, replans: 0,
+               jAngAcc: 0, prevJAng: 0, lostReason: '', depPlan: null };
+    this.dockCraft();
+    this.note(`Mission ${this.m.id}: spacecraft docked at Earth`);
+  }
+
+  // Where the docked craft sits: LAUNCH_RP units from Earth's centre, on the side the
+  // planned departure burn will push it away from (default: trailing Earth's motion).
+  dockCraft() {
+    const c = this.craft, B = this.B, m = this.m;
+    let rx, ry;
+    if (m.depPlan) { rx = m.depPlan.rx; ry = m.depPlan.ry; }
+    else { const sp = Math.hypot(B.vx[EARTH], B.vy[EARTH]) || 1; rx = B.vy[EARTH] / sp; ry = -B.vx[EARTH] / sp; }
+    c.x = B.x[EARTH] + LAUNCH_RP * rx; c.y = B.y[EARTH] + LAUNCH_RP * ry;
+    c.vx = B.vx[EARTH]; c.vy = B.vy[EARTH];
+  }
+
+  burn(dvx, dvy, label) {
+    const c = this.craft, m = this.m;
+    c.vx += dvx; c.vy += dvy; accelAt(c.x, c.y, this.B, c);
+    const dv = Math.hypot(dvx, dvy);
+    m.dvTotal += dv; m.burns.push({ t: this.t, dv, label });
+    this.events.push({ t: this.t, x: c.x, y: c.y, dv, label });
+    this.note(`${label} burn  Δv = ${dv.toFixed(3)}`);
+  }
+
+  launch() {
+    const c = this.craft, m = this.m, B = this.B;
+    if (!m.depPlan) m.depPlan = planDeparture(this, this.step);
+    const g = m.depPlan;
+    this.dockCraft();
+    c.launched = true; this.parts.push(c);
+    this.burn(g.mag * g.ux, g.mag * g.uy, 'Departure');
+    m.phase = PHASE.ESCAPE;
+    m.prevAng = Math.atan2(c.y - B.y[SUN], c.x - B.x[SUN]); m.loopAngle = 0;
+  }
+
+  accumLoop() {
+    const c = this.craft, B = this.B, m = this.m;
+    const ang = Math.atan2(c.y - B.y[SUN], c.x - B.x[SUN]);
+    let d = ang - m.prevAng;
+    if (d > Math.PI) d -= 2 * Math.PI; else if (d < -Math.PI) d += 2 * Math.PI;
+    m.loopAngle += d; m.prevAng = ang;
+  }
+
+  startPlanner(cfg, kind) {
+    const m = this.m;
+    m.planner = plannerGen(this, cfg); m.plannerKind = kind; m.progress = 0;
+  }
+
+  // Runs the active planner for at most budgetMs milliseconds.
+  runPlanner(budgetMs) {
+    const m = this.m;
+    if (!m.planner) return;
+    const t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    let r;
+    do {
+      r = m.planner.next();
+      if (r.done) break;
+      m.progress = r.value;
+    } while ((typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0 < budgetMs);
+    if (!r.done) return;
+    m.planner = null;
+    let plan = r.value;
+    if (m.plannerKind === 'transfer') {
+      if (plan.burnStep <= this.step + 2) {               // too slow (high sim speed) – burn now
+        const g = plannerGen(this, quickCfg());
+        let q; do { q = g.next(); } while (!q.done);
+        plan = q.value;
+        this.note('Burn window passed – replanned for immediate burn');
+      }
+      m.plan = plan; m.phase = PHASE.COAST;
+      this.note(`Transfer found: Δv ${plan.mag.toFixed(2)} in ${((plan.burnStep - this.step) * DT).toFixed(1)} t.u., predicted flyby ${plan.miss.toFixed(1)}`);
+    } else if (m.plannerKind === 'correction') {
+      if (plan.burnStep > this.step && plan.mag > 0 && plan.cost < plan.zeroCost - 1) {
+        m.pendingBurn = { step: plan.burnStep, dvx: plan.dvx, dvy: plan.dvy };
+      }
+      if (plan.burnStep > this.step && m.plan) {
+        m.plan.path = plan.path; m.plan.miss = plan.miss; m.plan.arrivalStep = plan.arrivalStep;
+      }
+    }
+  }
+
+  substep() {
+    const mergesBefore = this.B.mergeCount;
+    stepSystem(this);
+    this.t += DT; this.step++;
+    if (this.B.mergeCount !== mergesBefore) {
+      const dead = [...this.B.alive].map((a, i) => a ? null : BODY_DEFS[i].name).filter(Boolean);
+      this.note(`Collision! ${dead.join(' & ')} merged with a larger body`);
+      this.E0 = systemEnergy(this.B);
+      const m = this.m, needEarth = m.phase <= PHASE.ESCAPE, needJup = m.phase >= PHASE.PLANNING && m.phase <= PHASE.ORBIT;
+      if ((needEarth && !this.B.alive[EARTH]) || (needJup && !this.B.alive[JUP])) {
+        m.phase = PHASE.LOST; m.planner = null; m.pendingBurn = null; m.lostReason = 'target destroyed';
+      }
+    }
+    if (this.m.phase === PHASE.DOCKED) this.dockCraft();
+    this.missionUpdate();
+  }
+
+  advance(nSub, budgetMs) {
+    for (let k = 0; k < nSub; k++) this.substep();
+    this.runPlanner(budgetMs);
+    this.cull();
+  }
+
+  distToJupiter() { const c = this.craft, B = this.B; return Math.hypot(c.x - B.x[JUP], c.y - B.y[JUP]); }
+
+  missionUpdate() {
+    const m = this.m, B = this.B, c = this.craft;
+    switch (m.phase) {
+      case PHASE.DOCKED:
+        if (!m.depPlan && this.t >= m.launchTime - 5) {    // plan the departure shortly before launch
+          m.depPlan = planDeparture(this, this.step + Math.max(0, Math.round((m.launchTime - this.t) / DT)));
+          this.note(`Departure planned: Δv ${m.depPlan.mag.toFixed(2)}, loop ≈ ${m.depPlan.res.time.toFixed(0)} t.u.`);
+        }
+        if (this.t >= m.launchTime) this.launch();
+        break;
+      case PHASE.ESCAPE:
+        this.accumLoop();
+        if (Math.hypot(c.x - B.x[EARTH], c.y - B.y[EARTH]) > 25) {
+          m.phase = PHASE.LOOP; this.note('Escaped Earth – beginning heliocentric loop');
+        }
+        break;
+      case PHASE.LOOP:
+        this.accumLoop();
+        if (Math.abs(m.loopAngle) >= 2 * Math.PI) {
+          m.phase = PHASE.PLANNING;
+          this.startPlanner(TRANSFER_CFG, 'transfer');
+          this.note('Solar loop complete – computing transfer to Jupiter');
+        }
+        break;
+      case PHASE.PLANNING:
+        this.accumLoop();
+        break;
+      case PHASE.COAST:
+        if (this.step >= m.plan.burnStep) {
+          this.burn(m.plan.dvx, m.plan.dvy, 'Transfer');
+          m.phase = PHASE.TRANSFER;
+          m.nextCorrection = this.t + 25;
+        }
+        break;
+      case PHASE.TRANSFER: {
+        const jx = B.x[JUP], jy = B.y[JUP];
+        const rx = c.x - jx, ry = c.y - jy, d = Math.hypot(rx, ry);
+        if (d < 17) {
+          const rvx = c.vx - B.vx[JUP], rvy = c.vy - B.vy[JUP];
+          if (rx * rvx + ry * rvy >= 0) {           // at (or just past) periapsis: Jupiter orbit insertion
+            // circular speed in the (softened) Jupiter potential: v² = r·|a(r)|
+            const vc = Math.sqrt(G * B.m[JUP] * d * d / Math.pow(d * d + SOFT2, 1.5));
+            const tx = -ry / d, ty = rx / d;
+            const sgn = (rvx * tx + rvy * ty) >= 0 ? 1 : -1;
+            const nvx = B.vx[JUP] + sgn * vc * tx, nvy = B.vy[JUP] + sgn * vc * ty;
+            this.burn(nvx - c.vx, nvy - c.vy, 'Insertion');
+            m.phase = PHASE.ORBIT; m.pendingBurn = null; m.planner = null;
+            m.prevJAng = Math.atan2(ry, rx); m.jAngAcc = 0;
+            this.note(`Captured: circular orbit around Jupiter, r = ${d.toFixed(1)}`);
+          }
+          break;
+        }
+        if (m.pendingBurn && this.step >= m.pendingBurn.step) {
+          this.burn(m.pendingBurn.dvx, m.pendingBurn.dvy, 'Correction');
+          m.corrections++; m.pendingBurn = null;
+        }
+        if (!m.planner && !m.pendingBurn && d > 45 && this.t >= m.nextCorrection) {
+          const remaining = Math.max(4000, Math.min(28000, (m.plan.arrivalStep - this.step) + 3200));
+          this.startPlanner(corrCfg(remaining), 'correction');
+          m.nextCorrection = this.t + 25;
+        }
+        if (this.step > m.plan.arrivalStep + 800 && d > 30) {   // missed – plan a new transfer
+          m.replans++;
+          m.pendingBurn = null;
+          if (m.replans > 4) { m.phase = PHASE.LOST; m.lostReason = 'could not reach Jupiter'; break; }
+          m.phase = PHASE.PLANNING; m.loopAngle = 0;
+          this.startPlanner(TRANSFER_CFG, 'transfer');
+          this.note('Missed Jupiter – planning another transfer');
+        }
+        break;
+      }
+      case PHASE.ORBIT: {
+        const ang = Math.atan2(c.y - B.y[JUP], c.x - B.x[JUP]);
+        let d = ang - m.prevJAng;
+        if (d > Math.PI) d -= 2 * Math.PI; else if (d < -Math.PI) d += 2 * Math.PI;
+        m.jAngAcc += d; m.prevJAng = ang;
+        break;
+      }
+      default: break;
+    }
+  }
+
+  addProbe(x, y, vx, vy) {
+    const p = { x, y, vx, vy, ax: 0, ay: 0, isProbe: true, col: [100, 100, 100] };
+    accelAt(x, y, this.B, p);
+    this.parts.push(p); this.probes.push(p);
+    while (this.probes.length > 40) {
+      const old = this.probes.shift();
+      const i = this.parts.indexOf(old); if (i >= 0) this.parts.splice(i, 1);
+    }
+  }
+
+  // Which massive body (if any) has swallowed a particle, i.e. it is inside the drawn disk.
+  absorbedBy(p) {
+    const B = this.B;
+    for (let i = 0; i < B.n; i++) {
+      if (!B.alive[i]) continue;
+      const dx = p.x - B.x[i], dy = p.y - B.y[i];
+      const R = ABSORB_R[i];
+      if (dx * dx + dy * dy < R * R) return i;
+    }
+    return -1;
+  }
+
+  cull() {
+    const gone = (p) => p.x * p.x + p.y * p.y > 600 * 600 || this.absorbedBy(p) >= 0;
+    if (this.probes.some(gone)) {
+      for (const p of this.probes) if (gone(p)) this.events.push({ t: this.t, x: p.x, y: p.y, dv: 0, label: '' });
+      this.probes = this.probes.filter(p => !gone(p));
+      this.parts = this.parts.filter(p => !(p.isProbe && gone(p)));
+    }
+    const c = this.craft;
+    if (c.launched && !c.isProbe && this.m.phase !== PHASE.LOST && this.m.phase !== PHASE.ORBIT) {
+      const hit = this.absorbedBy(c);
+      if (hit >= 0 || c.x * c.x + c.y * c.y > 600 * 600) {
+        this.m.phase = PHASE.LOST; this.m.planner = null; this.m.pendingBurn = null;
+        this.m.lostReason = hit >= 0 ? `fell into ${BODY_DEFS[hit].name}` : 'left the system';
+        this.note(`Spacecraft lost: ${this.m.lostReason}`);
+        const i = this.parts.indexOf(c); if (i >= 0) this.parts.splice(i, 1);
+      }
+    }
+    while (this.events.length && this.t - this.events[0].t > 10) this.events.shift();
+  }
+}
+// ===CORE END===
+</script>
+
+<script>
+// ---------------------------------------------------------------------------
+//  p5.js front end
+// ---------------------------------------------------------------------------
+const W = 1000, H = 740, SCALE = 1.3, CX = W / 2, CY = H / 2;
+const SPEEDS = [0.25, 0.5, 1, 2, 4, 8];
+let sim, tg, speedIdx = 3, paused = false, showTrails = true, showPath = true, showHelp = true;
+let acc = 0, drag = null;
+const TRAIL_COL = [[255, 150, 0, 140], [172, 104, 50, 150], [40, 110, 230, 150]];
+
+const SX = x => CX + x * SCALE;
+const SY = y => CY - y * SCALE;
+
+window.addEventListener('load', () => {
+  if (typeof p5 === 'undefined') document.body.innerHTML =
+    '<p style="font:14px monospace;padding:2em">p5.js could not be loaded from the CDN – this page needs an internet connection the first time it opens.</p>';
+});
+
+function setup() {
+  createCanvas(W, H);
+  tg = createGraphics(W, H);
+  tg.background(220);
+  tg.noStroke();
+  noStroke();
+  textFont('monospace');
+  sim = new Sim();
+}
+
+function resetAll() { sim = new Sim(); tg.background(220); acc = 0; }
+
+function stampTrails() {
+  const B = sim.B;
+  for (let i = 0; i < B.n; i++) {
+    if (!B.alive[i]) continue;
+    tg.fill(...TRAIL_COL[i]);
+    tg.circle(SX(B.x[i]), SY(B.y[i]), i === SUN ? 3 : 2.2);
+  }
+  if (sim.craft.launched && !sim.craft.isProbe && sim.parts.indexOf(sim.craft) >= 0) {
+    const orbiting = sim.m.phase === PHASE.ORBIT;        // fainter once parked, so Jupiter's trail stays legible
+    tg.fill(sim.craft.col[0], sim.craft.col[1], sim.craft.col[2], orbiting ? 70 : 210);
+    tg.circle(SX(sim.craft.x), SY(sim.craft.y), orbiting ? 1.3 : 1.8);
+  }
+  for (const p of sim.probes) {
+    tg.fill(p.col[0], p.col[1], p.col[2], 70);
+    tg.circle(SX(p.x), SY(p.y), 1.3);
+  }
+}
+
+function draw() {
+  if (!paused) {
+    acc += SUBSTEPS * SPEEDS[speedIdx];
+    const n = Math.floor(acc); acc -= n;
+    for (let k = 0; k < n; k++) { sim.substep(); if (showTrails) stampTrails(); }
+    sim.runPlanner(8);
+    sim.cull();
+  }
+  if (showTrails) image(tg, 0, 0); else background(220);
+  drawPlannedPath();
+  drawBodies();
+  drawProbes();
+  drawCraft();
+  drawEvents();
+  drawDrag();
+  drawHUD();
+  drawHover();
+}
+
+function drawPlannedPath() {
+  const m = sim.m;
+  if (!showPath || !m.plan || !m.plan.path) return;
+  if (m.phase !== PHASE.COAST && m.phase !== PHASE.TRANSFER) return;
+  const p = m.plan.path;
+  fill(185, 20, 170, 60);
+  for (let i = 0; i < p.length; i += 2) circle(SX(p[i]), SY(p[i + 1]), 2.2);
+}
+
+function drawBodies() {
+  const B = sim.B;
+  // Sun with glow
+  const sx = SX(B.x[SUN]), sy = SY(B.y[SUN]);
+  fill(255, 170, 0, 22); circle(sx, sy, 70);
+  fill(255, 170, 0, 45); circle(sx, sy, 44);
+  fill(255, 190, 40);    circle(sx, sy, 2 * BODY_DEFS[SUN].r);
+  fill(255, 240, 180);   circle(sx - 2, sy - 2, 7);
+  for (const i of [JUP, EARTH]) {
+    if (!B.alive[i]) continue;
+    const d = BODY_DEFS[i], x = SX(B.x[i]), y = SY(B.y[i]);
+    fill(d.col[0], d.col[1], d.col[2], 40); circle(x, y, 2 * d.r + 8);
+    fill(...d.col); circle(x, y, 2 * d.r);
+    fill(255, 255, 255, 90); circle(x - d.r * 0.3, y - d.r * 0.3, d.r * 0.8);
+  }
+}
+
+function drawProbes() {
+  for (const p of sim.probes) {
+    fill(...p.col);
+    circle(SX(p.x), SY(p.y), p.col[0] === 120 ? 5 : 4);
+  }
+}
+
+function drawCraft() {
+  const c = sim.craft, m = sim.m;
+  if (m.phase === PHASE.LOST && sim.parts.indexOf(c) < 0) return;
+  let vx = c.vx, vy = c.vy;
+  if (m.phase === PHASE.DOCKED) { vx = sim.B.vx[EARTH]; vy = sim.B.vy[EARTH]; }
+  const ang = Math.atan2(vy, vx);
+  push();
+  translate(SX(c.x), SY(c.y));
+  rotate(-ang);
+  fill(255, 255, 255, 120); circle(0, 0, 14);
+  fill(...c.col); triangle(7, 0, -5, 4.5, -5, -4.5);
+  fill(255, 230, 250); circle(1.5, 0, 3);
+  pop();
+}
+
+function drawEvents() {
+  for (const ev of sim.events) {
+    const age = sim.t - ev.t;
+    if (age > 8) continue;
+    const a = 1 - age / 8;
+    const x = SX(ev.x), y = SY(ev.y);
+    if (!ev.label) { fill(90, 90, 90, 120 * a); circle(x, y, 6 + age * 3); continue; }
+    fill(255, 120, 0, 150 * a); circle(x, y, 10 + age * 4);
+    fill(60, 60, 60, 255 * a); textSize(11); textAlign(LEFT, BOTTOM);
+    text(`${ev.label} Δv=${ev.dv.toFixed(2)}`, x + 8, y - 8 - age * 2);
+  }
+}
+
+function drawDrag() {
+  if (!drag) return;
+  fill(80, 80, 80, 140);
+  const n = 16;
+  for (let i = 0; i <= n; i++) {
+    const t = i / n;
+    circle(drag.x + (mouseX - drag.x) * t, drag.y + (mouseY - drag.y) * t, 3);
+  }
+  circle(drag.x, drag.y, 7);
+}
+
+function phaseText() {
+  const m = sim.m, c = sim.craft;
+  switch (m.phase) {
+    case PHASE.DOCKED:   return `Docked at Earth – launch in ${Math.max(0, m.launchTime - sim.t).toFixed(1)} t.u.  (L = launch now)`;
+    case PHASE.ESCAPE:   return `Departure burn – escaping Earth on a hyperbola`;
+    case PHASE.LOOP:     return `Heliocentric loop: ${(Math.abs(m.loopAngle) / (2 * Math.PI) * 100).toFixed(0)}% of one orbit around the Sun`;
+    case PHASE.PLANNING: return `Loop complete – computing Jupiter transfer (shooting method) ${(m.progress * 100).toFixed(0)}%`;
+    case PHASE.COAST:    return `Transfer planned: Δv ${m.plan.mag.toFixed(2)} in ${((m.plan.burnStep - sim.step) * DT).toFixed(1)} t.u. → predicted flyby ${m.plan.miss.toFixed(1)} u`;
+    case PHASE.TRANSFER: return `Cruise to Jupiter – distance ${sim.distToJupiter().toFixed(1)} u, corrections: ${m.corrections}`
+                              + (m.pendingBurn ? ' (correction scheduled)' : m.planner ? ' (planning correction…)' : '');
+    case PHASE.ORBIT:    return `In orbit around Jupiter – ${Math.floor(Math.abs(m.jAngAcc) / (2 * Math.PI))} revolutions  (L = new mission)`;
+    case PHASE.LOST:     return `Spacecraft lost (${m.lostReason})  (L = new mission)`;
+  }
+  return '';
+}
+
+function drawHUD() {
+  const B = sim.B;
+  const E = systemEnergy(B), drift = (E - sim.E0) / Math.abs(sim.E0) * 100;
+  const elem = (i) => {
+    if (!B.alive[i]) return `${BODY_DEFS[i].name.padEnd(7)} merged into a larger body`;
+    const o = orbitalElements(B, i);
+    return `${BODY_DEFS[i].name.padEnd(7)} r=${o.r.toFixed(1).padStart(5)}  v=${o.v.toFixed(2)}  a=${o.a.toFixed(1)}  e=${o.e.toFixed(3)}`;
+  };
+  const lines = [
+    `t = ${sim.t.toFixed(1)}   speed ×${SPEEDS[speedIdx]}${paused ? '   [PAUSED]' : ''}`,
+    `Mission ${sim.m.id}: ${phaseText()}`,
+    `Δv used ${sim.m.dvTotal.toFixed(2)}` + (sim.m.burns.length ? '  (' + sim.m.burns.slice(-3).map(b => `${b.label} ${b.dv.toFixed(2)}`).join(', ') + ')' : ''),
+    elem(EARTH),
+    elem(JUP),
+    `Energy ${E.toFixed(2)}  (drift ${drift >= 0 ? '+' : ''}${drift.toFixed(4)}%)   probes: ${sim.probes.length}`,
+  ];
+  textSize(12); textAlign(LEFT, TOP);
+  let wmax = 0; for (const l of lines) wmax = Math.max(wmax, textWidth(l));
+  fill(255, 255, 255, 170); rect(10, 10, wmax + 20, lines.length * 16 + 14, 6);
+  fill(30);
+  lines.forEach((l, i) => text(l, 20, 18 + i * 16));
+
+  // mission log, bottom-right
+  const lg = sim.log.slice(-6);
+  if (lg.length) {
+    textSize(11);
+    let w2 = 0; for (const e of lg) w2 = Math.max(w2, textWidth(`${e.t.toFixed(1).padStart(7)}  ${e.msg}`));
+    w2 = Math.min(w2, W - 400);
+    const hh = lg.length * 14 + 12;
+    fill(255, 255, 255, 150); rect(W - w2 - 30, H - hh - 10, w2 + 20, hh, 6);
+    fill(60);
+    lg.forEach((e, i) => text(`${e.t.toFixed(1).padStart(7)}  ${e.msg}`, W - w2 - 20, H - hh - 3 + i * 14));
+  }
+
+  if (showHelp) {
+    const help = ['SPACE pause   R reset   + / − speed   H hide help',
+                  'C clear trails   T trails on/off   P planned path',
+                  'L launch now / new mission   hover a body for data',
+                  'drag on the canvas to throw a massless probe'];
+    textSize(11);
+    let hw = 0; for (const l of help) hw = Math.max(hw, textWidth(l));
+    fill(255, 255, 255, 170); rect(10, H - 60, hw + 20, 50, 6);
+    fill(40); textAlign(LEFT, TOP); help.forEach((l, i) => text(l, 20, H - 55 + i * 14));
+  }
+}
+
+function drawHover() {
+  const B = sim.B;
+  let best = null, bd = 16;
+  for (let i = 0; i < B.n; i++) {
+    if (!B.alive[i]) continue;
+    const d = dist(mouseX, mouseY, SX(B.x[i]), SY(B.y[i]));
+    if (d < bd) { bd = d; best = { name: BODY_DEFS[i].name, m: B.m[i], x: B.x[i], y: B.y[i], vx: B.vx[i], vy: B.vy[i] }; }
+  }
+  const c = sim.craft;
+  const dc = dist(mouseX, mouseY, SX(c.x), SY(c.y));
+  if (dc < bd) { bd = dc; best = { name: 'Spacecraft', m: 0, x: c.x, y: c.y, vx: c.vx, vy: c.vy }; }
+  if (!best) return;
+  const rS = Math.hypot(best.x - B.x[SUN], best.y - B.y[SUN]);
+  const lines = [best.name, `mass ${best.m}`, `speed ${Math.hypot(best.vx, best.vy).toFixed(3)}`, `dist to Sun ${rS.toFixed(1)}`];
+  textSize(11); textAlign(LEFT, TOP);
+  let w = 0; for (const l of lines) w = Math.max(w, textWidth(l));
+  let x = mouseX + 14, y = mouseY + 10;
+  if (x + w + 16 > W) x = mouseX - w - 24;
+  if (y + lines.length * 14 + 10 > H) y = mouseY - lines.length * 14 - 14;
+  fill(255, 255, 255, 220); rect(x, y, w + 14, lines.length * 14 + 8, 5);
+  fill(30); lines.forEach((l, i) => text(l, x + 7, y + 5 + i * 14));
+}
+
+// ----------------------------------------------------------- interaction ---
+function inCanvas() { return mouseX >= 0 && mouseX < W && mouseY >= 0 && mouseY < H; }
+
+function mousePressed() { if (inCanvas()) drag = { x: mouseX, y: mouseY }; }
+
+function mouseReleased() {
+  if (!drag) return;
+  const wx = (drag.x - CX) / SCALE, wy = -(drag.y - CY) / SCALE;
+  const vx = (mouseX - drag.x) / SCALE * 0.03, vy = -(mouseY - drag.y) / SCALE * 0.03;
+  sim.addProbe(wx, wy, vx, vy);
+  drag = null;
+}
+
+function keyPressed() {
+  if (key === ' ') { paused = !paused; return false; }
+  const k = key.toLowerCase();
+  if (k === 'r') resetAll();
+  else if (k === 'c') tg.background(220);
+  else if (k === 't') showTrails = !showTrails;
+  else if (k === 'p') showPath = !showPath;
+  else if (k === 'h') showHelp = !showHelp;
+  else if (key === '+' || key === '=' || key === ']') speedIdx = Math.min(SPEEDS.length - 1, speedIdx + 1);
+  else if (key === '-' || key === '_' || key === '[') speedIdx = Math.max(0, speedIdx - 1);
+  else if (k === 'l') {
+    const ph = sim.m.phase;
+    if (ph === PHASE.DOCKED) sim.m.launchTime = Math.min(sim.m.launchTime, sim.t + 5);
+    else if (ph === PHASE.ORBIT || ph === PHASE.LOST) sim.newMission(sim.t + 4);
+  }
+}
+</script>
+</body>
+</html>

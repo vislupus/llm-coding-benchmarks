@@ -1,0 +1,915 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Terra Incognita</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a dark cartographer's console — one full-screen map, a slim command bar above it and a ledger column to the right. Single dark theme by design (a world map viewed at night). */
+:root{
+  --bg:#0c1118; --panel:#121a24; --panel2:#182331; --line:#223042; --fg:#dfe6ee; --muted:#8a99ab;
+  --accent:#e0b35a; --accent2:#5ab7e0; --good:#5fc48a; --warn:#e0a35a; --bad:#e06060; --sea:#0e2236;
+  --display:"Cinzel",Georgia,serif; --body:"IBM Plex Sans",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  color-scheme:dark;
+}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:13px;line-height:1.4;overflow:hidden;
+  padding-left:max(0px,env(safe-area-inset-left,0px));padding-right:max(0px,env(safe-area-inset-right,0px))}
+*{box-sizing:border-box}
+button,select,input{font:inherit;color:inherit}
+#app{display:flex;flex-direction:column;height:100%;min-height:0}
+/* command bar */
+#top{display:flex;align-items:center;gap:10px;padding:6px max(16px,env(safe-area-inset-right,0px)) 6px max(16px,env(safe-area-inset-left,0px));background:var(--panel);border-bottom:1px solid var(--line);flex-wrap:wrap;flex-shrink:0}
+#brand{font-family:var(--display);font-weight:700;letter-spacing:.04em;font-size:17px;color:var(--accent);white-space:nowrap}
+#clock{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--muted);font-size:12px;min-width:150px}
+#clock b{color:var(--fg);font-weight:500}
+.grp{display:flex;align-items:center;gap:6px}
+.grp label{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.btn{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;font-weight:500;transition:background .12s,border-color .12s}
+.btn:hover{background:#1f2d3e;border-color:#2f4157}
+.btn:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--accent2);outline-offset:1px}
+.btn.primary{background:var(--accent);color:#1a1405;border-color:transparent}
+.btn.primary:hover{background:#efc46a}
+.btn.danger{border-color:#5a2a2a}
+.btn.danger:hover{background:#3a1c1c}
+.btn.active{border-color:var(--accent);color:var(--accent)}
+.btn.small{padding:3px 7px;font-size:11px}
+select{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:4px 6px;font-size:12px}
+input[type=range]{width:110px;accent-color:var(--accent)}
+.val{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:12px;min-width:34px;color:var(--fg)}
+.toggles{display:flex;gap:4px;flex-wrap:wrap}
+.tog{background:transparent;border:1px solid var(--line);border-radius:999px;padding:3px 9px;font-size:11px;color:var(--muted);cursor:pointer}
+.tog.on{color:var(--fg);border-color:var(--accent2);background:rgba(90,183,224,.1)}
+#sideToggle{margin-left:auto;display:none}
+/* main */
+#main{display:flex;flex:1;min-height:0;position:relative}
+#map{flex:1;min-width:0;position:relative;background:var(--sea);cursor:grab;touch-action:none}
+#map.grabbing{cursor:grabbing}
+#map.placing{cursor:crosshair}
+#map canvas{display:block}
+#hud{position:absolute;left:10px;bottom:10px;display:flex;gap:6px;flex-wrap:wrap;pointer-events:none}
+#hud .chip{background:rgba(12,17,24,.78);border:1px solid var(--line);border-radius:6px;padding:4px 8px;font-family:var(--mono);font-size:11px;color:var(--muted);backdrop-filter:blur(4px)}
+#hud .chip b{color:var(--fg);font-weight:500}
+#legend{position:absolute;left:10px;top:10px;background:rgba(12,17,24,.78);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font-size:11px;color:var(--muted);max-width:220px;pointer-events:none;backdrop-filter:blur(4px)}
+#legend .row{display:flex;align-items:center;gap:6px;margin:2px 0}
+#legend .sw{width:12px;height:12px;border-radius:3px;flex-shrink:0}
+#zoomBtns{position:absolute;right:10px;bottom:10px;display:flex;flex-direction:column;gap:4px}
+#zoomBtns .btn{width:32px;height:32px;padding:0;font-size:16px;line-height:1}
+#placeHint{position:absolute;left:50%;top:10px;transform:translateX(-50%);background:var(--accent);color:#1a1405;padding:6px 12px;border-radius:6px;font-weight:600;font-size:12px}
+/* toasts */
+#toasts{position:absolute;right:10px;top:10px;display:flex;flex-direction:column;gap:6px;width:min(300px,70vw);pointer-events:none;z-index:5}
+.toast{pointer-events:auto;background:rgba(18,26,36,.94);border:1px solid var(--line);border-left:3px solid var(--accent2);border-radius:6px;padding:7px 10px;font-size:12px;cursor:pointer;animation:tin .25s ease-out;box-shadow:0 6px 20px rgba(0,0,0,.35)}
+.toast.war{border-left-color:var(--bad)} .toast.plague{border-left-color:#c66cd6} .toast.tech{border-left-color:var(--accent)} .toast.climate{border-left-color:#6cb0d6} .toast.good{border-left-color:var(--good)} .toast.city{border-left-color:#d6a06c}
+.toast .t{font-family:var(--mono);font-size:10px;color:var(--muted);margin-right:6px}
+.toast.out{animation:tout .3s ease-in forwards}
+@keyframes tin{from{opacity:0;transform:translateX(16px)}to{opacity:1;transform:none}}
+@keyframes tout{to{opacity:0;transform:translateX(16px)}}
+@media (prefers-reduced-motion:reduce){.toast,.toast.out{animation:none}}
+/* tooltip */
+#tip{position:absolute;pointer-events:none;background:rgba(12,17,24,.92);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font-size:11px;line-height:1.35;display:none;z-index:6;max-width:220px}
+#tip b{color:var(--accent)}
+/* sidebar */
+#side{width:330px;flex-shrink:0;background:var(--panel);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+#tabs{display:flex;border-bottom:1px solid var(--line);flex-shrink:0}
+#tabs button{flex:1;background:none;border:0;border-bottom:2px solid transparent;padding:8px 4px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);cursor:pointer}
+#tabs button.on{color:var(--accent);border-bottom-color:var(--accent)}
+.pane{display:none;flex:1;overflow-y:auto;padding:10px 12px 16px;min-height:0}
+.pane.on{display:block}
+h3{font-family:var(--display);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:14px 0 6px;font-weight:500}
+h3:first-child{margin-top:2px}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.stat{background:var(--panel2);border-radius:6px;padding:6px 8px}
+.stat .k{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.stat .v{font-family:var(--mono);font-size:16px;font-variant-numeric:tabular-nums}
+.stat .v small{font-size:10px;color:var(--muted);margin-left:3px}
+canvas.chart{width:100%;height:70px;display:block;background:var(--panel2);border-radius:6px}
+.bar{display:grid;grid-template-columns:86px 1fr 34px;align-items:center;gap:8px;font-size:11px;margin:3px 0}
+.bar .tr{height:7px;background:var(--panel2);border-radius:4px;overflow:hidden}
+.bar .fi{height:100%;background:var(--accent2);border-radius:4px;transition:width .4s}
+.bar .n{font-family:var(--mono);text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
+.tribe{display:flex;align-items:center;gap:6px;font-size:11px;margin:4px 0;padding:4px 6px;border-radius:6px;background:var(--panel2);cursor:pointer}
+.tribe:hover{background:#1f2d3e}
+.tribe .dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.tribe .nm{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
+.tribe .pp{font-family:var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}
+.techcells{display:flex;gap:2px}
+.techcells i{width:7px;height:10px;border-radius:2px;background:var(--line);display:block}
+.techcells i.l1{background:#3d6c8c}.techcells i.l2{background:#4f93bb}.techcells i.l3{background:var(--accent2)}.techcells i.l4{background:var(--accent)}
+.evgrid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.evgrid .btn{text-align:left;display:flex;align-items:center;gap:7px;padding:7px 9px}
+.evgrid .ic{font-size:14px;width:18px;text-align:center}
+.log{font-size:11px;font-family:var(--body)}
+.log div{padding:4px 6px;border-radius:4px;cursor:pointer;display:flex;gap:6px;align-items:flex-start}
+.log div:hover{background:var(--panel2)}
+.log .t{font-family:var(--mono);color:var(--muted);font-size:10px;flex-shrink:0;min-width:46px;font-variant-numeric:tabular-nums}
+.log .m{border-left:2px solid var(--line);padding-left:6px}
+.log .war .m{border-color:var(--bad)}.log .plague .m{border-color:#c66cd6}.log .tech .m{border-color:var(--accent)}.log .climate .m{border-color:#6cb0d6}.log .good .m{border-color:var(--good)}.log .city .m{border-color:#d6a06c}
+.preset{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:8px;margin:6px 0;cursor:pointer}
+.preset.on{border-color:var(--accent)}
+.preset .pn{font-weight:600;font-size:12px}
+.preset .pd{color:var(--muted);font-size:11px;margin-top:2px}
+.preset .pg{font-family:var(--mono);font-size:10px;color:var(--accent2);margin-top:4px}
+.row2{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:11px}
+.kv dt{color:var(--muted)} .kv dd{margin:0;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.gen{display:grid;grid-template-columns:repeat(2,1fr);gap:3px 10px;font-size:11px}
+.gen .bar{grid-template-columns:64px 1fr 28px}
+.mem{font-size:11px;color:var(--muted)}
+.mem span{display:inline-block;background:var(--panel2);border-radius:4px;padding:1px 6px;margin:2px 2px 0 0;font-family:var(--mono);font-size:10px}
+.empty{color:var(--muted);font-size:12px;padding:12px 4px;text-align:center}
+.help{color:var(--muted);font-size:11px;margin:4px 0 8px}
+@media (max-width:900px){
+  #sideToggle{display:inline-block}
+  #side{position:absolute;right:0;top:0;bottom:0;width:min(330px,88vw);transform:translateX(100%);transition:transform .2s;z-index:4;box-shadow:-10px 0 30px rgba(0,0,0,.4)}
+  #side.open{transform:none}
+  #legend{max-width:160px}
+  input[type=range]{width:80px}
+}
+</style>
+
+</head>
+<body>
+<div id="app">
+  <header id="top">
+    <div id="brand">Terra Incognita</div>
+    <div id="clock">Year <b id="yr">1</b> · Day <b id="dy">1</b> · <span id="season">Spring</span></div>
+    <div class="grp">
+      <button class="btn primary" id="btnPause" title="Space">Pause</button>
+      <button class="btn danger" id="btnReset">Reset</button>
+    </div>
+    <div class="grp"><label for="speed">Speed</label><input type="range" id="speed" min="1" max="20" value="3"><span class="val" id="speedV">3×</span></div>
+    <div class="grp"><label for="maxpop">Max pop</label><input type="range" id="maxpop" min="200" max="6000" step="100" value="2500"><span class="val" id="maxpopV">2500</span></div>
+    <div class="grp"><label for="view">View</label>
+      <select id="view">
+        <option value="terrain">Terrain</option>
+        <option value="political">Political</option>
+        <option value="resources">Resources</option>
+        <option value="climate">Climate</option>
+        <option value="food">Food</option>
+        <option value="density">Population</option>
+        <option value="disease">Disease</option>
+        <option value="elevation">Elevation</option>
+        <option value="culture">Culture</option>
+      </select>
+    </div>
+    <div class="toggles" id="overlays">
+      <button class="tog on" data-ov="agents">Agents</button>
+      <button class="tog on" data-ov="labels">Labels</button>
+      <button class="tog on" data-ov="routes">Routes</button>
+      <button class="tog on" data-ov="borders">Borders</button>
+      <button class="tog" data-ov="resources">Resources</button>
+    </div>
+    <button class="btn" id="sideToggle">Ledger</button>
+  </header>
+  <div id="main">
+    <div id="map">
+      <div id="legend"></div>
+      <div id="hud">
+        <div class="chip">Pop <b id="hudPop">0</b></div>
+        <div class="chip">Tribes <b id="hudTribes">0</b></div>
+        <div class="chip">Wars <b id="hudWars">0</b></div>
+        <div class="chip"><b id="hudFps">60</b> fps</div>
+      </div>
+      <div id="zoomBtns">
+        <button class="btn" id="zin" title="Zoom in">+</button>
+        <button class="btn" id="zout" title="Zoom out">−</button>
+        <button class="btn" id="zfit" title="Fit world" style="font-size:11px">fit</button>
+      </div>
+      <div id="placeHint" hidden>Click on the map to place the arrivals · Esc to cancel</div>
+      <div id="toasts"></div>
+      <div id="tip"></div>
+    </div>
+    <aside id="side">
+      <div id="tabs">
+        <button class="on" data-tab="stats">Stats</button>
+        <button data-tab="events">Events</button>
+        <button data-tab="arrivals">Arrivals</button>
+        <button data-tab="inspect">Inspect</button>
+      </div>
+      <div class="pane on" id="pane-stats">
+        <h3>World</h3>
+        <div class="stats">
+          <div class="stat"><div class="k">Population</div><div class="v" id="sPop">0</div></div>
+          <div class="stat"><div class="k">Settlements</div><div class="v" id="sSet">0</div></div>
+          <div class="stat"><div class="k">Economy (wealth)</div><div class="v" id="sWealth">0</div></div>
+          <div class="stat"><div class="k">Trade / year</div><div class="v" id="sTrade">0</div></div>
+          <div class="stat"><div class="k">Active wars</div><div class="v" id="sWars">0</div></div>
+          <div class="stat"><div class="k">Alliances</div><div class="v" id="sAlly">0</div></div>
+          <div class="stat"><div class="k">Infected</div><div class="v" id="sInf">0</div></div>
+          <div class="stat"><div class="k">Tech progress</div><div class="v" id="sTech">0%</div></div>
+        </div>
+        <h3>Population</h3><canvas class="chart" id="cPop"></canvas>
+        <h3>Economy &amp; trade</h3><canvas class="chart" id="cEco"></canvas>
+        <h3>Conflict &amp; disease</h3><canvas class="chart" id="cWar"></canvas>
+        <h3>Average traits</h3><div id="traits"></div>
+        <h3>Tribes &amp; technology</h3>
+        <div class="help">Cells: agriculture · pottery · metallurgy · writing · medicine · sailing · masonry · wheel · currency · mathematics</div>
+        <div id="tribes"></div>
+      </div>
+      <div class="pane" id="pane-events">
+        <h3>Trigger an event</h3>
+        <div class="help">The world also produces these on its own. Manual triggers are stronger and announced.</div>
+        <div class="evgrid" id="evButtons"></div>
+        <h3>Chronicle</h3>
+        <div class="log" id="log"></div>
+      </div>
+      <div class="pane" id="pane-arrivals">
+        <h3>Foreign arrivals</h3>
+        <div class="help">Introduce a people with a different genome, culture, technology and behaviour. They form a new tribe where they land.</div>
+        <div id="presets"></div>
+        <div class="row2"><label for="arrN" style="font-size:11px;color:var(--muted)">Group size</label><input type="range" id="arrN" min="8" max="200" value="40"><span class="val" id="arrNV">40</span></div>
+        <div class="row2"><button class="btn primary" id="btnArrive">Land at a random coast</button><button class="btn" id="btnPlace">Choose landing site</button></div>
+        <div class="help" id="arrNote"></div>
+      </div>
+      <div class="pane" id="pane-inspect">
+        <div id="inspect"><div class="empty">Click a settlement, an agent or any cell on the map.</div></div>
+      </div>
+    </aside>
+  </div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+<script>
+'use strict';
+/* ===================== CONSTANTS & STATE ===================== */
+const W = 240, H = 150, N = W * H, CELL = 4, YEAR = 360;
+const B = {DEEP:0, OCEAN:1, COAST:2, BEACH:3, GRASS:4, FOREST:5, JUNGLE:6, SAVANNA:7, DESERT:8, TUNDRA:9, SNOW:10, MOUNTAIN:11, PEAK:12, SWAMP:13, HILLS:14, LAKE:15};
+const BIOME_NAME = ['Deep ocean','Ocean','Shallows','Beach','Grassland','Forest','Jungle','Savanna','Desert','Tundra','Snowfield','Mountains','Peaks','Marsh','Hills','Lake'];
+const BIOME_COL = [[10,26,46],[14,40,66],[28,78,104],[196,176,124],[98,142,62],[48,98,52],[34,88,44],[150,146,70],[200,170,110],[120,124,104],[214,220,226],[112,104,96],[190,188,188],[70,96,60],[124,124,76],[30,80,110]];
+const FOOD_CAP = [0,0,5,2,6,5,6,4,0.6,1.2,0.2,0.6,0,3.2,2.4,3.5];
+const MOVE_COST = [0,0,0,1.1,1,1.4,1.6,1,1.5,1.4,1.8,2.6,0,1.7,1.5,0];
+const RES = ['—','Fish','Game','Fertile soil','Timber','Ore','Gold','Salt','Gems','Horses'];
+const RES_COL = [[0,0,0],[90,190,230],[180,130,80],[120,210,80],[90,150,60],[170,170,190],[255,210,70],[240,240,240],[220,90,200],[200,160,110]];
+const TECHS = ['agriculture','pottery','metallurgy','writing','medicine','sailing','masonry','wheel','currency','mathematics'];
+const TECH_MAX = {agriculture:4,pottery:3,metallurgy:4,writing:3,medicine:4,sailing:3,masonry:3,wheel:3,currency:2,mathematics:2};
+const TECH_COST = {agriculture:300,pottery:260,metallurgy:460,writing:560,medicine:600,sailing:420,masonry:520,wheel:470,currency:650,mathematics:800};
+const TECH_LABEL = {agriculture:'Agriculture',pottery:'Pottery',metallurgy:'Metallurgy',writing:'Writing',medicine:'Medicine',sailing:'Sailing',masonry:'Masonry',wheel:'The Wheel',currency:'Currency',mathematics:'Mathematics'};
+const GENES = ['spd','str','int','soc','agg','cur','fer','res','cold','heat','life'];
+const GENE_LABEL = {spd:'Speed',str:'Strength',int:'Intellect',soc:'Sociability',agg:'Aggression',cur:'Curiosity',fer:'Fertility',res:'Resistance',cold:'Cold tol.',heat:'Heat tol.',life:'Longevity'};
+
+// world arrays
+let elev, moist, tempBase, biome, food, foodCap, resType, resVal, river, anom, territory, cellCount, infCount, settleAt;
+let terrainImg, viewImgs = {}, terrFill, terrBorder, dataG, anomG;
+let tribes = [], settlements = [], agents = [], diseases = [], routes = [], log = [], pings = [];
+let day = 0, paused = false, speed = 3, maxPop = 2500, seed = 0, nextId = 1;
+let cam = {x: W/2, y: H/2, z: 4}, viewMode = 'terrain', overlays = {agents:true, labels:true, routes:true, borders:true, resources:false};
+let mods = {tempOffset:0, tempTimer:0, boredom:0, migration:0, tradeMood:0, warMood:0, lastEvent:0};
+let hist = {pop:[], wealth:[], trade:[], wars:[], inf:[], sets:[], cap:[]};
+let yearTrade = 0, lastYearTrade = 0, monthTrade = 0, selected = null, follow = false, placing = null, hoverCell = -1;
+let fpsSm = 60, dataViewDirty = 0, terrDirty = true;
+
+/* ===================== UTILS ===================== */
+const clamp = (v,a,b)=> v<a?a:v>b?b:v;
+const rnd = (a=1,b)=> b===undefined ? Math.random()*a : a+Math.random()*(b-a);
+const rint = (a,b)=> Math.floor(rnd(a,b+1));
+const pick = arr => arr[Math.floor(Math.random()*arr.length)];
+const idx = (x,y)=> (y|0)*W + (x|0);
+const inB = (x,y)=> x>=0 && y>=0 && x<W && y<H;
+const isWater = b => b<=B.COAST || b===B.LAKE;
+const dist2 = (ax,ay,bx,by)=> (ax-bx)*(ax-bx)+(ay-by)*(ay-by);
+const fmt = n => n>=1e6 ? (n/1e6).toFixed(1)+'M' : n>=1e4 ? (n/1e3).toFixed(1)+'k' : Math.round(n).toLocaleString();
+const SEASONS = ['Spring','Summer','Autumn','Winter'];
+function seasonTemp(y){ // northern-style seasons: top half summer when sin>0, bottom half inverted
+  const s = Math.sin((day%YEAR)/YEAR*Math.PI*2 - Math.PI/2);
+  const lat = (y/H - 0.5);
+  return s*(-lat)*18 + s*2;
+}
+function cellTemp(i){ return tempBase[i] + seasonTemp((i/W)|0) + mods.tempOffset; }
+
+const SYLL = [
+  ['ka','ra','to','mi','su','ne','vo','la','ri','ko','an','ter','ul','esh','mar','dun','ish','ba','rin','sol'],
+  ['ael','thar','ion','wyn','dor','ess','gal','ith','mor','rel','ven','ys','cal','eth','ora','nis','vel','iri','sar','eon'],
+  ['ng','obo','uku','ama','ntu','ezi','kwa','olo','ini','wa','bantu','zim','ala','oro','ife','kele','umu','ani','sha','ndo'],
+  ['xo','tla','pec','atl','chi','qui','tzin','mal','tec','pan','ixt','cua','huan','zal','tep','mex','oca','yao','nal','ahu'],
+  ['ur','gash','enki','nam','mu','zig','lugal','dar','bab','ash','nin','kish','sum','ea','til','ab','kar','ur','sin','ia'],
+];
+function makeName(lang, n){ let s=''; const k=n||rint(2,3); for(let i=0;i<k;i++) s+=pick(SYLL[lang]); s=s.replace(/(.)\1\1/g,'$1$1'); return s[0].toUpperCase()+s.slice(1); }
+const DIS_A=['Grey','Red','Weeping','Marsh','Sweating','Black','Spotted','Silent','Winter','River','Shaking','Blue'];
+const DIS_B=['fever','pox','cough','plague','ague','blight','sickness','flux','rot','chill'];
+
+/* ===================== WORLD GENERATION ===================== */
+function fbm(x,y,oct,lac,gain){ let a=1,f=1,s=0,n=0; for(let o=0;o<oct;o++){ s+=a*noise(x*f,y*f); n+=a; a*=gain; f*=lac;} return s/n; }
+
+function generateWorld(){
+  seed = rint(1,999999); noiseSeed(seed); randomSeed(seed);
+  elev=new Float32Array(N); moist=new Float32Array(N); tempBase=new Float32Array(N); biome=new Uint8Array(N);
+  food=new Float32Array(N); foodCap=new Float32Array(N); resType=new Uint8Array(N); resVal=new Float32Array(N); river=new Uint8Array(N);
+  anom=new Float32Array(N); territory=new Int16Array(N).fill(-1); cellCount=new Uint16Array(N); infCount=new Uint16Array(N); settleAt=new Int16Array(N).fill(-1);
+  const ox=rnd(1000), oy=rnd(1000), mx=rnd(1000), my=rnd(1000);
+  for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+    const i=idx(x,y), nx=x/W, ny=y/H;
+    let e = fbm(ox+nx*3.2, oy+ny*3.2*(H/W)*1.6, 6, 2.1, 0.5);
+    e = (e-0.5)*1.9+0.5;
+    // continental shelf: push edges into ocean, keep a couple of land masses
+    const dx=(nx-0.5)*2, dy=(ny-0.5)*2; const d=Math.sqrt(dx*dx*1.0+dy*dy*1.25);
+    e = e - Math.max(0,d-0.55)*1.1 - 0.08;
+    const ridge = 1-Math.abs(fbm(ox+5+nx*6,oy+5+ny*6*(H/W),4,2,0.5)*2-1);
+    e += ridge*0.12*Math.max(0,e-0.3);
+    elev[i]=e;
+    moist[i]=fbm(mx+nx*4,my+ny*4*(H/W),4,2,0.5);
+  }
+  // sea level normalise so land ~40%
+  const sorted=Array.from(elev).sort((a,b)=>a-b); const sea=sorted[Math.floor(N*0.58)];
+  for(let i=0;i<N;i++) elev[i]=elev[i]-sea; // 0 = sea level
+  const maxE=Math.max(...Array.from(elev).filter((_,k)=>k%7===0));
+  for(let i=0;i<N;i++) if(elev[i]>0) elev[i]=elev[i]/maxE; else elev[i]=elev[i]/(sea+0.001)*0.5;
+  // temperature
+  for(let y=0;y<H;y++) for(let x=0;x<W;x++){ const i=idx(x,y); const lat=Math.abs(y/H-0.5)*2; tempBase[i]=30-lat*lat*46 - Math.max(0,elev[i])*34 + (moist[i]-0.5)*4; }
+  // rivers
+  carveRivers();
+  // biomes
+  for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+    const i=idx(x,y), e=elev[i], t=tempBase[i], m=moist[i]+(river[i]?0.25:0);
+    let b;
+    if(e<=0){ b = e<-0.28? B.DEEP : e<-0.06? B.OCEAN : B.COAST; }
+    else if(e>0.78) b=B.PEAK; else if(e>0.58) b=B.MOUNTAIN;
+    else if(t<-8) b=B.SNOW; else if(t<2) b=B.TUNDRA;
+    else if(e<0.035 && nearWater(x,y) && t>8) b=B.BEACH;
+    else if(e>0.38) b=B.HILLS;
+    else if(m<0.3 && t>18) b=B.DESERT;
+    else if(m<0.42 && t>16) b=B.SAVANNA;
+    else if(m>0.72 && t>22) b=B.JUNGLE;
+    else if(m>0.7 && e<0.08) b=B.SWAMP;
+    else if(m>0.5) b=B.FOREST;
+    else b=B.GRASS;
+    if(river[i]===2 && e>0) b=B.LAKE;
+    biome[i]=b;
+  }
+  // resources & food
+  for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+    const i=idx(x,y), b=biome[i]; let cap=FOOD_CAP[b]; let rt=0, rv=0; const r=Math.random();
+    if(river[i]===1 && b!==B.LAKE) cap*=1.5;
+    if(b===B.COAST && r<0.22){rt=1;rv=rnd(0.4,1);}
+    else if(b===B.GRASS && (river[i]||moist[i]>0.45) && r<0.14){rt=3;rv=rnd(0.5,1);}
+    else if((b===B.FOREST||b===B.JUNGLE) && r<0.12){rt= Math.random()<0.5?2:4; rv=rnd(0.3,0.9);}
+    else if((b===B.HILLS||b===B.MOUNTAIN) && r<0.16){rt= Math.random()<0.78?5:(Math.random()<0.6?6:8); rv=rnd(0.4,1);}
+    else if((b===B.DESERT||b===B.BEACH) && r<0.06){rt=7;rv=rnd(0.3,0.8);}
+    else if(b===B.SAVANNA && r<0.08){rt=9;rv=rnd(0.4,0.9);}
+    if(rt===3) cap*=1.8; if(rt===1) cap*=1.4; if(rt===2) cap*=1.4;
+    foodCap[i]=cap; food[i]=cap*rnd(0.6,1); resType[i]=rt; resVal[i]=rv;
+  }
+  buildTerrainImage(); viewImgs={}; terrDirty=true;
+}
+function nearWater(x,y){ for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++){ if(inB(x+dx,y+dy) && elev[idx(x+dx,y+dy)]<=0) return true; } return false; }
+function carveRivers(){
+  const sources=[]; for(let k=0;k<4000 && sources.length<28;k++){ const x=rint(2,W-3), y=rint(2,H-3), i=idx(x,y); if(elev[i]>0.45 && moist[i]>0.4) sources.push(i); }
+  for(const s of sources){
+    let cur=s, steps=0;
+    while(steps++<300){
+      river[cur]=1; const cx=cur%W, cy=(cur/W)|0; let best=-1, be=elev[cur];
+      for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++){ if(!dx&&!dy) continue; const nx=cx+dx, ny=cy+dy; if(!inB(nx,ny)) continue; const j=idx(nx,ny); const ej=elev[j]+(river[j]?-0.02:0)+Math.random()*0.01; if(ej<be){be=ej;best=j;} }
+      if(best<0){ // lake
+        river[cur]=2; for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++){ if(inB(cx+dx,cy+dy) && Math.random()<0.5) river[idx(cx+dx,cy+dy)]=2; } break; }
+      cur=best; if(elev[cur]<=0) break;
+    }
+  }
+}
+
+/* ===================== TERRAIN RENDER ===================== */
+function shadeCol(i){
+  const b=biome[i], c=BIOME_COL[b]; const e=elev[i];
+  const x=i%W, y=(i/W)|0; const eL = inB(x-1,y-1)? elev[idx(x-1,y-1)] : e;
+  let sh = 1 + (e-eL)*2.2; if(e<=0) sh = 1 + e*0.9; else sh += e*0.15;
+  const v = (noise(x*0.5,y*0.5)-0.5)*0.12;
+  let r=c[0]*(sh+v), g=c[1]*(sh+v), bl=c[2]*(sh+v);
+  if(river[i]===1 && e>0){ r=r*0.6+30*0.4; g=g*0.6+90*0.4; bl=bl*0.6+140*0.4; }
+  return [clamp(r,0,255),clamp(g,0,255),clamp(bl,0,255)];
+}
+function buildTerrainImage(){
+  terrainImg = createGraphics(W*CELL,H*CELL); terrainImg.pixelDensity(1); terrainImg.noStroke();
+  terrainImg.loadPixels(); const px=terrainImg.pixels, PW=W*CELL;
+  for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+    const c=shadeCol(idx(x,y));
+    for(let sy=0;sy<CELL;sy++) for(let sx=0;sx<CELL;sx++){
+      const p=((y*CELL+sy)*PW+(x*CELL+sx))*4; const j=(sx*7+sy*13+x*3+y*5)%11/11-0.5; const dj = j*7;
+      px[p]=c[0]+dj; px[p+1]=c[1]+dj; px[p+2]=c[2]+dj; px[p+3]=255;
+    }
+  }
+  terrainImg.updatePixels();
+  // river lines on top for continuity
+  terrainImg.stroke(40,110,170); terrainImg.strokeWeight(1.6); terrainImg.noFill();
+  for(let y=0;y<H;y++) for(let x=0;x<W;x++){ const i=idx(x,y); if(river[i]!==1||elev[i]<=0) continue;
+    for(let dy=0;dy<=1;dy++) for(let dx=-1;dx<=1;dx++){ if(!dy&&dx<=0) continue; const nx=x+dx,ny=y+dy; if(inB(nx,ny)&&river[idx(nx,ny)]&&elev[idx(nx,ny)]<elev[i]) terrainImg.line(x*CELL+2,y*CELL+2,nx*CELL+2,ny*CELL+2); } }
+  terrFill=createGraphics(W,H); terrFill.pixelDensity(1); terrBorder=createGraphics(W,H); terrBorder.pixelDensity(1);
+  dataG=createGraphics(W,H); dataG.pixelDensity(1); anomG=createGraphics(W,H); anomG.pixelDensity(1);
+}
+function colorRamp(t, stops){ t=clamp(t,0,1); const n=stops.length-1; const k=Math.min(n-1,Math.floor(t*n)); const f=t*n-k; const a=stops[k],b=stops[k+1]; return [a[0]+(b[0]-a[0])*f,a[1]+(b[1]-a[1])*f,a[2]+(b[2]-a[2])*f]; }
+const RAMP_TEMP=[[40,40,160],[60,140,220],[200,220,200],[240,190,60],[220,60,30]];
+const RAMP_HEAT=[[20,20,40],[80,30,120],[200,60,90],[255,170,60],[255,250,200]];
+function staticView(mode){
+  if(viewImgs[mode]) return viewImgs[mode];
+  const g=createGraphics(W,H); g.pixelDensity(1); g.loadPixels(); const px=g.pixels;
+  for(let i=0;i<N;i++){ let c; const p=i*4;
+    if(mode==='elevation'){ const e=elev[i]; c = e<=0? [20,40+e*60,90+e*80] : colorRamp(e,[[40,90,40],[150,160,60],[140,100,60],[240,240,240]]); }
+    else if(mode==='resources'){ c = isWater(biome[i])? [14,30,50] : [40,46,42]; if(resType[i]){ const rc=RES_COL[resType[i]]; c=[rc[0]*resVal[i]+c[0]*(1-resVal[i]), rc[1]*resVal[i]+c[1]*(1-resVal[i]), rc[2]*resVal[i]+c[2]*(1-resVal[i])]; } }
+    px[p]=c[0];px[p+1]=c[1];px[p+2]=c[2];px[p+3]=255; }
+  g.updatePixels(); viewImgs[mode]=g; return g;
+}
+function renderDataView(mode){
+  dataG.loadPixels(); const px=dataG.pixels;
+  for(let i=0;i<N;i++){ let c, a=255; const p=i*4; const water=isWater(biome[i]);
+    if(mode==='climate'){ c = colorRamp((cellTemp(i)+20)/55, RAMP_TEMP); if(anom[i]<-0.05) c=[c[0]*0.6+120*0.4,c[1]*0.6+80*0.4,c[2]*0.6+30*0.4]; if(anom[i]>0.05) c=[c[0]*0.5,c[1]*0.6+60,c[2]*0.5+100]; }
+    else if(mode==='food'){ c = water? [14,30,50] : colorRamp(food[i]/8, [[60,40,30],[120,100,40],[90,170,60],[200,250,120]]); }
+    else if(mode==='density'){ const d=cellCount[i]; c = water? [14,22,36] : d? colorRamp(Math.min(1,d/5), RAMP_HEAT) : [34,38,40]; if(d) { /* bloom neighbours */ } }
+    else if(mode==='disease'){ const d=infCount[i]; c = water? [14,22,36] : d? colorRamp(Math.min(1,d/3), [[60,20,80],[160,40,140],[255,80,120],[255,230,200]]) : [34,34,42]; }
+    else if(mode==='culture'){ const t=territory[i]; if(t>=0 && tribes[t]){ const cu=tribes[t].culture; c=[80+cu.aggr*170, 60+cu.trade*170, 60+cu.innov*170]; } else c = water? [14,22,36] : [40,40,44]; }
+    px[p]=c[0];px[p+1]=c[1];px[p+2]=c[2];px[p+3]=a; }
+  dataG.updatePixels();
+}
+function renderAnom(){
+  anomG.loadPixels(); const px=anomG.pixels; let any=false;
+  for(let i=0;i<N;i++){ const a=anom[i]; const p=i*4; if(Math.abs(a)<0.04){px[p+3]=0;continue;} any=true;
+    if(a<0){ px[p]=170;px[p+1]=110;px[p+2]=40;px[p+3]=Math.min(150,-a*170);} else {px[p]=40;px[p+1]=120;px[p+2]=220;px[p+3]=Math.min(150,a*170);} }
+  anomG.updatePixels(); return any;
+}
+function renderTerritory(){
+  terrFill.loadPixels(); terrBorder.loadPixels(); const pf=terrFill.pixels, pb=terrBorder.pixels;
+  for(let i=0;i<N;i++){ const t=territory[i]; const p=i*4;
+    if(t<0||!tribes[t]){ pf[p+3]=0; pb[p+3]=0; continue; }
+    const c=tribes[t].rgb; pf[p]=c[0];pf[p+1]=c[1];pf[p+2]=c[2];pf[p+3]=isWater(biome[i])?40:95;
+    const x=i%W,y=(i/W)|0; let border=false;
+    if(x>0&&territory[i-1]!==t) border=true; else if(x<W-1&&territory[i+1]!==t) border=true; else if(y>0&&territory[i-W]!==t) border=true; else if(y<H-1&&territory[i+W]!==t) border=true;
+    pb[p]=c[0];pb[p+1]=c[1];pb[p+2]=c[2];pb[p+3]=border?200:0; }
+  terrFill.updatePixels(); terrBorder.updatePixels(); terrDirty=false;
+}
+function computeTerritory(){
+  territory.fill(-1); const str=new Float32Array(N);
+  for(const s of settlements){ if(s.dead) continue; const t=tribes[s.tribe]; const r = 3 + s.tier*2.2 + t.tech.masonry*0.8 + Math.sqrt(s.pop)*0.25; const r2=r*r; const x0=Math.max(0,s.x-r|0), x1=Math.min(W-1,s.x+r|0), y0=Math.max(0,s.y-r|0), y1=Math.min(H-1,s.y+r|0);
+    for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++){ const d2=dist2(x+0.5,y+0.5,s.x,s.y); if(d2>r2) continue; const i=idx(x,y); if(biome[i]<=B.OCEAN) continue; const v=(r2-d2)*(1+s.pop*0.02); if(v>str[i]){str[i]=v;territory[i]=s.tribe;} } }
+  terrDirty=true;
+}
+
+/* ===================== CAMERA ===================== */
+function s2w(sx,sy){ return [cam.x+(sx-width/2)/cam.z, cam.y+(sy-height/2)/cam.z]; }
+function w2s(wx,wy){ return [width/2+(wx-cam.x)*cam.z, height/2+(wy-cam.y)*cam.z]; }
+function fitCamera(){ cam.z=Math.min(width/W,height/H)*0.98; cam.x=W/2; cam.y=H/2; }
+function zoomAt(sx,sy,f){ const [wx,wy]=s2w(sx,sy); cam.z=clamp(cam.z*f,Math.min(width/W,height/H)*0.6,40); const [nx,ny]=w2s(wx,wy); cam.x+= (nx-sx)/cam.z; cam.y+=(ny-sy)/cam.z; clampCam(); }
+function clampCam(){ cam.x=clamp(cam.x,-W*0.2,W*1.2); cam.y=clamp(cam.y,-H*0.2,H*1.2); }
+function flyTo(x,y,z){ cam.x=x; cam.y=y; if(z) cam.z=Math.max(cam.z,z); clampCam(); }
+</script>
+<script>
+/* ===================== EVENTS / LOG ===================== */
+function notify(text, kind, x, y, important){
+  const e={t:day, text, kind:kind||'info', x, y}; log.unshift(e); if(log.length>250) log.pop();
+  if(x!==undefined && important) pings.push({x,y,t:day,kind:e.kind});
+  if(important) toast(e); uiLogDirty=true;
+}
+let uiLogDirty=true;
+
+/* ===================== TRIBES ===================== */
+const HUES=[8,28,48,72,110,150,175,200,222,250,280,310,335,20,95,190,265,350];
+let hueCursor=0;
+function hsl2rgb(h,s,l){ s/=100;l/=100; const k=n=>(n+h/30)%12; const a=s*Math.min(l,1-l); const f=n=>l-a*Math.max(-1,Math.min(k(n)-3,Math.min(9-k(n),1))); return [Math.round(f(0)*255),Math.round(f(8)*255),Math.round(f(4)*255)]; }
+function baseTech(){ const t={}; for(const k of TECHS) t[k]=0; return t; }
+function createTribe(opts){
+  opts=opts||{}; const lang=opts.lang!==undefined?opts.lang:rint(0,SYLL.length-1);
+  const hue=HUES[(hueCursor++)%HUES.length]+rint(-6,6); const sat=opts.foreign?88:68, lig=opts.foreign?62:56;
+  const t={ id:tribes.length, name:opts.name||makeName(lang,rint(2,3)), lang, hue, rgb:hsl2rgb(hue,sat,lig), hex:'',
+    culture: Object.assign({aggr:rnd(0.15,0.75), trade:rnd(0.2,0.8), innov:rnd(0.2,0.8), nomad:rnd(0.1,0.6), collect:rnd(0.2,0.8)}, opts.culture||{}),
+    tech: Object.assign(baseTech(), opts.tech||{}), research:0, relations:{}, wars:new Set(), allies:new Set(), warStart:{}, warLosses:{},
+    wealth:0, pop:0, sets:[], truce:{}, founded:day, dead:false, behaviour:opts.behaviour||'default', foreign:!!opts.foreign, kills:0, losses:0, capital:-1, color:'' };
+  t.hex='rgb('+t.rgb.join(',')+')';
+  for(const o of tribes) { t.relations[o.id]=0; o.relations[t.id]=0; }
+  tribes.push(t); return t;
+}
+function techSum(t){ let s=0; for(const k of TECHS) s+=t.tech[k]; return s; }
+const TECH_TOTAL = TECHS.reduce((a,k)=>a+TECH_MAX[k],0);
+function cultureSim(a,b){ const ca=a.culture,cb=b.culture; return 1-(Math.abs(ca.aggr-cb.aggr)+Math.abs(ca.trade-cb.trade)+Math.abs(ca.collect-cb.collect)+Math.abs(ca.nomad-cb.nomad))/4; }
+function tribeContact(a,b){ // true when they have settlements within 45 cells
+  for(const s of a.sets) for(const o of b.sets) if(dist2(s.x,s.y,o.x,o.y)<45*45) return true; return false; }
+
+function tribesMonthly(){
+  for(const t of tribes){ t.sets=[]; t.pop=0; t.wealth=0; }
+  for(const s of settlements){ if(s.dead) continue; const t=tribes[s.tribe]; t.sets.push(s); t.pop+=s.pop; t.wealth+=s.wealth; }
+  for(const t of tribes){ if(t.dead) continue; if(t.sets.length===0 && t.pop===0){ const alive=agents.some(a=>a.tribe===t.id); if(!alive){ t.dead=true; for(const o of tribes){o.wars.delete(t.id);o.allies.delete(t.id);} notify(`The ${t.name} are no more.`, 'war', undefined, undefined, true); } }
+    // capital = largest settlement
+    let best=null; for(const s of t.sets) if(!best||s.pop>best.pop) best=s; t.capital=best?best.id:-1; }
+  // diplomacy
+  for(let i=0;i<tribes.length;i++){ const a=tribes[i]; if(a.dead) continue;
+    for(let j=i+1;j<tribes.length;j++){ const b=tribes[j]; if(b.dead) continue; if(!tribeContact(a,b)) continue;
+      let press=0; for(const s of a.sets){ for(const o of b.sets) if(dist2(s.x,s.y,o.x,o.y)<11*11) press++; if(press>5) break; }
+      const base = (cultureSim(a,b)-0.6)*60 - (a.culture.aggr+b.culture.aggr)*22 + (a.culture.trade+b.culture.trade)*10 - Math.min(5,press)*5;
+      let r=a.relations[b.id]; r += (base - r)*0.06 + rnd(-4,4) - mods.warMood*5 + mods.tradeMood*3;
+      const bfor = (a.foreign!==b.foreign)? -3:0; r+=bfor;
+      if(a.allies.has(b.id)) r=Math.max(r,30);
+      r=clamp(r,-100,100); a.relations[b.id]=r; b.relations[a.id]=r;
+      const atWar=a.wars.has(b.id);
+      if(!atWar && r<-35 && day-(a.truce[b.id]||-1e9)>YEAR*3){ const p=(a.culture.aggr+b.culture.aggr)*0.08*(1+mods.warMood*3) + (a.behaviour==='raider'||b.behaviour==='raider'?0.08:0);
+        if(Math.random()<p && (a.pop>8||b.pop>8)){ declareWar(a,b); } }
+      else if(atWar){ const dur=day-a.warStart[b.id]; const exhausted = (a.warLosses[b.id]||0)>a.pop*0.4 || (b.warLosses[a.id]||0)>b.pop*0.4;
+        if(dur>YEAR*2 && (Math.random()<0.08+(r>-20?0.15:0) || exhausted) || a.pop<4 || b.pop<4){ makePeace(a,b); } }
+      if(!atWar && !a.allies.has(b.id) && r>58 && Math.random()<0.05*(a.culture.collect+b.culture.collect)){ a.allies.add(b.id); b.allies.add(a.id); notify(`${a.name} and ${b.name} form an alliance.`, 'good', tribes[i].capital>=0?settlements[a.capital].x:undefined, a.capital>=0?settlements[a.capital].y:undefined, true); }
+      if(a.allies.has(b.id) && r<15 && Math.random()<0.2){ a.allies.delete(b.id); b.allies.delete(a.id); notify(`The alliance between ${a.name} and ${b.name} dissolves.`, 'war'); }
+    } }
+}
+function declareWar(a,b){ a.wars.add(b.id); b.wars.add(a.id); a.warStart[b.id]=day; b.warStart[a.id]=day; a.warLosses[b.id]=0; b.warLosses[a.id]=0; a.allies.delete(b.id); b.allies.delete(a.id);
+  const c=a.capital>=0?settlements[a.capital]:null; notify(`${a.name} declare war on ${b.name}.`, 'war', c?c.x:undefined, c?c.y:undefined, true);
+  // allies may join
+  for(const al of a.allies){ const t=tribes[al]; if(t&&!t.dead&&!t.wars.has(b.id)&&Math.random()<0.4&&t.relations[b.id]<10){ t.wars.add(b.id); b.wars.add(t.id); t.warStart[b.id]=day; b.warStart[t.id]=day; t.warLosses[b.id]=0; b.warLosses[t.id]=0; notify(`${t.name} join the war against ${b.name}.`, 'war'); } }
+}
+function makePeace(a,b){ a.wars.delete(b.id); b.wars.delete(a.id); a.truce[b.id]=day; b.truce[a.id]=day; a.relations[b.id]=b.relations[a.id]=Math.max(a.relations[b.id],-15); notify(`${a.name} and ${b.name} make peace.`, 'good', undefined, undefined, true); }
+
+/* ===================== SETTLEMENTS ===================== */
+const TIER_NAME=['Camp','Village','Town','City','Metropolis'];
+function foundSettlement(x,y,tribe,name){
+  x|=0; y|=0; const t=tribes[tribe]; const s={ id:settlements.length, x:x+0.5, y:y+0.5, cx:x, cy:y, tribe, name:name||makeName(t.lang,2), pop:0, food:20, goods:5, wealth:5, cap:20, tier:0, founded:day, dead:false, emptyMonths:0, lastRaid:-9999, rich:0, happy:0.6, routes:[], besieged:0, growthMemory:0 };
+  settleAt[idx(x,y)]=s.id; settlements.push(s); s.rich=localRichness(s); return s;
+}
+function localRichness(s){ let r=0; for(let dy=-4;dy<=4;dy++) for(let dx=-4;dx<=4;dx++){ const x=s.cx+dx,y=s.cy+dy; if(!inB(x,y)) continue; const i=idx(x,y); r+=foodCap[i]*0.08 + resVal[i]*0.5; } return r; }
+function nearestSettlementTo(x,y,filter){ let best=null,bd=1e9; for(const s of settlements){ if(s.dead) continue; if(filter&&!filter(s)) continue; const d=dist2(x,y,s.x,s.y); if(d<bd){bd=d;best=s;} } return best; }
+function settlementsMonthly(){
+  for(const s of settlements) { if(!s.dead){ s.pop=0; s.warriors=0; } }
+  for(const a of agents){ const s=settlements[a.home]; if(s&&!s.dead){ s.pop++; if(a.role==='warrior') s.warriors++; } }
+  for(const s of settlements){ if(s.dead) continue; const t=tribes[s.tribe];
+    const i=idx(s.cx,s.cy); const clim = 1 + Math.min(0,anom[i])*1.3 + Math.max(0,anom[i])*-0.4; const T=cellTemp(i); const tempF = T<0? 0.5 : T>36? 0.6 : 1;
+    // agriculture & goods
+    s.food += t.tech.agriculture * Math.min(s.pop,s.cap) * 0.35 * (0.6+s.rich*0.06) * Math.max(0,clim) * tempF;
+    s.food *= 1 - 0.03*(1-t.tech.pottery*0.25); s.food=Math.max(0,s.food);
+    s.goods += s.pop*0.06*(1+s.rich*0.08)*(1+t.tech.currency*0.4)+0.3; s.goods=Math.min(s.goods, 40+s.pop*2);
+    s.wealth += s.goods*0.01 + s.pop*0.02; s.wealth *= 0.997;
+    s.cap = Math.round((10 + s.rich*1.25) * (1 + t.tech.agriculture*0.35 + t.tech.masonry*0.25 + t.tech.pottery*0.1));
+    const oldTier=s.tier; s.tier = s.pop>=220?4 : s.pop>=110?3 : s.pop>=45?2 : s.pop>=14?1 : 0;
+    if(s.tier>oldTier && s.tier>=2){ notify(`${s.name} of the ${t.name} has grown into a ${TIER_NAME[s.tier].toLowerCase()}.`, 'city', s.x, s.y, s.tier>=3); }
+    const perCap = s.food/Math.max(1,s.pop); s.happy = clamp(0.5 + (perCap-1.5)*0.08 - s.besieged*0.15 - (infCount[i]>2?0.15:0) - mods.boredom*0.3, 0, 1);
+    s.besieged=Math.max(0,s.besieged-1);
+    if(s.pop===0){ if(++s.emptyMonths>14){ s.dead=true; settleAt[idx(s.cx,s.cy)]=-1; for(const r of s.routes) r.dead=true; notify(`${s.name} lies abandoned.`, 'city', s.x, s.y, s.tier>=2); } } else s.emptyMonths=0;
+  }
+  // routes: form between friendly settlements in range
+  routes = routes.filter(r=>!r.dead && !settlements[r.a].dead && !settlements[r.b].dead);
+  for(const s of settlements) s.routes = s.routes.filter(r=>!r.dead);
+  for(const s of settlements){ if(s.dead || s.pop<5) continue; const t=tribes[s.tribe]; if(s.routes.length>=3) continue; if(Math.random()>0.25+t.culture.trade*0.4+mods.tradeMood*0.5) continue;
+    const range = 18 + t.tech.wheel*7 + t.tech.sailing*8 + (t.behaviour==='merchant'?10:0);
+    let best=null, bs=-1; for(const o of settlements){ if(o.dead||o===s||o.pop<5) continue; if(s.routes.some(r=>r.a===o.id||r.b===o.id)) continue; const ot=tribes[o.tribe]; if(t.wars.has(ot.id)) continue; if(o.tribe!==s.tribe && t.relations[ot.id]<-10) continue; const d=Math.sqrt(dist2(s.x,s.y,o.x,o.y)); if(d>range||d<3) continue; const score=(o.pop+o.goods)/d*(o.tribe===s.tribe?1:1.4+t.culture.trade); if(score>bs){bs=score;best=o;} }
+    if(best){ const r={a:s.id,b:best.id,vol:0,dead:false,born:day}; routes.push(r); s.routes.push(r); best.routes.push(r); if(best.tribe!==s.tribe){ notify(`Traders of ${s.name} open a route to ${best.name}.`, 'good', s.x, s.y, false); } }
+  }
+  for(const r of routes) r.vol*=0.9;
+}
+
+/* ===================== TECH ===================== */
+function techAvailable(t,k){ const l=t.tech[k]; if(l>=TECH_MAX[k]) return false; if(k==='mathematics'&&t.tech.writing<2) return false; if(k==='currency'&&t.tech.writing<1) return false; if(k==='medicine'&&l>=2&&t.tech.writing<1) return false; if(k==='metallurgy'&&l>=1&&t.tech.pottery<1) return false; return true; }
+function techCost(t,k){ return TECH_COST[k]*3*Math.pow(t.tech[k]+1,1.7); }
+function researchMonthly(){
+  for(const t of tribes){ if(t.dead||!t.sets.length) continue; let happy=0; for(const s of t.sets) happy+=s.happy; happy/=t.sets.length;
+    const pts = Math.pow(t.pop,0.65)*(0.35+t.culture.innov)*(1+t.tech.writing*0.35+t.tech.mathematics*0.45)*(1+Math.log10(1+t.wealth)*0.25)*(0.5+happy)*(1+Math.min(4,t.sets.length)*0.08);
+    t.research += pts*0.5*(t.behaviour==='scholar'?1.8:1);
+    const avail=TECHS.filter(k=>techAvailable(t,k)); if(!avail.length) continue;
+    const weights=avail.map(k=>{ let w=1; if(t.behaviour==='raider'&&(k==='metallurgy'||k==='masonry')) w=3; if(t.behaviour==='merchant'&&(k==='currency'||k==='wheel'||k==='sailing')) w=3; if(t.behaviour==='scholar'&&(k==='writing'||k==='medicine'||k==='mathematics')) w=3; if(k==='agriculture'&&t.tech.agriculture<2) w*=2.2; if(k==='sailing'&&!t.sets.some(s=>nearWater(s.cx,s.cy))) w*=0.15; if(t.culture.aggr>0.6&&k==='metallurgy') w*=1.6; return w/techCost(t,k); });
+    const tot=weights.reduce((a,b)=>a+b,0); let r=Math.random()*tot, k=avail[0]; for(let i=0;i<avail.length;i++){ r-=weights[i]; if(r<=0){k=avail[i];break;} }
+    const c=techCost(t,k); if(t.research>=c){ t.research-=c; t.tech[k]++; const cap=t.capital>=0?settlements[t.capital]:null; const lvl=t.tech[k];
+      let msg=`The ${t.name} discover ${TECH_LABEL[k]} ${['','II','III','IV'][lvl-1]||''}`.trim()+'.';
+      if(k==='metallurgy'&&lvl===2) msg=`The ${t.name} enter the Bronze Age.`; if(k==='metallurgy'&&lvl===4) msg=`The ${t.name} forge iron: the Iron Age begins.`; if(k==='writing'&&lvl===1) msg=`The ${t.name} invent writing; their history begins.`; if(k==='sailing'&&lvl===2) msg=`The ${t.name} master the open sea.`;
+      notify(msg,'tech',cap?cap.x:undefined,cap?cap.y:undefined, lvl===1||k==='metallurgy'||k==='sailing'); } }
+}
+
+/* ===================== DISEASE ===================== */
+function spawnDisease(x,y,opts){ opts=opts||{}; const d={ id:diseases.length, name:pick(DIS_A)+' '+pick(DIS_B), inf:opts.inf||rnd(0.06,0.22), leth:opts.leth||rnd(0.0015,0.009), dur:opts.dur||rint(25,70), born:day, cases:0, deaths:0, active:0, quiet:0, dead:false };
+  diseases.push(d); // infect nearby agents
+  let n=0, need=opts.n||6; for(const a of agents){ if(n>=need) break; if(a.dis>=0||a.immune.indexOf(d.id)>=0) continue; if(dist2(a.x,a.y,x,y)<64){ infect(a,d); n++; } }
+  if(n===0){ for(const a of agents){ if(n>=3) break; if(a.dis<0){infect(a,d);n++;} } }
+  notify(`${d.name} breaks out near ${nearestSettlementTo(x,y)?.name||'the wilds'}.`, 'plague', x, y, true); return d; }
+function infect(a,d){ a.dis=d.id; a.disT=d.dur*(1-a.g.res*0.3); d.cases++; d.active++; }
+function diseasesMonthly(){
+  for(const d of diseases){ if(d.dead) continue; if(d.active===0){ if(++d.quiet>3){ d.dead=true; if(d.cases>40) notify(`${d.name} has burned out after ${d.deaths} deaths.`, 'plague'); } } else { d.quiet=0; if(Math.random()<0.08){ d.inf=clamp(d.inf*rnd(0.8,1.3),0.01,0.4); d.leth=clamp(d.leth*rnd(0.7,1.4),0.0002,0.012); } } }
+  // natural emergence from crowded cities
+  let crowd=0; for(const s of settlements) if(!s.dead&&s.pop>s.cap*0.8) crowd+=s.pop; const p=crowd/9000*(1-0.2*avgTech('medicine'));
+  if(Math.random()<p && diseases.filter(d=>!d.dead).length<4){ const s=pick(settlements.filter(s=>!s.dead&&s.pop>20)); if(s) spawnDisease(s.x,s.y,{n:4}); }
+}
+function avgTech(k){ let n=0,s=0; for(const t of tribes) if(!t.dead&&t.pop>0){n++;s+=t.tech[k];} return n?s/n:0; }
+
+/* ===================== CLIMATE & WORLD EVENTS ===================== */
+function regionalAnomaly(cx,cy,r,strength){ const r2=r*r; for(let y=Math.max(0,cy-r|0);y<=Math.min(H-1,cy+r|0);y++) for(let x=Math.max(0,cx-r|0);x<=Math.min(W-1,cx+r|0);x++){ const d2=dist2(x,y,cx,cy); if(d2>r2) continue; const i=idx(x,y); anom[i]=clamp(anom[i]+strength*(1-d2/r2),-1,1); } }
+function randomLandSettlement(){ const live=settlements.filter(s=>!s.dead&&s.pop>0); return live.length?pick(live):null; }
+function triggerEvent(kind, manual, at){
+  const s=at||randomLandSettlement(); const x=s?s.x:rnd(W), y=s?s.y:rnd(H); const m=manual?1.6:1;
+  switch(kind){
+    case 'epidemic': { const d=spawnDisease(x,y,{inf:rnd(0.12,0.3)*m, leth:rnd(0.002,0.008)*m, n:manual?14:6}); break; }
+    case 'drought': regionalAnomaly(x,y,28*m,-0.85*m); for(let i=0;i<N;i++) if(anom[i]<-0.3 && Math.random()<0.5) food[i]*=0.4; notify(`A great drought grips the lands around ${s?s.name:'the interior'}.`, 'climate', x, y, true); break;
+    case 'flood': { regionalAnomaly(x,y,16*m,0.9*m); let hit=0; for(const o of settlements){ if(o.dead) continue; const i=idx(o.cx,o.cy); if(dist2(o.x,o.y,x,y)<16*16*m && (river[i]||nearWater(o.cx,o.cy))){ o.food*=0.35; o.goods*=0.5; hit++; } } notify(`Floods sweep the valleys near ${s?s.name:'the coast'}; ${hit} settlements lose their stores.`, 'climate', x, y, true); break; }
+    case 'heat': mods.tempOffset += 9*m; mods.tempTimer = Math.max(mods.tempTimer, YEAR*(manual?2:1)); notify(`A scorching heatwave settles over the world.`, 'climate', undefined, undefined, true); break;
+    case 'cold': mods.tempOffset -= 10*m; mods.tempTimer = Math.max(mods.tempTimer, YEAR*(manual?2:1)); notify(`Bitter cold descends; a long winter begins.`, 'climate', undefined, undefined, true); break;
+    case 'insects': { regionalAnomaly(x,y,22*m,-0.6*m); let n=0; for(const o of settlements){ if(o.dead) continue; if(dist2(o.x,o.y,x,y)<22*22*m){ o.food*=0.3; n++; } } notify(`Swarms of locusts strip the fields around ${s?s.name:'the plains'} (${n} settlements affected).`, 'climate', x, y, true); break; }
+    case 'boredom': mods.boredom = Math.min(1, mods.boredom+0.8*m); notify(`Restlessness spreads: the young look beyond the horizon.`, 'info', undefined, undefined, true); break;
+    case 'migration': mods.migration = Math.min(1, mods.migration+0.9*m); notify(`A great migration stirs; families pack their tents.`, 'info', undefined, undefined, true); break;
+    case 'trade': mods.tradeMood = Math.min(1, mods.tradeMood+0.9*m); notify(`Markets flourish; a wave of trade enthusiasm spreads.`, 'good', undefined, undefined, true); break;
+    case 'war': mods.warMood = Math.min(1, mods.warMood+0.9*m); for(const t of tribes) if(!t.dead) for(const k in t.relations) t.relations[k]-=12*m; notify(`Old grudges resurface; the drums of war sound across the land.`, 'war', undefined, undefined, true); break;
+  }
+  mods.lastEvent=day;
+}
+function climateMonthly(){
+  if(mods.tempTimer>0){ mods.tempTimer-=30; if(mods.tempTimer<=0) mods.tempOffset=0; }
+  mods.tempOffset*=0.985; mods.boredom*=0.93; mods.migration*=0.9; mods.tradeMood*=0.93; mods.warMood*=0.92;
+  for(let i=0;i<N;i++) if(anom[i]!==0){ anom[i]*=0.9; if(Math.abs(anom[i])<0.03) anom[i]=0; }
+  // spontaneous events (~1 per 3 years)
+  if(Math.random()<0.028 && day-mods.lastEvent>YEAR*0.5){ const kinds=['drought','drought','flood','heat','cold','insects','epidemic','boredom','migration','trade','war']; triggerEvent(pick(kinds), false); }
+}
+</script>
+<script>
+/* ===================== AGENTS ===================== */
+let cellDis;
+function randomGenome(t, over){ const g={}; const c=t?t.culture:{aggr:0.4,trade:0.5,innov:0.5,nomad:0.3,collect:0.5};
+  for(const k of GENES) g[k]=clamp(rnd(0.15,0.85),0,1);
+  g.agg=clamp(c.aggr*0.6+rnd(-0.25,0.35),0,1); g.soc=clamp(c.trade*0.5+c.collect*0.3+rnd(-0.2,0.3),0,1); g.cur=clamp(c.nomad*0.6+rnd(-0.15,0.45),0,1); g.int=clamp(c.innov*0.5+rnd(-0.15,0.4),0,1);
+  if(over) for(const k in over){ const r=over[k]; g[k]=clamp(Array.isArray(r)?rnd(r[0],r[1]):r,0,1); }
+  return g; }
+function mixGenome(a,b){ const g={}; for(const k of GENES){ let v=Math.random()<0.5?a[k]:b[k]; if(Math.random()<0.25) v+=rnd(-0.12,0.12); g[k]=clamp(v,0,1);} return g; }
+function assignRole(a,t){ const g=a.g, c=t.culture; const sc={ gatherer:0.78, warrior:g.agg*0.7+g.str*0.4+c.aggr*0.4+(t.behaviour==='raider'?0.5:0), trader:g.soc*0.6+g.int*0.3+c.trade*0.5+(t.behaviour==='merchant'?0.5:0), explorer:g.cur*0.7+g.spd*0.3+c.nomad*0.4+(t.behaviour==='wanderer'?0.4:0) };
+  if(t.behaviour==='scholar') sc.warrior*=0.5; let best='gatherer'; for(const k in sc) if(sc[k]>sc[best]) best=k; return best; }
+function spawnAgent(tribe, home, x, y, g, age){ const t=tribes[tribe]; const a={ id:nextId++, x:x+rnd(-0.4,0.4), y:y+rnd(-0.4,0.4), tribe, home, age:age!==undefined?age:0, hp:100, hunger:rnd(0,30), carry:0, goods:0, state:'idle', tx:0, ty:0, target:-1, stuck:0, g:g||randomGenome(t), mem:[], dis:-1, disT:0, immune:[], role:'gatherer', kids:0, wealth:0, born:day, dead:false, trips:0, idleT:rint(0,20), lastDecide:day };
+  a.role=assignRole(a,t); agents.push(a); return a; }
+function remember(a,k,x,y,v){ for(const m of a.mem){ if(m.k===k && Math.abs(m.x-x)<2.5 && Math.abs(m.y-y)<2.5){ m.v=v; m.t=day; return; } } a.mem.push({k,x,y,v,t:day}); if(a.mem.length>8){ let oi=0; for(let i=1;i<a.mem.length;i++) if(a.mem[i].t<a.mem[oi].t) oi=i; a.mem.splice(oi,1); } }
+function passableFor(i,t){ const b=biome[i]; if(b===B.PEAK) return false; if(b===B.DEEP) return t.tech.sailing>=3; if(b===B.OCEAN) return t.tech.sailing>=2; if(b===B.COAST||b===B.LAKE) return t.tech.sailing>=1; return true; }
+function moveToward(a,tx,ty,t){
+  const dx=tx-a.x, dy=ty-a.y; const d=Math.sqrt(dx*dx+dy*dy); if(d<0.7) return true;
+  const ci=idx(a.x,a.y); const b=biome[ci]; const onWater=isWater(b);
+  let step=(0.22+a.g.spd*0.3)*(1+t.tech.wheel*0.12)*(onWater?1.7:1/(MOVE_COST[b]||1)); if(a.hunger>90) step*=0.6; if(step>d) step=d;
+  const ang=Math.atan2(dy,dx); const tries=[0,0.8,-0.8,1.6,-1.6,2.4,-2.4];
+  for(const o of tries){ const nx=a.x+Math.cos(ang+o)*step, ny=a.y+Math.sin(ang+o)*step; if(!inB(nx,ny)) continue; if(passableFor(idx(nx,ny),t)){ a.x=nx; a.y=ny; a.stuck=o?a.stuck+0.3:Math.max(0,a.stuck-1); return false; } }
+  a.stuck+=2; return false;
+}
+function sampleFoodTarget(a, cx, cy, R){ let bi=-1, bv=0.9; const t=tribes[a.tribe];
+  for(const m of a.mem){ if(m.k!=='food') continue; const i=idx(m.x,m.y); if(food[i]>bv && dist2(m.x,m.y,cx,cy)<(R*1.6)*(R*1.6)){ bv=food[i]*0.9; bi=i; } }
+  for(let k=0;k<12;k++){ const r=rnd(1.5,R), an=rnd(Math.PI*2); const x=(cx+Math.cos(an)*r)|0, y=(cy+Math.sin(an)*r)|0; if(!inB(x,y)) continue; const i=idx(x,y); if(!passableFor(i,t)) continue; const v=food[i]/(1+cellCount[i]*0.3); if(v>bv){bv=v;bi=i;} }
+  if(bi<0) return false; a.tx=(bi%W)+0.5; a.ty=((bi/W)|0)+0.5; return true; }
+function siteScore(x,y,t){ if(!inB(x,y)) return -1; const i=idx(x,y); if(isWater(biome[i])||biome[i]===B.PEAK||biome[i]===B.MOUNTAIN||biome[i]===B.SNOW) return -1; if(settleAt[i]>=0) return -1;
+  for(const s of settlements){ if(!s.dead && dist2(s.x,s.y,x,y)<7*7) return -1; }
+  let sc=0; for(let dy=-3;dy<=3;dy++) for(let dx=-3;dx<=3;dx++){ const xx=x+dx,yy=y+dy; if(!inB(xx,yy)) continue; const j=idx(xx,yy); sc+=foodCap[j]*0.1+resVal[j]*0.9+(river[j]===1?0.15:0); }
+  if(nearWater(x,y)) sc+=1.2; const T=tempBase[i]; if(T<0) sc-=2; if(T>30) sc-=1; sc-=Math.max(0,anom[i]*-3); if(territory[i]>=0 && territory[i]!==t.id) sc-=2.5; return sc; }
+function findSite(a,t){ let best=-1,bs=1.2; const nomad=t.culture.nomad; for(let k=0;k<32;k++){ const r=rnd(8,22+nomad*25), an=rnd(Math.PI*2); const x=(a.x+Math.cos(an)*r)|0, y=(a.y+Math.sin(an)*r)|0; const sc=siteScore(x,y,t); if(sc>bs){bs=sc;best=idx(x,y);} }
+  for(const m of a.mem){ if(m.k==='site'){ const sc=siteScore(m.x|0,m.y|0,t); if(sc>bs){bs=sc;best=idx(m.x,m.y);} } }
+  if(best<0) return false; a.tx=(best%W)+0.5; a.ty=((best/W)|0)+0.5; return true; }
+function nearestEnemySettlement(a,t){ let best=null,bd=75*75; for(const s of settlements){ if(s.dead||!t.wars.has(s.tribe)) continue; let d=dist2(a.x,a.y,s.x,s.y); if(a.mem.some(m=>m.k==='danger'&&day-m.t<YEAR&&Math.abs(m.x-s.x)<3&&Math.abs(m.y-s.y)<3)) d*=4; d/= (1+1/(1+s.warriors)); if(d<bd){bd=d;best=s;} } return best; }
+function decide(a,s,t){
+  const dt=Math.min(40,Math.max(1,day-a.lastDecide)); a.lastDecide=day;
+  if(a.hunger>45 && s.food>=1){ const take=Math.min(s.food, Math.ceil(a.hunger/20)); s.food-=take; a.hunger=Math.max(0,a.hunger-take*20); }
+  if(a.age<14){ a.state='idle'; return; }
+  // reproduction
+  if(agents.length<maxPop && a.age>=16 && a.age<=46 && a.hunger<55 && s.pop<s.cap*1.35 && (s.food>s.pop*1.2 || t.behaviour==='swarm') ){
+    const p=dt*0.0016*(0.4+a.g.fer)*(1+t.culture.collect*0.3)*(t.behaviour==='swarm'?2.6:1)*(0.4+s.happy)*(s.pop<s.cap?1:0.35);
+    if(Math.random()<p){ let mate=null; for(let k=0;k<4;k++){ const o=agents[rint(0,agents.length-1)]; if(o.home===a.home&&o!==a&&o.age>=16){mate=o;break;} } const g=mate?mixGenome(a.g,mate.g):mixGenome(a.g,a.g); spawnAgent(a.tribe,a.home,s.x,s.y,g,0); a.kids++; } }
+  // migration pressure
+  if((s.pop>s.cap*0.95 || s.happy<0.22) && a.age>=16 && a.age<=50){ const p=dt*(0.004+t.culture.nomad*0.01+a.g.cur*0.006+mods.migration*0.08+(t.behaviour==='wanderer'?0.015:0)); if(Math.random()<p && findSite(a,t)){ a.state='migrate'; return; } }
+  const starving = s.food < s.pop*1.2 || a.hunger>60; const r=Math.random();
+  if(starving || r<0.4){ if(sampleFoodTarget(a,s.x,s.y,5+a.g.cur*9+t.tech.wheel)) a.state='forage'; return; }
+  if((a.role==='warrior'||a.g.agg>0.62) && t.wars.size && a.age<55 && Math.random()<0.45+mods.warMood*0.5+t.culture.aggr*0.3){ const e=nearestEnemySettlement(a,t); if(e){ a.state='raid'; a.target=e.id; a.tx=e.x; a.ty=e.y; return; } }
+  if((a.role==='trader'||(a.g.soc>0.66&&Math.random()<0.3)) && s.goods>=4 && Math.random()<0.35+t.culture.trade*0.4+mods.tradeMood*0.5){ let partner=null; if(s.routes.length){ const rt=pick(s.routes); partner=settlements[rt.a===s.id?rt.b:rt.a]; if(partner.dead) partner=null; }
+    if(!partner && (t.behaviour==='merchant'||Math.random()<0.25)) partner=nearestSettlementTo(a.x,a.y,o=>o.id!==s.id&&!t.wars.has(o.tribe)&&o.pop>3&&dist2(o.x,o.y,s.x,s.y)<(22+t.tech.sailing*9+t.tech.wheel*7)**2);
+    if(partner){ a.state='trade'; a.target=partner.id; a.tx=partner.x; a.ty=partner.y; a.goods=Math.min(s.goods,6+t.tech.wheel*3); s.goods-=a.goods; return; } }
+  if(a.role==='explorer' || Math.random()<mods.boredom*0.5){ if(Math.random()<0.3+a.g.cur*0.4+mods.boredom*0.5){ for(let k=0;k<6;k++){ const r2=rnd(12,38), an=rnd(Math.PI*2); const x=a.x+Math.cos(an)*r2, y=a.y+Math.sin(an)*r2; if(inB(x,y)&&passableFor(idx(x,y),t)){ a.tx=x;a.ty=y;a.state='explore'; return; } } } }
+  if(sampleFoodTarget(a,s.x,s.y,5+a.g.cur*9)) a.state='forage';
+}
+function findNewHome(a,t){ const s=nearestSettlementTo(a.x,a.y,o=>o.tribe===a.tribe&&dist2(o.x,o.y,a.x,a.y)<60*60); if(s){ a.home=s.id; a.state='return'; return; }
+  const sc=siteScore(a.x|0,a.y|0,t); if(sc>0 || Math.random()<0.1){ const i=idx(a.x,a.y); if(!isWater(biome[i])&&biome[i]!==B.PEAK&&settleAt[i]<0){ const ns=foundSettlement(a.x,a.y,a.tribe); a.home=ns.id; a.state='idle'; return; } }
+  const any=nearestSettlementTo(a.x,a.y,o=>!t.wars.has(o.tribe)); if(any){ a.home=any.id; if(any.tribe!==a.tribe && Math.random()<0.5) a.tribe=any.tribe; a.state='return'; } else if(findSite(a,t)) a.state='migrate'; }
+
+function tickAgent(a){
+  const t=tribes[a.tribe]; a.age+=1/YEAR; const ci=idx(a.x,a.y);
+  // hunger & health
+  a.hunger+=0.5; if(a.hunger>40 && a.carry>0){ const e=Math.min(a.carry,2); a.carry-=e; a.hunger-=e*20; }
+  const T=cellTemp(ci); const coldL=-4-a.g.cold*24, heatL=33+a.g.heat*14;
+  if(T<coldL) a.hp-=(coldL-T)*0.05; else if(T>heatL) a.hp-=(T-heatL)*0.06;
+  if(a.hunger>100) a.hp-=1.3; else if(a.hunger<70 && a.hp<100) a.hp+=0.3;
+  if(a.dis>=0){ const d=diseases[a.dis]; a.disT--; if(Math.random()<d.leth*(1-t.tech.medicine*0.17)*(1-a.g.res*0.5)*(a.age<10||a.age>55?1.6:1)){ kill(a,'disease'); return; } if(a.disT<=0){ a.immune.push(a.dis); d.active--; a.dis=-1; a.hp=Math.max(a.hp,40); } else a.hp-=0.15; }
+  else if(infCount[ci]>0 && Math.random()<0.5){ const did=cellDis[ci]; const d=diseases[did]; if(d&&!d.dead&&a.immune.indexOf(did)<0){ const p=d.inf*Math.min(infCount[ci],6)*0.45*(1-a.g.res*0.55)*(1-t.tech.medicine*0.1); if(Math.random()<p) infect(a,d); } }
+  const life=34+a.g.life*42+t.tech.medicine*3; if(a.age>life*0.82){ const q=(a.age-life*0.82)/(life*0.3); if(Math.random()<q*q*0.012){ kill(a,'age'); return; } }
+  if(a.hp<=0){ kill(a, a.hunger>100?'starvation':'exposure'); return; }
+  const s=settlements[a.home];
+  if(!s||s.dead){ findNewHome(a,t); return; }
+  switch(a.state){
+    case 'idle': { if(--a.idleT<=0){ a.idleT=rint(4,14); decide(a,s,t); } else if(Math.random()<0.3){ const nx=s.x+rnd(-1.8,1.8), ny=s.y+rnd(-1.8,1.8); if(inB(nx,ny)&&passableFor(idx(nx,ny),t)){a.x=nx;a.y=ny;} } break; }
+    case 'forage': { if(moveToward(a,a.tx,a.ty,t) || a.stuck>12){ const i=idx(a.tx,a.ty); const cap=4+t.tech.pottery*2+a.g.str*2; const take=Math.min(food[i], cap-a.carry, 2.5+a.g.str+t.tech.agriculture*0.4); if(take>0){ food[i]-=take; a.carry+=take; } remember(a,'food',a.tx,a.ty,food[i]);
+        if(resType[i]&&resVal[i]>0.5) remember(a,'site',a.tx,a.ty,resVal[i]);
+        if(a.carry>=cap*0.6 || food[i]<0.8 || a.stuck>12){ a.state='return'; a.stuck=0; } else if(!sampleFoodTarget(a,a.x,a.y,4)) a.state='return'; } break; }
+    case 'return': { if(moveToward(a,s.x,s.y,t) || a.stuck>16){ s.food+=a.carry; s.wealth+=a.wealth*0.5; a.wealth*=0.5; a.carry=0; a.trips++; if(a.goods>0){ s.goods+=a.goods; a.goods=0; } a.state='idle'; a.idleT=rint(2,8); a.stuck=0; } break; }
+    case 'explore': { if(moveToward(a,a.tx,a.ty,t) || a.stuck>14){ const i=idx(a.x,a.y); if(resType[i]) remember(a,'site',a.x,a.y,resVal[i]); if(food[i]>2) remember(a,'food',a.x,a.y,food[i]);
+        if(a.stuck<14 && s.pop>s.cap*0.8 && siteScore(a.x|0,a.y|0,t)>2.5 && Math.random()<0.3){ foundHere(a,s,t); } else { a.state='return'; } a.stuck=0; } break; }
+    case 'migrate': { if(moveToward(a,a.tx,a.ty,t) || a.stuck>18){ if(a.stuck<18 && siteScore(a.tx|0,a.ty|0,t)>0){ a.x=a.tx; a.y=a.ty; foundHere(a,s,t); } else a.state='return'; a.stuck=0; } break; }
+    case 'trade': { const p=settlements[a.target]; if(!p||p.dead||t.wars.has(p.tribe)){ a.state='return'; break; } if(moveToward(a,p.x,p.y,t) || a.stuck>18){ if(a.stuck<18) doTrade(a,s,p,t); a.state='return'; a.stuck=0; } break; }
+    case 'raid': { const e=settlements[a.target]; if(!e||e.dead||!t.wars.has(e.tribe)){ a.state='return'; break; } if(moveToward(a,e.x,e.y,t) || a.stuck>18){ if(a.stuck<18) doRaid(a,s,e,t); a.state='return'; a.stuck=0; } break; }
+    default: a.state='idle';
+  }
+}
+function foundHere(a,s,t){ const x=a.x|0,y=a.y|0; const i=idx(x,y); if(isWater(biome[i])||settleAt[i]>=0){ a.state='return'; return; } const ns=foundSettlement(x,y,a.tribe); ns.food=8; a.home=ns.id; a.state='idle'; a.stuck=0;
+  let followers=0; for(const o of agents){ if(o.home===s.id && o.state==='idle' && o.age>=14 && Math.random()<0.22+t.culture.collect*0.15){ o.home=ns.id; o.state='return'; followers++; if(followers>12) break; } }
+  notify(`${a.role==='explorer'?'Explorers':'Settlers'} of the ${t.name} found ${ns.name}${resType[i]?' by the '+RES[resType[i]].toLowerCase():''}.`, 'city', ns.x, ns.y, followers>5); }
+function doTrade(a,s,p,t){ const pt=tribes[p.tribe]; const demand=1+1/(1+p.goods/15); const value=a.goods*demand*(1+t.tech.currency*0.35+pt.tech.currency*0.15);
+  s.wealth+=value*0.6; p.wealth+=value*0.4; a.wealth+=value*0.1; p.goods+=a.goods*0.5; a.goods=0; monthTrade+=value;
+  if(p.food<p.pop && s.food>s.pop*2){ const f=Math.min(8,s.food*0.1); s.food-=f; p.food+=f; }
+  let rt=s.routes.find(r=>r.a===p.id||r.b===p.id); if(!rt){ rt={a:s.id,b:p.id,vol:0,dead:false,born:day}; routes.push(rt); s.routes.push(rt); p.routes.push(rt); } rt.vol+=value;
+  if(p.tribe!==s.tribe){ t.relations[pt.id]=Math.min(100,t.relations[pt.id]+1.2); pt.relations[t.id]=t.relations[pt.id];
+    // diffusion both ways, one tech max
+    const pairs=[[t,pt],[pt,t]]; for(const [L,F] of pairs){ const cand=TECHS.filter(k=>F.tech[k]>L.tech[k]&&techAvailable(L,k)); if(cand.length&&Math.random()<0.03*(1+L.tech.writing*0.3+L.culture.innov*0.5)){ const k=pick(cand); L.tech[k]++; notify(`The ${L.name} learn ${TECH_LABEL[k]} from ${F.name} traders.`, 'tech', p.x, p.y, L.tech[k]===1&&(k==='writing'||k==='metallurgy'||k==='agriculture')); } } }
+}
+function doRaid(a,s,e,t){ const et=tribes[e.tribe]; const atk=(0.6+a.g.str)*(1+t.tech.metallurgy*0.3)*(a.hp/100); const def=Math.max(0.8,(e.warriors*0.8+e.pop*0.1)*(1+et.tech.metallurgy*0.3)/(1+e.besieged*0.5))*(1+et.tech.masonry*0.45); const p=atk/(atk+def*0.35);
+  e.besieged=Math.min(6,e.besieged+1); t.relations[et.id]=Math.max(-100,t.relations[et.id]-3); et.relations[t.id]=t.relations[et.id];
+  if(Math.random()<p){ const loot=Math.min(e.food,6+t.tech.wheel*3); e.food-=loot; a.carry+=loot*0.5; s.food+=loot*0.5; const w=Math.min(e.wealth,e.wealth*0.08+2); e.wealth-=w; a.wealth+=w; t.kills++;
+    // casualty among defenders
+    if(Math.random()<0.65){ for(let k=0;k<6;k++){ const o=agents[rint(0,agents.length-1)]; if(o.home===e.id&&!o.dead&&dist2(o.x,o.y,e.x,e.y)<9){ kill(o,'war',t.id); break; } } }
+    if(e.pop<=4 && e.tier<3 || (e.pop<12&&e.besieged>=5&&Math.random()<0.3)){ captureSettlement(e,t,et); }
+    else if(Math.random()<0.15) notify(`${t.name} raiders sack ${e.name}.`, 'war', e.x, e.y, false);
+  } else { a.hp-=rnd(30,80); remember(a,'danger',e.x,e.y,1); if(a.hp<=0){ kill(a,'war',et.id); return; } }
+}
+function captureSettlement(e,t,et){ const oldName=e.name; e.tribe=t.id; e.besieged=0; e.name=makeName(t.lang,2); for(const o of agents){ if(o.home===e.id){ o.tribe=t.id; } } for(const r of e.routes) r.dead=true; e.routes=[];
+  notify(`${t.name} capture ${oldName} from the ${et.name} and rename it ${e.name}.`, 'war', e.x, e.y, true); et.losses+=5; e.food*=0.5; computeTerritory(); }
+function kill(a,cause,byTribe){ if(a.dead) return; a.dead=true; if(a.dis>=0){ const d=diseases[a.dis]; d.active--; if(cause==='disease') d.deaths++; }
+  const t=tribes[a.tribe]; if(byTribe!==undefined){ t.losses++; if(t.warLosses[byTribe]!==undefined) t.warLosses[byTribe]++; } if(selected===a){ selected=null; follow=false; } }
+
+/* ===================== TICK ===================== */
+function regrow(){ for(let i=0;i<N;i++){ const c=foodCap[i]; if(c<=0) continue; const clim = 1 + anom[i]*(anom[i]<0?1.3:-0.5); const T=cellTemp(i); const tf= T<-6? 0.1 : T<2? 0.5 : T>38? 0.4 : 1; const f=food[i]; let nf = f + c*0.09*(1-f/c)*clim*tf; if(nf<0) nf=0; if(nf>c) nf=c; food[i]=nf; } }
+function tick(){
+  day++;
+  if(day%10===0) regrow();
+  cellCount.fill(0); infCount.fill(0);
+  for(let k=0;k<agents.length;k++){ const a=agents[k]; const i=idx(a.x,a.y); cellCount[i]++; if(a.dis>=0){ infCount[i]++; cellDis[i]=a.dis; } }
+  const n0=agents.length; for(let k=0;k<n0;k++){ const a=agents[k]; if(!a.dead) tickAgent(a); }
+  let w=0; for(let k=0;k<agents.length;k++){ const a=agents[k]; if(!a.dead) agents[w++]=a; } agents.length=w;
+  if(day%30===0){ settlementsMonthly(); tribesMonthly(); researchMonthly(); diseasesMonthly(); climateMonthly(); computeTerritory(); sampleStats(); }
+  if(day%YEAR===0){ lastYearTrade=yearTrade; yearTrade=0; }
+}
+function sampleStats(){ const live=settlements.filter(s=>!s.dead); let wealth=0; for(const s of live) wealth+=s.wealth; let wars=0, inf=0; for(const t of tribes) if(!t.dead) wars+=t.wars.size; wars/=2; for(const a of agents) if(a.dis>=0) inf++;
+  yearTrade+=monthTrade; const push=(k,v)=>{ hist[k].push(v); if(hist[k].length>360) hist[k].shift(); };
+  push('pop',agents.length); push('wealth',wealth); push('trade',monthTrade); push('wars',wars); push('inf',inf); push('sets',live.length); push('cap',live.reduce((a,s)=>a+s.cap,0)); monthTrade=0; }
+
+/* ===================== INIT & ARRIVALS ===================== */
+const PRESETS=[
+  {key:'sea', name:'Sea Nomads', desc:'Restless island folk who read the stars. Few children, endless curiosity; they trade with everyone and settle lightly.', genome:{spd:[0.7,1],soc:[0.6,0.95],cur:[0.75,1],fer:[0.2,0.45],heat:[0.6,0.9],cold:[0.1,0.4],life:[0.4,0.7]}, culture:{aggr:0.15,trade:0.9,innov:0.55,nomad:0.9,collect:0.5}, tech:{sailing:3,wheel:0,pottery:1}, behaviour:'wanderer', lang:2},
+  {key:'iron', name:'Iron Legion', desc:'A martial people in bronze and iron. Strong, aggressive, disciplined; they take what they cannot grow.', genome:{str:[0.8,1],agg:[0.75,1],res:[0.5,0.8],soc:[0.2,0.5],cur:[0.2,0.5],cold:[0.5,0.8]}, culture:{aggr:0.95,trade:0.2,innov:0.45,nomad:0.3,collect:0.85}, tech:{metallurgy:3,masonry:2,agriculture:1}, behaviour:'raider', lang:4},
+  {key:'guild', name:'Merchant Guild', desc:'Counting houses and caravans. Sociable, clever, pacifist; they knit the world together with routes and coin.', genome:{soc:[0.8,1],int:[0.7,0.95],agg:[0,0.2],str:[0.3,0.6],cur:[0.5,0.8]}, culture:{aggr:0.1,trade:1,innov:0.7,nomad:0.4,collect:0.4}, tech:{currency:2,wheel:2,writing:2,pottery:2}, behaviour:'merchant', lang:1},
+  {key:'hive', name:'Hive Kin', desc:'A swarming collective with near-identical genomes. Low intellect, extreme fertility and resistance; numbers are their technology.', genome:{fer:[0.95,1],res:[0.85,1],int:[0,0.15],soc:[0.9,1],cur:[0.05,0.2],life:[0.1,0.3],spd:[0.5,0.7]}, culture:{aggr:0.5,trade:0.05,innov:0.05,nomad:0.6,collect:1}, tech:{}, behaviour:'swarm', lang:3},
+  {key:'elder', name:'Elder Scholars', desc:'Long-lived, slow to breed, obsessed with knowledge. Medicine and mathematics far ahead of anyone; they rarely fight.', genome:{int:[0.9,1],life:[0.9,1],fer:[0.1,0.3],agg:[0,0.15],res:[0.6,0.9],cold:[0.6,0.9]}, culture:{aggr:0.05,trade:0.6,innov:1,nomad:0.1,collect:0.6}, tech:{writing:3,medicine:3,mathematics:2,agriculture:2}, behaviour:'scholar', lang:1},
+  {key:'wild', name:'Random Mutants', desc:'Every trait rolled at an extreme. Nobody, including them, knows what they will become.', genome:'random', culture:'random', tech:'random', behaviour:'random', lang:0},
+];
+function pickStartSites(n){ const cands=[]; for(let k=0;k<3000;k++){ const x=rint(4,W-5), y=rint(4,H-5); const i=idx(x,y); if(isWater(biome[i])||biome[i]>=B.TUNDRA&&biome[i]<=B.PEAK) continue; let sc=0; for(let dy=-3;dy<=3;dy++) for(let dx=-3;dx<=3;dx++){ const j=idx(x+dx,y+dy); if(inB(x+dx,y+dy)) sc+=foodCap[j]*0.12+resVal[j]; } if(nearWater(x,y)) sc+=1.5; if(river[i]) sc+=1; cands.push({x,y,sc}); }
+  cands.sort((a,b)=>b.sc-a.sc); const out=[]; for(const c of cands){ if(out.every(o=>dist2(o.x,o.y,c.x,c.y)>26*26)) out.push(c); if(out.length>=n) break; } return out; }
+function initWorld(){
+  tribes=[]; settlements=[]; agents=[]; diseases=[]; routes=[]; log=[]; pings=[]; day=0; nextId=1; hueCursor=rint(0,HUES.length-1); selected=null; follow=false; placing=null;
+  mods={tempOffset:0,tempTimer:0,boredom:0,migration:0,tradeMood:0,warMood:0,lastEvent:0}; for(const k in hist) hist[k]=[]; yearTrade=lastYearTrade=monthTrade=0;
+  generateWorld(); cellDis=new Int16Array(N).fill(-1);
+  const sites=pickStartSites(rint(7,9));
+  for(const st of sites){ const t=createTribe({}); const s=foundSettlement(st.x,st.y,t.id); s.food=40; const n=rint(12,18); for(let k=0;k<n;k++) spawnAgent(t.id,s.id,s.x,s.y,undefined,rnd(14,34)); }
+  settlementsMonthly(); tribesMonthly(); computeTerritory(); sampleStats();
+  notify(`A new world, seed ${seed}: ${tribes.length} peoples awaken.`, 'good', undefined, undefined, true);
+  fitCamera();
+}
+function landingSite(px,py){ if(px!==undefined){ let best=-1,bd=1e9; for(let y=0;y<H;y++) for(let x=0;x<W;x++){ const i=idx(x,y); if(isWater(biome[i])||biome[i]===B.PEAK||settleAt[i]>=0) continue; const d=dist2(x,y,px,py); if(d<bd){bd=d;best=i;} } return best; }
+  let best=-1,bs=-1e9; for(let k=0;k<600;k++){ const x=rint(3,W-4), y=rint(3,H-4); const i=idx(x,y); if(isWater(biome[i])||!nearWater(x,y)||biome[i]===B.SNOW||biome[i]===B.PEAK) continue; let sc=foodCap[i]*2+Math.random()*2; const ns=nearestSettlementTo(x,y); if(ns) sc+=Math.min(30,Math.sqrt(dist2(x,y,ns.x,ns.y)))*0.3; if(sc>bs){bs=sc;best=i;} } return best; }
+function arrive(preset, n, px, py){
+  const i=landingSite(px,py); if(i<0) return; const x=i%W, y=(i/W)|0; let p=preset;
+  if(p.genome==='random'){ const g={}; for(const k of GENES) g[k]=Math.random()<0.5?[0,0.12]:[0.88,1]; const cu={aggr:Math.random(),trade:Math.random(),innov:Math.random(),nomad:Math.random(),collect:Math.random()}; const te={}; for(const k of TECHS) if(Math.random()<0.35) te[k]=rint(1,TECH_MAX[k]); p={name:'Mutants of '+makeName(rint(0,4),2),genome:g,culture:cu,tech:te,behaviour:pick(['raider','merchant','wanderer','swarm','scholar','default']),lang:rint(0,4)}; }
+  const prev=tribes.filter(o=>o.name.startsWith(p.name)).length; const suffix=prev? ' '+(['II','III','IV','V','VI','VII'][prev-1]||(prev+1)) : '';
+  const t=createTribe({name:p.name+suffix, culture:p.culture, tech:p.tech, behaviour:p.behaviour, lang:p.lang, foreign:true});
+  const s=foundSettlement(x,y,t.id); s.food=n*3; s.goods=n; s.wealth=n*(p.tech.currency?2:0.5);
+  for(let k=0;k<n;k++) spawnAgent(t.id,s.id,s.x,s.y,randomGenome(t,p.genome),rnd(15,40));
+  for(const o of tribes) if(o!==t&&!o.dead){ const r=rnd(-25,10); t.relations[o.id]=r; o.relations[t.id]=r; }
+  settlementsMonthly(); tribesMonthly(); computeTerritory();
+  notify(`${n} strangers land on the shore: the ${t.name} have arrived, founding ${s.name}.`, 'good', s.x, s.y, true); flyTo(s.x,s.y,6); return t;
+}
+</script>
+<script>
+/* ===================== P5 SETUP / DRAW ===================== */
+const $=id=>document.getElementById(id);
+let mapEl, tribeBuckets=[], anomActive=false, hoverSet=null, lastHoverMs=0;
+function setup(){ mapEl=$('map'); const c=createCanvas(mapEl.clientWidth, mapEl.clientHeight); c.parent(mapEl); pixelDensity(Math.min(2,window.devicePixelRatio||1)); textFont('IBM Plex Sans, system-ui, sans-serif'); initWorld(); bindInput(); buildUI(); refreshAll(true); }
+function windowResized(){ resizeCanvas(mapEl.clientWidth, mapEl.clientHeight); }
+function draw(){
+  if(!paused){ const n=speed; for(let k=0;k<n;k++) tick(); }
+  if(follow && selected && selected.g && !selected.dead){ cam.x+=(selected.x-cam.x)*0.15; cam.y+=(selected.y-cam.y)*0.15; }
+  drawWorld();
+  fpsSm=fpsSm*0.95+frameRate()*0.05;
+  if(frameCount%20===0) refreshAll(false);
+}
+function drawWorld(){
+  background(10,26,46); const ctx=drawingContext; const [sx0,sy0]=w2s(0,0); const pw=W*cam.z, ph=H*cam.z;
+  const dataView = ['climate','food','density','disease','culture'].includes(viewMode);
+  if(dataView){ if(frameCount-dataViewDirty>15){ renderDataView(viewMode); dataViewDirty=frameCount; } ctx.imageSmoothingEnabled=false; image(dataG,sx0,sy0,pw,ph); ctx.imageSmoothingEnabled=true; }
+  else if(viewMode==='elevation'||viewMode==='resources'){ ctx.imageSmoothingEnabled=false; image(staticView(viewMode),sx0,sy0,pw,ph); }
+  else { ctx.imageSmoothingEnabled = cam.z<CELL*1.5; image(terrainImg,sx0,sy0,pw,ph); }
+  // anomalies (drought/flood regions)
+  if(frameCount%30===0) anomActive=renderAnom();
+  if(anomActive && viewMode!=='climate'){ ctx.imageSmoothingEnabled=true; image(anomG,sx0,sy0,pw,ph); }
+  if(terrDirty) renderTerritory();
+  ctx.imageSmoothingEnabled=false;
+  if(viewMode==='political') image(terrFill,sx0,sy0,pw,ph);
+  if(overlays.borders) image(terrBorder,sx0,sy0,pw,ph);
+  ctx.imageSmoothingEnabled=true;
+  if(overlays.resources && cam.z>=2.2) drawResources();
+  if(overlays.routes) drawRoutes();
+  drawSettlements();
+  if(overlays.agents) drawAgents();
+  drawPings();
+  if(selected){ let x,y; if(selected.g){x=selected.x;y=selected.y;} else if(selected.type==='set'){x=selected.s.x;y=selected.s.y;} else if(selected.type==='cell'){x=(selected.i%W)+0.5;y=((selected.i/W)|0)+0.5;} if(x!==undefined){ const [sx,sy]=w2s(x,y); noFill(); stroke(255,220,120); strokeWeight(2); const r=selected.g?8:14; circle(sx,sy,r*2); } }
+}
+function drawResources(){ const [wx0,wy0]=s2w(0,0), [wx1,wy1]=s2w(width,height); const x0=Math.max(0,wx0|0),x1=Math.min(W-1,wx1|0),y0=Math.max(0,wy0|0),y1=Math.min(H-1,wy1|0); const ctx=drawingContext; const r=Math.max(2,cam.z*0.3);
+  for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++){ const i=idx(x,y); const rt=resType[i]; if(!rt||resVal[i]<0.35) continue; const c=RES_COL[rt]; const [sx,sy]=w2s(x+0.5,y+0.5); ctx.fillStyle=`rgba(${c[0]},${c[1]},${c[2]},0.9)`; ctx.strokeStyle='rgba(0,0,0,0.6)'; ctx.lineWidth=1; ctx.beginPath(); if(rt===5||rt===6||rt===8){ ctx.moveTo(sx,sy-r);ctx.lineTo(sx+r,sy);ctx.lineTo(sx,sy+r);ctx.lineTo(sx-r,sy);ctx.closePath(); } else ctx.arc(sx,sy,r,0,Math.PI*2); ctx.fill(); ctx.stroke(); } }
+function drawRoutes(){ const ctx=drawingContext; for(const r of routes){ if(r.dead) continue; const a=settlements[r.a], b=settlements[r.b]; if(a.dead||b.dead) continue; const [ax,ay]=w2s(a.x,a.y), [bx,by]=w2s(b.x,b.y); if(Math.max(ax,bx)<0||Math.min(ax,bx)>width||Math.max(ay,by)<0||Math.min(ay,by)>height) continue; const v=Math.min(1,r.vol/60); ctx.strokeStyle=`rgba(224,179,90,${0.18+v*0.6})`; ctx.lineWidth=0.6+v*2.4; ctx.setLineDash(a.tribe===b.tribe?[]:[6,4]); ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke(); } ctx.setLineDash([]); }
+function drawSettlements(){ const ctx=drawingContext; textAlign(CENTER,BOTTOM); const zs=Math.max(1,cam.z/3.2); hoverSet=null; const mx=mouseX,my=mouseY;
+  for(const s of settlements){ if(s.dead) continue; const [sx,sy]=w2s(s.x,s.y); if(sx<-40||sx>width+40||sy<-40||sy>height+40) continue; const t=tribes[s.tribe]; const r=(2.6+s.tier*1.7)*zs; if(dist2(mx,my,sx,sy)<Math.max(100,r*r*1.5)) hoverSet=s;
+    ctx.fillStyle=t.hex; ctx.strokeStyle='rgba(0,0,0,0.75)'; ctx.lineWidth=1.2; ctx.beginPath(); if(s.tier>=3){ ctx.rect(sx-r,sy-r,r*2,r*2); } else ctx.arc(sx,sy,r,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    if(s.id===t.capital && s.tier>=1){ ctx.strokeStyle='rgba(224,179,90,0.95)'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc(sx,sy,r+2.5,0,Math.PI*2); ctx.stroke(); }
+    if(s.besieged>0){ ctx.strokeStyle='rgba(224,80,80,0.9)'; ctx.lineWidth=2; ctx.setLineDash([3,3]); ctx.beginPath(); ctx.arc(sx,sy,r+5,0,Math.PI*2); ctx.stroke(); ctx.setLineDash([]); }
+    if(overlays.labels && (s.tier>=2 || (cam.z>=5&&s.tier>=1) || cam.z>=9 || hoverSet===s)){ const fs = s.tier>=3? 13 : s.tier===2? 12 : 11; textSize(fs); textStyle(s.tier>=2?BOLD:NORMAL); const label=s.name+(cam.z>=6?' · '+s.pop:''); const tw=textWidth(label); ctx.fillStyle='rgba(8,12,18,0.72)'; ctx.fillRect(sx-tw/2-4,sy-r-fs-7,tw+8,fs+5); noStroke(); fill(s.tier>=3?'#f1d99a':'#e8edf2'); text(label,sx,sy-r-3); } } textStyle(NORMAL); }
+function drawAgents(){ const ctx=drawingContext; const sz=Math.max(1.6,cam.z*0.42); const h=sz/2; while(tribeBuckets.length<tribes.length) tribeBuckets.push([]); for(const b of tribeBuckets) b.length=0;
+  const detail=cam.z>=4; const marks=[]; const left=-sz, right=width+sz, top=-sz, bot=height+sz;
+  for(let k=0;k<agents.length;k++){ const a=agents[k]; const sx=width/2+(a.x-cam.x)*cam.z, sy=height/2+(a.y-cam.y)*cam.z; if(sx<left||sx>right||sy<top||sy>bot) continue; const bk=tribeBuckets[a.tribe]; bk.push(sx,sy); if(detail&&(a.dis>=0||a.state==='raid'||a.state==='trade')) marks.push(a,sx,sy); }
+  for(let ti=0;ti<tribes.length;ti++){ const bk=tribeBuckets[ti]; if(!bk.length) continue; ctx.fillStyle=tribes[ti].hex; ctx.beginPath(); for(let j=0;j<bk.length;j+=2) ctx.rect(bk[j]-h,bk[j+1]-h,sz,sz); ctx.fill(); if(sz>3){ ctx.strokeStyle='rgba(0,0,0,0.5)'; ctx.lineWidth=0.6; ctx.stroke(); } }
+  if(detail){ ctx.lineWidth=1.2; for(let j=0;j<marks.length;j+=3){ const a=marks[j],sx=marks[j+1],sy=marks[j+2]; if(a.state==='raid'){ ctx.strokeStyle='rgba(230,70,70,0.95)'; ctx.beginPath(); ctx.arc(sx,sy,h+2.5,0,Math.PI*2); ctx.stroke(); } else if(a.state==='trade'){ ctx.strokeStyle='rgba(240,200,90,0.95)'; ctx.beginPath(); ctx.arc(sx,sy,h+2.5,0,Math.PI*2); ctx.stroke(); } if(a.dis>=0){ ctx.fillStyle='#e06cf0'; ctx.fillRect(sx-1.2,sy-h-3.5,2.4,2.4); } } } }
+function drawPings(){ const now=performance.now(); const ctx=drawingContext; for(let k=pings.length-1;k>=0;k--){ const p=pings[k]; if(!p.ms) p.ms=now; const f=(now-p.ms)/3000; if(f>1){ pings.splice(k,1); continue; } const [sx,sy]=w2s(p.x,p.y); const col = p.kind==='war'?'224,80,80' : p.kind==='plague'?'200,110,220' : p.kind==='climate'?'110,180,230' : p.kind==='tech'?'224,179,90' : '110,200,140'; for(let ring=0;ring<2;ring++){ const ff=(f+ring*0.3)%1; ctx.strokeStyle=`rgba(${col},${(1-ff)*0.9})`; ctx.lineWidth=2.5-ff*2; ctx.beginPath(); ctx.arc(sx,sy,6+ff*34,0,Math.PI*2); ctx.stroke(); } } }
+
+/* ===================== INPUT ===================== */
+function bindInput(){
+  const el=mapEl; const ptrs=new Map(); let down=null, dragged=false, pinchD=0, pinchZ=1;
+  el.addEventListener('pointerdown',e=>{ if(e.target.tagName!=='CANVAS') return; el.setPointerCapture(e.pointerId); ptrs.set(e.pointerId,{x:e.offsetX,y:e.offsetY}); if(ptrs.size===1){ down={x:e.offsetX,y:e.offsetY,cx:cam.x,cy:cam.y}; dragged=false; } else if(ptrs.size===2){ const [a,b]=[...ptrs.values()]; pinchD=Math.hypot(a.x-b.x,a.y-b.y); pinchZ=cam.z; down=null; } });
+  el.addEventListener('pointermove',e=>{ if(ptrs.has(e.pointerId)) ptrs.set(e.pointerId,{x:e.offsetX,y:e.offsetY});
+    if(ptrs.size===2){ const [a,b]=[...ptrs.values()]; const d=Math.hypot(a.x-b.x,a.y-b.y); if(pinchD>0){ const mx=(a.x+b.x)/2,my=(a.y+b.y)/2; const [wx,wy]=s2w(mx,my); cam.z=clamp(pinchZ*d/pinchD,Math.min(width/W,height/H)*0.6,40); const [nx,ny]=w2s(wx,wy); cam.x+=(nx-mx)/cam.z; cam.y+=(ny-my)/cam.z; clampCam(); } dragged=true; return; }
+    if(down){ const dx=e.offsetX-down.x, dy=e.offsetY-down.y; if(Math.abs(dx)+Math.abs(dy)>4) dragged=true; if(dragged){ cam.x=down.cx-dx/cam.z; cam.y=down.cy-dy/cam.z; clampCam(); follow=false; el.classList.add('grabbing'); hideTip(); } }
+    else { const now=performance.now(); if(now-lastHoverMs>60){ lastHoverMs=now; updateTip(e.offsetX,e.offsetY); } } });
+  const up=e=>{ ptrs.delete(e.pointerId); el.classList.remove('grabbing'); if(ptrs.size<2) pinchD=0; if(down && !dragged){ onClick(e.offsetX,e.offsetY); } if(ptrs.size===0) down=null; };
+  el.addEventListener('pointerup',up); el.addEventListener('pointercancel',up); el.addEventListener('pointerleave',()=>hideTip());
+  el.addEventListener('wheel',e=>{ e.preventDefault(); zoomAt(e.offsetX,e.offsetY, e.deltaY<0?1.18:1/1.18); follow=false; },{passive:false});
+  window.addEventListener('keydown',e=>{ if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT') return; if(e.code==='Space'){ e.preventDefault(); togglePause(); } else if(e.key==='Escape'){ setPlacing(null); selected=null; follow=false; renderInspect(); } else if(e.key==='+'||e.key==='='){ zoomAt(width/2,height/2,1.3); } else if(e.key==='-'){ zoomAt(width/2,height/2,1/1.3); } else if(e.key==='f'){ fitCamera(); } });
+  $('zin').onclick=()=>zoomAt(width/2,height/2,1.4); $('zout').onclick=()=>zoomAt(width/2,height/2,1/1.4); $('zfit').onclick=()=>{fitCamera();follow=false;};
+}
+function onClick(sx,sy){ const [wx,wy]=s2w(sx,sy);
+  if(placing){ arrive(placing.preset, placing.n, wx, wy); setPlacing(null); refreshAll(true); return; }
+  let best=null,bd=14*14; for(const s of settlements){ if(s.dead) continue; const [x,y]=w2s(s.x,s.y); const d=dist2(x,y,sx,sy); if(d<bd){bd=d;best=s;} }
+  if(best){ selected={type:'set',s:best}; follow=false; }
+  else { let ba=null, bad=9*9; for(const a of agents){ const x=width/2+(a.x-cam.x)*cam.z, y=height/2+(a.y-cam.y)*cam.z; const d=dist2(x,y,sx,sy); if(d<bad){bad=d;ba=a;} }
+    if(ba){ selected=ba; } else if(inB(wx,wy)){ selected={type:'cell',i:idx(wx,wy)}; follow=false; } else selected=null; }
+  showTab('inspect'); renderInspect();
+}
+function updateTip(sx,sy){ const [wx,wy]=s2w(sx,sy); const tip=$('tip'); if(!inB(wx,wy)){ hideTip(); return; } const i=idx(wx,wy); hoverCell=i;
+  let h=''; if(hoverSet){ const t=tribes[hoverSet.tribe]; h+=`<b>${hoverSet.name}</b> · ${TIER_NAME[hoverSet.tier]} of the ${t.name}<br>Pop ${hoverSet.pop} / cap ${hoverSet.cap} · food ${hoverSet.food.toFixed(0)} · wealth ${hoverSet.wealth.toFixed(0)}<br>`; }
+  h+=`${BIOME_NAME[biome[i]]}${river[i]===1?' · river':''} · ${cellTemp(i).toFixed(0)}°C<br>Food ${food[i].toFixed(1)}/${foodCap[i].toFixed(1)}`; if(resType[i]) h+=` · ${RES[resType[i]]} ${(resVal[i]*100)|0}%`; if(territory[i]>=0&&tribes[territory[i]]) h+=`<br>Lands of the ${tribes[territory[i]].name}`; if(cellCount[i]) h+=` · ${cellCount[i]} here`; if(anom[i]<-0.1) h+=`<br><span style="color:#e0a35a">Drought ${(-anom[i]*100)|0}%</span>`; if(anom[i]>0.1) h+=`<br><span style="color:#6cb0d6">Flooding ${(anom[i]*100)|0}%</span>`;
+  tip.innerHTML=h; tip.style.display='block'; const tw=tip.offsetWidth, th=tip.offsetHeight; tip.style.left=Math.min(width-tw-6,sx+14)+'px'; tip.style.top=(sy+18+th>height? sy-th-8 : sy+18)+'px'; }
+function hideTip(){ $('tip').style.display='none'; }
+function setPlacing(p){ placing=p; $('placeHint').hidden=!p; mapEl.classList.toggle('placing',!!p); }
+
+/* ===================== UI ===================== */
+const EVENTS=[['epidemic','☠','Epidemic'],['drought','☀','Drought'],['flood','≋','Flood'],['heat','♨','Extreme heat'],['cold','❄','Extreme cold'],['insects','ꕤ','Insect attack'],['boredom','◌','Boredom'],['migration','➶','Migration'],['trade','⚖','Trade enthusiasm'],['war','⚔','War desire']];
+let currentPreset=PRESETS[0], charts={};
+function buildUI(){
+  $('btnPause').onclick=togglePause; $('btnReset').onclick=()=>{ initWorld(); refreshAll(true); renderInspect(); };
+  $('speed').oninput=e=>{ speed=+e.target.value; $('speedV').textContent=speed+'×'; }; $('maxpop').oninput=e=>{ maxPop=+e.target.value; $('maxpopV').textContent=maxPop; };
+  $('view').onchange=e=>{ viewMode=e.target.value; dataViewDirty=-99; renderLegend(); };
+  for(const b of $('overlays').querySelectorAll('.tog')) b.onclick=()=>{ const k=b.dataset.ov; overlays[k]=!overlays[k]; b.classList.toggle('on',overlays[k]); };
+  $('sideToggle').onclick=()=>$('side').classList.toggle('open');
+  for(const b of $('tabs').querySelectorAll('button')) b.onclick=()=>showTab(b.dataset.tab);
+  const eg=$('evButtons'); for(const [k,ic,lab] of EVENTS){ const b=document.createElement('button'); b.className='btn'; b.innerHTML=`<span class="ic">${ic}</span>${lab}`; b.onclick=()=>{ triggerEvent(k,true); refreshAll(true); }; eg.appendChild(b); }
+  const pr=$('presets'); PRESETS.forEach((p,i)=>{ const d=document.createElement('div'); d.className='preset'+(i===0?' on':''); const gstr = p.genome==='random'? 'genome: extremes everywhere' : Object.entries(p.genome).map(([k,v])=>`${k} ${Math.round(v[0]*100)}–${Math.round(v[1]*100)}`).join(' · '); const tstr = p.tech==='random'? 'tech: random' : (Object.entries(p.tech).map(([k,v])=>TECH_LABEL[k]+' '+v).join(', ')||'no technology'); d.innerHTML=`<div class="pn">${p.name} <span style="color:var(--muted);font-weight:400">· ${p.behaviour}</span></div><div class="pd">${p.desc}</div><div class="pg">${gstr}<br>${tstr}</div>`; d.onclick=()=>{ currentPreset=p; for(const o of pr.children) o.classList.remove('on'); d.classList.add('on'); }; pr.appendChild(d); });
+  $('arrN').oninput=e=>$('arrNV').textContent=e.target.value;
+  $('btnArrive').onclick=()=>{ arrive(currentPreset,+$('arrN').value); refreshAll(true); };
+  $('btnPlace').onclick=()=>{ setPlacing({preset:currentPreset,n:+$('arrN').value}); if(window.innerWidth<=900) $('side').classList.remove('open'); };
+  for(const id of ['cPop','cEco','cWar']){ charts[id]=$(id); }
+  renderLegend();
+}
+function togglePause(){ paused=!paused; $('btnPause').textContent=paused?'Resume':'Pause'; $('btnPause').classList.toggle('primary',!paused); }
+function showTab(name){ for(const b of $('tabs').querySelectorAll('button')) b.classList.toggle('on',b.dataset.tab===name); for(const p of document.querySelectorAll('.pane')) p.classList.toggle('on',p.id==='pane-'+name); if(name==='inspect') renderInspect(); if(window.innerWidth<=900 && name==='inspect') $('side').classList.add('open'); }
+function renderLegend(){ const L=$('legend'); let rows=[]; const sw=c=>`<span class="sw" style="background:rgb(${c.join(',')})"></span>`;
+  if(viewMode==='terrain'||viewMode==='political'){ for(const b of [B.GRASS,B.FOREST,B.JUNGLE,B.SAVANNA,B.DESERT,B.TUNDRA,B.SNOW,B.HILLS,B.MOUNTAIN,B.SWAMP]) rows.push(sw(BIOME_COL[b])+BIOME_NAME[b]); if(viewMode==='political') rows.unshift('<i>Tinted by ruling tribe</i>'); }
+  else if(viewMode==='resources'){ for(let k=1;k<RES.length;k++) rows.push(sw(RES_COL[k])+RES[k]); }
+  else if(viewMode==='climate'){ rows.push('<span class="sw" style="background:linear-gradient(90deg,#2828a0,#3c8cdc,#c8dcc8,#f0be3c,#dc3c1e);width:70px"></span>−20 … 35 °C'); rows.push(sw([150,100,45])+'Drought'); rows.push(sw([60,100,170])+'Flood'); }
+  else if(viewMode==='food'){ rows.push('<span class="sw" style="background:linear-gradient(90deg,#3c281e,#786428,#5aaa3c,#c8fa78);width:70px"></span>bare … abundant'); }
+  else if(viewMode==='density'){ rows.push('<span class="sw" style="background:linear-gradient(90deg,#141428,#50207a,#c83c5a,#ffaa3c,#fffac8);width:70px"></span>agents per cell'); }
+  else if(viewMode==='disease'){ rows.push('<span class="sw" style="background:linear-gradient(90deg,#3c1450,#a0288c,#ff5078,#ffe6c8);width:70px"></span>infected per cell'); }
+  else if(viewMode==='culture'){ rows.push(sw([250,60,60])+'Aggressive'); rows.push(sw([80,230,60])+'Mercantile'); rows.push(sw([60,60,230])+'Innovative'); rows.push('<i>Mixed hues = mixed cultures</i>'); }
+  else if(viewMode==='elevation'){ rows.push('<span class="sw" style="background:linear-gradient(90deg,#285a28,#96a03c,#8c643c,#f0f0f0);width:70px"></span>low … high'); }
+  L.innerHTML=rows.map(r=>`<div class="row">${r}</div>`).join(''); }
+
+function drawChart(cv, series, opts){ const dpr=window.devicePixelRatio||1; const w=cv.clientWidth, h=cv.clientHeight; if(cv.width!==w*dpr||cv.height!==h*dpr){ cv.width=w*dpr; cv.height=h*dpr; } const c=cv.getContext('2d'); c.setTransform(dpr,0,0,dpr,0,0); c.clearRect(0,0,w,h);
+  let max=1; for(const s of series) for(const v of s.data) if(v>max) max=v; max*=1.08; const n=Math.max(2,series[0].data.length); const pad=4;
+  c.strokeStyle='rgba(255,255,255,0.06)'; c.lineWidth=1; for(let g=1;g<4;g++){ const y=pad+(h-pad*2)*g/4; c.beginPath(); c.moveTo(0,y); c.lineTo(w,y); c.stroke(); }
+  for(const s of series){ const d=s.data; if(d.length<2) continue; c.beginPath(); for(let i=0;i<d.length;i++){ const x=pad+(w-pad*2)*i/(n-1), y=h-pad-(h-pad*2)*d[i]/max; if(i) c.lineTo(x,y); else c.moveTo(x,y); } c.strokeStyle=s.color; c.lineWidth=1.6; c.stroke(); if(s.fill){ c.lineTo(pad+(w-pad*2)*(d.length-1)/(n-1),h-pad); c.lineTo(pad,h-pad); c.closePath(); c.fillStyle=s.fill; c.fill(); } const lx=pad+(w-pad*2)*(d.length-1)/(n-1), ly=h-pad-(h-pad*2)*d[d.length-1]/max; c.fillStyle=s.color; c.beginPath(); c.arc(lx,ly,2.5,0,Math.PI*2); c.fill(); }
+  c.font='10px IBM Plex Mono, monospace'; c.fillStyle='rgba(223,230,238,0.75)'; c.textAlign='left'; c.fillText(opts.topLabel||fmt(max/1.08), 6, 12); c.textAlign='right'; let lx=w-6; for(let k=series.length-1;k>=0;k--){ const s=series[k]; c.fillStyle=s.color; const txt=s.name+' '+fmt(s.data[s.data.length-1]||0); c.fillText(txt,lx,h-6); lx-=c.measureText(txt).width+10; } }
+
+function refreshAll(force){
+  const yr=Math.floor(day/YEAR)+1; $('yr').textContent=yr; $('dy').textContent=(day%YEAR)+1; $('season').textContent=SEASONS[Math.floor((day%YEAR)/90)]+(mods.tempOffset>3?' · heatwave':mods.tempOffset<-3?' · cold spell':'');
+  let wars=0, allies=0, inf=0, wealth=0, nset=0, tiers=[0,0,0,0,0], ntr=0, techTot=0; for(const t of tribes) if(!t.dead){ wars+=t.wars.size; allies+=t.allies.size; ntr++; techTot+=techSum(t); } wars/=2; allies/=2; for(const s of settlements) if(!s.dead){ nset++; wealth+=s.wealth; tiers[s.tier]++; } for(const a of agents) if(a.dis>=0) inf++;
+  $('hudPop').textContent=fmt(agents.length); $('hudTribes').textContent=ntr; $('hudWars').textContent=wars; $('hudFps').textContent=Math.round(fpsSm);
+  $('sPop').innerHTML=fmt(agents.length)+`<small>/ ${fmt(maxPop)}</small>`; $('sSet').innerHTML=nset+`<small>${tiers[3]+tiers[4]} cities · ${tiers[2]} towns</small>`; $('sWealth').textContent=fmt(wealth); $('sTrade').textContent=fmt(lastYearTrade||yearTrade); $('sWars').textContent=wars; $('sAlly').textContent=allies; $('sInf').innerHTML=inf+`<small>${diseases.filter(d=>!d.dead).length} diseases</small>`; $('sTech').textContent=ntr? Math.round(techTot/ntr/TECH_TOTAL*100)+'%' : '0%';
+  if(force || frameCount%60===0){ renderCharts(); renderTraits(); renderTribes(); }
+  if(uiLogDirty){ renderLog(); uiLogDirty=false; }
+  if(selected && (force || frameCount%40===0) && $('pane-inspect').classList.contains('on')) renderInspect();
+}
+function renderCharts(){ if(hist.pop.length<2) return; drawChart(charts.cPop,[{name:'capacity',data:hist.cap,color:'rgba(138,153,171,0.8)'},{name:'population',data:hist.pop,color:'#5ab7e0',fill:'rgba(90,183,224,0.15)'}],{}); drawChart(charts.cEco,[{name:'wealth',data:hist.wealth,color:'#e0b35a',fill:'rgba(224,179,90,0.12)'},{name:'trade/mo',data:hist.trade,color:'#5fc48a'}],{}); drawChart(charts.cWar,[{name:'wars',data:hist.wars,color:'#e06060'},{name:'infected',data:hist.inf,color:'#c66cd6'}],{}); }
+function renderTraits(){ const sum={}; for(const k of GENES) sum[k]=0; const step=Math.max(1,Math.floor(agents.length/1200)); let n=0; for(let i=0;i<agents.length;i+=step){ const g=agents[i].g; for(const k of GENES) sum[k]+=g[k]; n++; } if(!n) return; $('traits').innerHTML=GENES.map(k=>{ const v=sum[k]/n; return `<div class="bar"><span>${GENE_LABEL[k]}</span><div class="tr"><div class="fi" style="width:${(v*100).toFixed(0)}%"></div></div><span class="n">${(v*100).toFixed(0)}</span></div>`; }).join(''); }
+function renderTribes(){ const live=tribes.filter(t=>!t.dead).sort((a,b)=>b.pop-a.pop).slice(0,14); $('tribes').innerHTML=live.map(t=>`<div class="tribe" data-t="${t.id}" title="${t.behaviour} · aggression ${(t.culture.aggr*100)|0} · trade ${(t.culture.trade*100)|0} · innovation ${(t.culture.innov*100)|0}"><span class="dot" style="background:${t.hex}"></span><span class="nm">${t.name}${t.wars.size?' <span style="color:var(--bad)">⚔'+t.wars.size+'</span>':''}${t.allies.size?' <span style="color:var(--good)">◆'+t.allies.size+'</span>':''}</span><span class="techcells">${TECHS.map(k=>`<i class="l${t.tech[k]}"></i>`).join('')}</span><span class="pp">${t.pop}</span></div>`).join('')||'<div class="empty">No tribes remain.</div>';
+  for(const el of $('tribes').children){ el.onclick=()=>{ const t=tribes[+el.dataset.t]; if(t.capital>=0){ const s=settlements[t.capital]; flyTo(s.x,s.y,5); selected={type:'set',s}; showTab('inspect'); } }; } }
+function renderLog(){ $('log').innerHTML=log.slice(0,80).map((e,i)=>`<div class="${e.kind}" data-i="${i}"><span class="t">Y${Math.floor(e.t/YEAR)+1} d${(e.t%YEAR)+1}</span><span class="m">${e.text}</span></div>`).join(''); for(const el of $('log').children){ el.onclick=()=>{ const e=log[+el.dataset.i]; if(e.x!==undefined){ flyTo(e.x,e.y,5); pings.push({x:e.x,y:e.y,kind:e.kind}); } }; } }
+function toast(e){ const box=$('toasts'); if(box.children.length>=5) box.firstChild.remove(); const d=document.createElement('div'); d.className='toast '+e.kind; d.innerHTML=`<span class="t">Y${Math.floor(e.t/YEAR)+1}</span>${e.text}`; d.onclick=()=>{ if(e.x!==undefined){ flyTo(e.x,e.y,5); pings.push({x:e.x,y:e.y,kind:e.kind}); const s=nearestSettlementTo(e.x,e.y); if(s&&dist2(s.x,s.y,e.x,e.y)<4){ selected={type:'set',s}; showTab('inspect'); } } d.remove(); }; box.appendChild(d); setTimeout(()=>{ d.classList.add('out'); setTimeout(()=>d.remove(),320); },7000); }
+function renderInspect(){ const box=$('inspect'); if(!selected){ box.innerHTML='<div class="empty">Click a settlement, an agent or any cell on the map.</div>'; return; }
+  if(selected.g){ const a=selected; if(a.dead){ box.innerHTML='<div class="empty">This agent has died.</div>'; selected=null; return; } const t=tribes[a.tribe], s=settlements[a.home]; const d=a.dis>=0?diseases[a.dis]:null;
+    box.innerHTML=`<h3>Agent #${a.id}</h3><div class="row2"><span class="dot" style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${t.hex}"></span><b>${a.role[0].toUpperCase()+a.role.slice(1)} of the ${t.name}</b></div>
+    <dl class="kv"><dt>Home</dt><dd>${s?s.name:'—'}</dd><dt>Age</dt><dd>${a.age.toFixed(1)} yrs</dd><dt>Health</dt><dd>${a.hp.toFixed(0)}</dd><dt>Hunger</dt><dd>${a.hunger.toFixed(0)}</dd><dt>State</dt><dd>${a.state}</dd><dt>Carrying</dt><dd>${a.carry.toFixed(1)} food · ${a.goods.toFixed(0)} goods</dd><dt>Wealth</dt><dd>${a.wealth.toFixed(1)}</dd><dt>Children</dt><dd>${a.kids}</dd><dt>Trips</dt><dd>${a.trips}</dd><dt>Illness</dt><dd>${d?d.name+' ('+a.disT.toFixed(0)+' d)':'healthy'}</dd><dt>Immunities</dt><dd>${a.immune.length}</dd></dl>
+    <h3>Genome</h3><div class="gen">${GENES.map(k=>`<div class="bar"><span>${GENE_LABEL[k]}</span><div class="tr"><div class="fi" style="width:${(a.g[k]*100)|0}%;background:${t.hex}"></div></div><span class="n">${(a.g[k]*100)|0}</span></div>`).join('')}</div>
+    <h3>Memory</h3><div class="mem">${a.mem.length?a.mem.slice().sort((x,y)=>y.t-x.t).map(m=>`<span>${m.k} @${m.x|0},${m.y|0}${m.k==='food'?' ·'+m.v.toFixed(1):''}</span>`).join(''):'nothing remembered yet'}</div>
+    <div class="row2"><button class="btn small" id="followBtn">${follow?'Stop following':'Follow'}</button><button class="btn small" id="goHome">Go to home</button></div>`;
+    $('followBtn').onclick=()=>{ follow=!follow; renderInspect(); }; $('goHome').onclick=()=>{ if(s) flyTo(s.x,s.y,6); }; return; }
+  if(selected.type==='set'){ const s=selected.s; const t=tribes[s.tribe]; if(s.dead){ box.innerHTML=`<div class="empty">${s.name} is abandoned.</div>`; return; } const rels=tribes.filter(o=>!o.dead&&o!==t&&tribeContact(t,o)).map(o=>`<div class="bar"><span style="color:${o.hex}">${o.name}</span><div class="tr"><div class="fi" style="width:${((t.relations[o.id]+100)/2)|0}%;background:${t.wars.has(o.id)?'var(--bad)':t.allies.has(o.id)?'var(--good)':'var(--accent2)'}"></div></div><span class="n">${t.wars.has(o.id)?'war':t.allies.has(o.id)?'ally':(t.relations[o.id]|0)}</span></div>`).join('')||'<div class="help">No neighbours in contact.</div>';
+    box.innerHTML=`<h3>${TIER_NAME[s.tier]}</h3><div style="font-family:var(--display);font-size:18px;color:${t.hex}">${s.name}</div><div class="help">of the ${t.name} · founded year ${Math.floor(s.founded/YEAR)+1}${s.id===t.capital?' · capital':''}${s.besieged?' · <span style="color:var(--bad)">under attack</span>':''}</div>
+    <dl class="kv"><dt>Population</dt><dd>${s.pop} / ${s.cap}</dd><dt>Warriors</dt><dd>${s.warriors||0}</dd><dt>Food store</dt><dd>${s.food.toFixed(0)}</dd><dt>Goods</dt><dd>${s.goods.toFixed(0)}</dd><dt>Wealth</dt><dd>${s.wealth.toFixed(0)}</dd><dt>Happiness</dt><dd>${(s.happy*100)|0}%</dd><dt>Local richness</dt><dd>${s.rich.toFixed(1)}</dd><dt>Trade routes</dt><dd>${s.routes.filter(r=>!r.dead).length}</dd></dl>
+    <h3>The ${t.name}</h3><dl class="kv"><dt>People</dt><dd>${t.pop} in ${t.sets.length} settlements</dd><dt>Behaviour</dt><dd>${t.behaviour}${t.foreign?' (foreign)':''}</dd><dt>Culture</dt><dd>aggr ${(t.culture.aggr*100)|0} · trade ${(t.culture.trade*100)|0} · innov ${(t.culture.innov*100)|0} · nomad ${(t.culture.nomad*100)|0}</dd><dt>Wealth</dt><dd>${fmt(t.wealth)}</dd><dt>Research</dt><dd>${t.research.toFixed(0)} pts</dd><dt>Kills / losses</dt><dd>${t.kills} / ${t.losses}</dd></dl>
+    <h3>Technology</h3>${TECHS.map(k=>`<div class="bar"><span>${TECH_LABEL[k]}</span><div class="tr"><div class="fi" style="width:${t.tech[k]/TECH_MAX[k]*100}%"></div></div><span class="n">${t.tech[k]}/${TECH_MAX[k]}</span></div>`).join('')}
+    <h3>Relations</h3>${rels}`; return; }
+  if(selected.type==='cell'){ const i=selected.i; const x=i%W,y=(i/W)|0; box.innerHTML=`<h3>Cell ${x}, ${y}</h3><dl class="kv"><dt>Terrain</dt><dd>${BIOME_NAME[biome[i]]}${river[i]===1?' · river':''}</dd><dt>Elevation</dt><dd>${elev[i].toFixed(2)}</dd><dt>Temperature</dt><dd>${cellTemp(i).toFixed(1)} °C</dd><dt>Moisture</dt><dd>${(moist[i]*100)|0}%</dd><dt>Food</dt><dd>${food[i].toFixed(1)} / ${foodCap[i].toFixed(1)}</dd><dt>Resource</dt><dd>${resType[i]?RES[resType[i]]+' '+((resVal[i]*100)|0)+'%':'—'}</dd><dt>Territory</dt><dd>${territory[i]>=0&&tribes[territory[i]]?tribes[territory[i]].name:'unclaimed'}</dd><dt>Agents here</dt><dd>${cellCount[i]}</dd><dt>Anomaly</dt><dd>${anom[i]<-0.05?'drought '+((-anom[i]*100)|0)+'%':anom[i]>0.05?'flood '+((anom[i]*100)|0)+'%':'none'}</dd></dl>`; } }
+</script>
+</body>
+</html>

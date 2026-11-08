@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Evolving Ecosystem — Monte Carlo Simulation</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
+<style>
+  :root{--bg:#0e1116;--panel:#161b22;--fg:#d6dbe3;--muted:#8b949e;--accent:#58a6ff;--border:#2a313b}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:13px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden}
+  #wrap{display:flex;height:100vh;width:100vw}
+  #sketch{flex:1;min-width:0;position:relative}
+  canvas{display:block}
+  #panel{width:330px;flex:none;background:var(--panel);border-left:1px solid var(--border);overflow-y:auto;padding:14px 16px 30px}
+  h1{font-size:16px;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:12px;margin-bottom:12px}
+  h2{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:16px 0 6px;border-bottom:1px solid var(--border);padding-bottom:3px}
+  .row{display:flex;align-items:center;justify-content:space-between;margin:5px 0;gap:8px}
+  .row label{flex:1}
+  .row .val{width:54px;text-align:right;color:var(--accent);font-variant-numeric:tabular-nums;font-family:ui-monospace,Menlo,monospace;font-size:12px}
+  input[type=range]{width:118px;accent-color:var(--accent)}
+  select,button{background:#21262d;color:var(--fg);border:1px solid var(--border);border-radius:5px;padding:5px 8px;font:inherit;cursor:pointer}
+  button:hover{border-color:var(--accent)}
+  .btns{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
+  table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-family:ui-monospace,Menlo,monospace;font-size:12px}
+  td,th{padding:2px 4px;text-align:right}
+  th:first-child,td:first-child{text-align:left;font-family:inherit}
+  .h{color:#5fd3e8}.p{color:#ff9a4a}.g{color:#7cc96b}
+  #events{font-size:12px;color:var(--muted);max-height:130px;overflow:auto}
+  #events div{padding:1px 0}
+  kbd{background:#21262d;border:1px solid var(--border);border-radius:3px;padding:0 5px;font-family:ui-monospace,Menlo,monospace;font-size:11px}
+  .keys div{margin:3px 0;color:var(--muted)}
+  .note{color:var(--muted);font-size:11px;margin:2px 0 6px}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="sketch"></div>
+  <div id="panel">
+    <h1>Evolving Ecosystem</h1>
+    <div class="sub">2D Monte Carlo simulation — plants, herbivores &amp; predators with heritable, mutating traits.</div>
+
+    <div class="btns">
+      <button id="btnPause">Pause</button>
+      <button id="btnReset">Reset</button>
+      <button id="btnCat">Catastrophe</button>
+      <button id="btnAddH">+200 herbivores</button>
+      <button id="btnAddP">+40 predators</button>
+    </div>
+    <div class="row"><label>Grid size</label>
+      <select id="gridSel">
+        <option value="0">120 × 80</option>
+        <option value="1" selected>180 × 120</option>
+        <option value="2">260 × 170</option>
+        <option value="3">360 × 240</option>
+      </select></div>
+    <div class="row"><label>Color encodes</label>
+      <select id="modeSel">
+        <option value="0" selected>speed</option>
+        <option value="1">vision</option>
+        <option value="2">reproduction rate</option>
+        <option value="3">energy</option>
+        <option value="4">age</option>
+      </select></div>
+    <div class="note">Square size always encodes vision range. <span class="h">■ herbivores</span> &nbsp;<span class="p">■ predators</span> &nbsp;<span class="g">■ plants</span></div>
+
+    <div id="controls"></div>
+
+    <h2>Live statistics</h2>
+    <table>
+      <tr><th></th><th class="h">Herbivores</th><th class="p">Predators</th></tr>
+      <tr><td>Population</td><td id="sH">–</td><td id="sP">–</td></tr>
+      <tr><td>Avg speed</td><td id="sHs">–</td><td id="sPs">–</td></tr>
+      <tr><td>Avg vision</td><td id="sHv">–</td><td id="sPv">–</td></tr>
+      <tr><td>Avg repro. rate</td><td id="sHr">–</td><td id="sPr">–</td></tr>
+      <tr><td>Avg energy</td><td id="sHe">–</td><td id="sPe">–</td></tr>
+      <tr><td>Plant cover</td><td id="sG" class="g" colspan="2">–</td></tr>
+    </table>
+
+    <h2>Events</h2>
+    <div id="events"></div>
+
+    <h2>Keys &amp; mouse</h2>
+    <div class="keys">
+      <div><kbd>Space</kbd> pause / resume &nbsp; <kbd>R</kbd> reset</div>
+      <div><kbd>V</kbd> cycle color mode &nbsp; <kbd>+</kbd>/<kbd>−</kbd> steps per frame</div>
+      <div><kbd>M</kbd> catastrophe (kills 80%, halves plants)</div>
+      <div><kbd>H</kbd> add 200 herbivores &nbsp; <kbd>P</kbd> add 40 predators</div>
+      <div><b>Click</b> drop herbivores · <b>Shift+click</b> drop predators · <b>Alt+click</b> fertilize plants</div>
+    </div>
+
+    <h2>How it works</h2>
+    <div class="note" style="font-size:12px;line-height:1.5">
+      Each step is one Monte Carlo sweep: plants regrow logistically on a heterogeneous fertility map, then
+      individuals are drawn at random (about one draw per animal) and each stochastically pays metabolism,
+      senses by sampling random cells within its vision radius, moves, feeds, and may reproduce. Reproduction
+      is suppressed by local crowding and costs half the parent's energy. Offspring inherit speed, vision and
+      reproduction rate with Gaussian mutations; speed and vision cost energy, so traits trade off against
+      survival. Watch for predator–prey cycles, arms races in speed and vision, and extinctions after
+      overshoot — then try a catastrophe or seasons.
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================================
+// CORE SIMULATION  (pure JS, no p5 dependency — p5 is only used for rendering)
+// ============================================================================
+// === CORE START
+const HERB = 1, PRED = 2;
+
+// ---- Tunable parameters (bound to sliders) --------------------------------
+const P = {
+  gridSize: 1,
+  stepsPerFrame: 2,
+  mutRate: 0.20,      // probability each trait mutates at birth
+  mutSize: 0.15,      // std-dev of mutation, as fraction of trait scale
+  plantK: 0.80,       // plant carrying capacity per cell (biomass 0..1)
+  plantGrowth: 0.12,  // logistic growth rate
+  season: 0.0,        // seasonal amplitude of plant growth (0 = none)
+  seasonPeriod: 1500,
+  initH: 1500, initP: 150,
+  grazeGain: 6,       // energy per unit plant biomass eaten
+  bite: 0.15,         // max biomass eaten per step
+  attack: 0.55,       // base predation success probability
+  predGain: 0.7,      // energy conversion efficiency when a predator eats
+  hMeta: 0.22,        // herbivore base metabolic cost per step
+  pMeta: 0.22,        // predator base metabolic cost per step
+  crowding: 1.0,      // how strongly local density suppresses reproduction
+};
+
+// ---- Heritable traits -----------------------------------------------------
+const TR = {
+  speed:  { lo: 0.2, hi: 4.0, base: 1.0,  scale: 1.0  },  // cells moved per step
+  vision: { lo: 1.0, hi: 8.0, base: 2.5,  scale: 2.0  },  // sensing radius (cells)
+  rep:    { lo: 0.01, hi: 0.6, base: 0.12, scale: 0.12 }, // reproduction attempt prob.
+};
+const REP_THRESH = [0, 8, 12];    // energy needed to reproduce  [-, herb, pred]
+const MAX_E      = [0, 20, 32];   // energy cap
+const MAX_AGE    = [0, 400, 700]; // senescence begins at 60% of this
+const START_E    = [0, 6, 10];
+const GRID_SIZES = [[120, 80], [180, 120], [260, 170], [360, 240]];
+
+// ---- Fast PRNG (mulberry32) + Gaussian -----------------------------------
+let seed = (Math.random() * 4294967296) >>> 0;
+function rnd() {
+  seed = (seed + 0x6D2B79F5) | 0;
+  let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+let gHas = false, gVal = 0;
+function gauss() {
+  if (gHas) { gHas = false; return gVal; }
+  let u = 0; while (u === 0) u = rnd();
+  const r = Math.sqrt(-2 * Math.log(u)), th = 6.283185307 * rnd();
+  gVal = r * Math.sin(th); gHas = true;
+  return r * Math.cos(th);
+}
+const clamp = (v, lo, hi) => v < lo ? lo : (v > hi ? hi : v);
+
+// ---- World state (struct-of-arrays for cache efficiency) ------------------
+let W, H, N, MAXA;
+let plant, fert, occ;                          // per cell
+let ax, ay, ae, atype, aspeed, avis, arep, aage; // per animal
+let aliveIdx, slot, freeStack, nAlive, nFree;  // dense alive list + free list
+let tick = 0, seasonF = 1;
+const DX = [1, 1, 0, -1, -1, -1, 0, 1], DY = [0, 1, 1, 1, 0, -1, -1, -1];
+const wrapX = x => x < 0 ? x + W : (x >= W ? x - W : x);
+const wrapY = y => y < 0 ? y + H : (y >= H ? y - H : y);
+
+function valueNoise(cell) {
+  const gw = Math.ceil(W / cell) + 1, gh = Math.ceil(H / cell) + 1;
+  const g = new Float32Array(gw * gh);
+  for (let i = 0; i < g.length; i++) g[i] = rnd();
+  const out = new Float32Array(N), sm = t => t * t * (3 - 2 * t);
+  for (let y = 0; y < H; y++) {
+    const fy = y / cell, y0 = Math.floor(fy), ty = sm(fy - y0);
+    for (let x = 0; x < W; x++) {
+      const fx = x / cell, x0 = Math.floor(fx), tx = sm(fx - x0);
+      const a = g[y0 * gw + x0], b = g[y0 * gw + x0 + 1];
+      const c = g[(y0 + 1) * gw + x0], d = g[(y0 + 1) * gw + x0 + 1];
+      out[y * W + x] = (a + (b - a) * tx) * (1 - ty) + (c + (d - c) * tx) * ty;
+    }
+  }
+  return out;
+}
+
+function initWorld() {
+  [W, H] = GRID_SIZES[P.gridSize]; N = W * H; MAXA = N;
+  plant = new Float32Array(N); fert = new Float32Array(N);
+  occ = new Int32Array(N).fill(-1);
+  ax = new Int32Array(MAXA); ay = new Int32Array(MAXA); ae = new Float32Array(MAXA);
+  atype = new Uint8Array(MAXA); aspeed = new Float32Array(MAXA); avis = new Float32Array(MAXA);
+  arep = new Float32Array(MAXA); aage = new Int32Array(MAXA);
+  aliveIdx = new Int32Array(MAXA); slot = new Int32Array(MAXA); freeStack = new Int32Array(MAXA);
+  nAlive = 0; nFree = MAXA;
+  for (let i = 0; i < MAXA; i++) freeStack[i] = MAXA - 1 - i;
+
+  // Spatially heterogeneous soil fertility -> refugia, patchy dynamics
+  const n1 = valueNoise(18), n2 = valueNoise(6);
+  for (let i = 0; i < N; i++) {
+    const v = 0.65 * n1[i] + 0.35 * n2[i];
+    const f = clamp((v - 0.3) / 0.4, 0, 1);
+    fert[i] = 0.1 + 0.9 * Math.pow(f, 1.2);
+    plant[i] = P.plantK * fert[i] * rnd();
+  }
+  addRandom(HERB, P.initH);
+  addRandom(PRED, P.initP);
+  tick = 0; resetStats();
+}
+
+function baseTrait(t) { return clamp(t.base + gauss() * t.scale * 0.25, t.lo, t.hi); }
+function spawn(x, y, type, sp, vi, rp, e) {
+  if (nFree === 0) return -1;
+  const i = freeStack[--nFree];
+  ax[i] = x; ay[i] = y; atype[i] = type; aspeed[i] = sp; avis[i] = vi; arep[i] = rp; ae[i] = e; aage[i] = 0;
+  occ[y * W + x] = i; slot[i] = nAlive; aliveIdx[nAlive++] = i;
+  return i;
+}
+function kill(i) {
+  occ[ay[i] * W + ax[i]] = -1;
+  const s = slot[i], last = aliveIdx[--nAlive];
+  aliveIdx[s] = last; slot[last] = s;
+  freeStack[nFree++] = i; atype[i] = 0;
+}
+function addRandom(type, n) {
+  for (let k = 0, tries = 0; k < n && tries < n * 20; tries++) {
+    const x = (rnd() * W) | 0, y = (rnd() * H) | 0;
+    if (occ[y * W + x] < 0) { spawn(x, y, type, baseTrait(TR.speed), baseTrait(TR.vision), baseTrait(TR.rep), START_E[type]); k++; }
+  }
+}
+function spawnNear(cx, cy, type, n, r) {
+  for (let k = 0, tries = 0; k < n && tries < n * 10; tries++) {
+    const x = wrapX(cx + Math.round(gauss() * r)), y = wrapY(cy + Math.round(gauss() * r));
+    if (occ[y * W + x] < 0) { spawn(x, y, type, baseTrait(TR.speed), baseTrait(TR.vision), baseTrait(TR.rep), START_E[type]); k++; }
+  }
+}
+function fertilize(cx, cy, r) {
+  for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++)
+    if (dx * dx + dy * dy <= r * r) plant[wrapY(cy + dy) * W + wrapX(cx + dx)] = P.plantK;
+}
+function catastrophe() {
+  for (let k = nAlive - 1; k >= 0; k--) if (rnd() < 0.8) kill(aliveIdx[k]);
+  for (let i = 0; i < N; i++) plant[i] *= 0.5;
+  events.unshift(`t=${tick}: catastrophe — 80% of animals died, plants halved`);
+}
+
+function mutate(v, t) {
+  if (rnd() < P.mutRate) v += gauss() * t.scale * P.mutSize;
+  return clamp(v, t.lo, t.hi);
+}
+
+// ---- Plants: logistic growth + stochastic seeding from neighbours ---------
+function updatePlants() {
+  const K = P.plantK, g = P.plantGrowth * seasonF, seedP = 0.3 * g;
+  for (let i = 0; i < N; i++) {
+    let p = plant[i];
+    if (p > 0.003) {
+      // logistic regrowth plus a tiny seed-rain term so bare soil recovers
+      p += g * fert[i] * (p * (1 - p / K) + 0.004 * K);
+      plant[i] = p > K ? K : (p < 0 ? 0 : p);
+    } else if (rnd() < seedP) {
+      const d = (rnd() * 4) | 0;
+      const nb = d === 0 ? (i + 1) % N : d === 1 ? (i + N - 1) % N : d === 2 ? (i + W) % N : (i + N - W) % N;
+      if (plant[nb] > 0.3 * K) plant[i] = 0.01;
+    }
+  }
+}
+
+// ---- One Monte Carlo action for a single individual ------------------------
+function act(i) {
+  const type = atype[i], sp = aspeed[i], vi = avis[i];
+  // metabolism: faster and sharper-eyed animals pay more
+  const meta = (type === HERB ? P.hMeta : P.pMeta) * (1 + 0.08 * sp * sp + 0.04 * vi);
+  ae[i] -= meta;
+  const age = ++aage[i];
+  if (ae[i] <= 0) { kill(i); return; }
+  const ma = MAX_AGE[type];
+  if (age > ma * 0.6) { const r = (age - ma * 0.6) / (ma * 0.4); if (rnd() < 0.03 * r * r) { kill(i); return; } }
+
+  let x = ax[i], y = ay[i];
+
+  // --- Perception by random sampling within vision radius (Monte Carlo sensing)
+  let tdx = 0, tdy = 0, hasTarget = false, flee = false, bestVal = -1, bestD = 1e9;
+  const samples = 4 + (vi | 0), vi2 = vi * vi + 0.5;
+  for (let s = 0; s < samples; s++) {
+    const ox = Math.round((rnd() * 2 - 1) * vi), oy = Math.round((rnd() * 2 - 1) * vi);
+    if ((ox === 0 && oy === 0) || ox * ox + oy * oy > vi2) continue;
+    const c = wrapX(x + ox) + wrapY(y + oy) * W, o = occ[c];
+    if (type === HERB) {
+      if (o >= 0) {
+        if (atype[o] === PRED) { const d = ox * ox + oy * oy; if (d < bestD) { bestD = d; flee = true; tdx = -ox; tdy = -oy; } }
+      } else if (plant[c] > bestVal) { bestVal = plant[c]; if (!flee) { tdx = ox; tdy = oy; hasTarget = true; } }
+    } else if (o >= 0 && atype[o] === HERB) {
+      const d = ox * ox + oy * oy; if (d < bestD) { bestD = d; tdx = ox; tdy = oy; hasTarget = true; }
+    }
+  }
+
+  // --- Movement: speed trait -> expected number of cell moves this step
+  let steps = sp | 0; if (rnd() < sp - steps) steps++;
+  if (type === HERB && !flee) { const here = plant[y * W + x]; if (here > 0.15 && here >= bestVal * 0.9) steps = 0; }
+  for (let s = 0; s < steps; s++) {
+    let mx, my;
+    if ((flee || hasTarget) && rnd() > 0.2) { mx = Math.sign(tdx); my = Math.sign(tdy); if (mx === 0 && my === 0) { const d = (rnd() * 8) | 0; mx = DX[d]; my = DY[d]; } }
+    else { const d = (rnd() * 8) | 0; mx = DX[d]; my = DY[d]; }
+    const nx = wrapX(x + mx), ny = wrapY(y + my), nc = ny * W + nx, o = occ[nc];
+    if (o < 0) {
+      occ[y * W + x] = -1; occ[nc] = i; x = nx; y = ny; ax[i] = x; ay[i] = y; tdx -= mx; tdy -= my;
+      if (hasTarget && !flee && tdx === 0 && tdy === 0) break;
+    } else if (type === PRED && atype[o] === HERB) {
+      // attack: success depends on base rate and relative speed
+      const pS = P.attack * clamp(0.8 + 0.2 * (sp - aspeed[o]), 0.1, 1);
+      if (rnd() < pS) {
+        ae[i] += P.predGain * (5 + 0.6 * ae[o]);
+        kill(o); occ[y * W + x] = -1; occ[nc] = i; x = nx; y = ny; ax[i] = x; ay[i] = y;
+      }
+      break;
+    } else break;
+  }
+
+  // --- Feeding: herbivores graze the cell they stand on. Bite size saturates
+  //     (Holling type-III functional response): thin vegetation yields little,
+  //     so plants are never grazed to exactly zero and can recover.
+  if (type === HERB) { const c = y * W + x, p = plant[c], b = P.bite * p * p / (p * p + 0.04); plant[c] = p - b; ae[i] += b * P.grazeGain; }
+  if (ae[i] > MAX_E[type]) ae[i] = MAX_E[type];
+
+  // --- Reproduction: needs energy, stochastic, suppressed by local crowding
+  if (ae[i] > REP_THRESH[type]) {
+    let dens = 0;
+    for (let d = 0; d < 8; d++) if (occ[wrapY(y + DY[d]) * W + wrapX(x + DX[d])] >= 0) dens++;
+    const pr = arep[i] * (1 - P.crowding * dens / 8);
+    if (pr > 0 && rnd() < pr) {
+      const start = (rnd() * 8) | 0;
+      for (let k = 0; k < 8; k++) {
+        const d = (start + k) & 7, nx = wrapX(x + DX[d]), ny = wrapY(y + DY[d]);
+        if (occ[ny * W + nx] < 0) {
+          const e = ae[i] * 0.5; ae[i] -= e;
+          spawn(nx, ny, type, mutate(sp, TR.speed), mutate(vi, TR.vision), mutate(arep[i], TR.rep), e);
+          break;
+        }
+      }
+    }
+  }
+}
+
+// ---- One full Monte Carlo sweep: ~one random action per living individual --
+function sweep() {
+  tick++;
+  seasonF = P.season > 0 ? Math.max(0, 1 + P.season * Math.sin(6.283185307 * tick / P.seasonPeriod)) : 1;
+  updatePlants();
+  const n = nAlive;
+  for (let k = 0; k < n; k++) {
+    if (nAlive === 0) break;
+    act(aliveIdx[(rnd() * nAlive) | 0]);
+  }
+}
+
+// ---- Statistics ------------------------------------------------------------
+const HIST = 600;
+const S = {};
+['nH', 'nP', 'plantCov', 'hSp', 'hVi', 'hRe', 'pSp', 'pVi', 'pRe'].forEach(k => S[k] = new Float32Array(HIST));
+S.ptr = 0; S.count = 0;
+let cur = {}, events = [], prevH = -1, prevP = -1;
+function resetStats() {
+  S.ptr = 0; S.count = 0; cur = {}; events = []; prevH = -1; prevP = -1;
+  events.unshift(`t=0: new world (${W}×${H}, seed ${seed >>> 0})`);
+}
+function record() {
+  let nH = 0, nP = 0, hs = 0, hv = 0, hr = 0, he = 0, ps = 0, pv = 0, pr = 0, pe = 0;
+  for (let k = 0; k < nAlive; k++) {
+    const i = aliveIdx[k];
+    if (atype[i] === HERB) { nH++; hs += aspeed[i]; hv += avis[i]; hr += arep[i]; he += ae[i]; }
+    else { nP++; ps += aspeed[i]; pv += avis[i]; pr += arep[i]; pe += ae[i]; }
+  }
+  let pc = 0; for (let i = 0; i < N; i++) pc += plant[i];
+  pc /= N * P.plantK;
+  cur = { nH, nP, plant: pc,
+    hSp: nH ? hs / nH : NaN, hVi: nH ? hv / nH : NaN, hRe: nH ? hr / nH : NaN, hE: nH ? he / nH : NaN,
+    pSp: nP ? ps / nP : NaN, pVi: nP ? pv / nP : NaN, pRe: nP ? pr / nP : NaN, pE: nP ? pe / nP : NaN };
+  const p = S.ptr;
+  S.nH[p] = nH; S.nP[p] = nP; S.plantCov[p] = pc;
+  S.hSp[p] = cur.hSp; S.hVi[p] = cur.hVi; S.hRe[p] = cur.hRe;
+  S.pSp[p] = cur.pSp; S.pVi[p] = cur.pVi; S.pRe[p] = cur.pRe;
+  S.ptr = (p + 1) % HIST; if (S.count < HIST) S.count++;
+  if (prevH > 0 && nH === 0) events.unshift(`t=${tick}: herbivores went extinct`);
+  if (prevP > 0 && nP === 0) events.unshift(`t=${tick}: predators went extinct`);
+  if (prevH === 0 && nH > 0) events.unshift(`t=${tick}: herbivores reintroduced`);
+  if (prevP === 0 && nP > 0) events.unshift(`t=${tick}: predators reintroduced`);
+  if (events.length > 40) events.length = 40;
+  prevH = nH; prevP = nP;
+}
+// === CORE END
+
+// ============================================================================
+// RENDERING + UI (p5.js)
+// ============================================================================
+let img, cs = 4, gx = 0, gy = 0, paused = false, viewMode = 0;
+const CHART_H = 175;
+const MODES = ['speed', 'vision', 'reproduction rate', 'energy', 'age'];
+let palH, palP;
+const COL_H = [95, 211, 232], COL_P = [255, 154, 74], COL_G = [124, 201, 107];
+
+function makePal(h1, s1, l1, h2, s2, l2, n = 32) {
+  const a = [];
+  for (let k = 0; k < n; k++) { const t = k / (n - 1); a.push(`hsl(${h1 + (h2 - h1) * t},${s1 + (s2 - s1) * t}%,${l1 + (l2 - l1) * t}%)`); }
+  return a;
+}
+
+function setup() {
+  pixelDensity(1);
+  const c = createCanvas(10, 10); c.parent('sketch');
+  palH = makePal(222, 85, 38, 178, 95, 72);
+  palP = makePal(352, 75, 32, 42, 100, 62);
+  buildPanel();
+  resetSim();
+}
+function resetSim() {
+  initWorld();
+  img = createImage(W, H); img.loadPixels();
+  layout();
+}
+function layout() {
+  const el = document.getElementById('sketch');
+  const cw = Math.max(320, el.clientWidth), ch = Math.max(320, el.clientHeight);
+  resizeCanvas(cw, ch); noSmooth();
+  const availH = ch - CHART_H;
+  cs = Math.max(1, Math.floor(Math.min((cw - 12) / W, (availH - 12) / H)));
+  gx = Math.floor((cw - W * cs) / 2); gy = Math.floor((availH - H * cs) / 2);
+}
+function windowResized() { layout(); }
+
+function draw() {
+  if (!paused) { for (let s = 0; s < P.stepsPerFrame; s++) sweep(); record(); }
+  background(14, 17, 22);
+  renderPlants();
+  renderAnimals();
+  drawOverlay();
+  drawCharts();
+  if (frameCount % 8 === 0) updatePanelStats();
+}
+
+function renderPlants() {
+  const px = img.pixels, invK = 1 / P.plantK;
+  for (let i = 0, j = 0; i < N; i++, j += 4) {
+    const f = fert[i]; let q = plant[i] * invK; if (q > 1) q = 1;
+    const sr = 28 + 24 * f, sg = 25 + 20 * f, sb = 22 + 12 * f;
+    px[j] = sr + (70 - sr) * q; px[j + 1] = sg + (190 - sg) * q; px[j + 2] = sb + (72 - sb) * q; px[j + 3] = 255;
+  }
+  img.updatePixels();
+  image(img, gx, gy, W * cs, H * cs);
+}
+
+function renderAnimals() {
+  const ctx = drawingContext;
+  const npal = palH.length - 1;
+  const vLo = TR.vision.lo, vSpan = TR.vision.hi - TR.vision.lo;
+  for (let k = 0; k < nAlive; k++) {
+    const i = aliveIdx[k], type = atype[i];
+    let t;
+    switch (viewMode) {
+      case 0: t = (aspeed[i] - TR.speed.lo) / (TR.speed.hi - TR.speed.lo); break;
+      case 1: t = (avis[i] - vLo) / vSpan; break;
+      case 2: t = (arep[i] - TR.rep.lo) / (TR.rep.hi - TR.rep.lo); break;
+      case 3: t = ae[i] / MAX_E[type]; break;
+      default: t = aage[i] / MAX_AGE[type];
+    }
+    const idx = Math.round(clamp(t, 0, 1) * npal);
+    ctx.fillStyle = type === HERB ? palH[idx] : palP[idx];
+    const sz = cs <= 2 ? cs : Math.max(1.5, cs * (0.35 + 0.65 * (avis[i] - vLo) / vSpan));
+    const off = (cs - sz) * 0.5;
+    ctx.fillRect(gx + ax[i] * cs + off, gy + ay[i] * cs + off, sz, sz);
+  }
+}
+
+function drawOverlay() {
+  noStroke(); fill(0, 0, 0, 150); rect(gx + 6, gy + 6, 470, 22, 4);
+  fill(220); textSize(12); textAlign(LEFT, CENTER); textFont('ui-monospace, Menlo, monospace');
+  const sf = P.season > 0 ? `  season ×${seasonF.toFixed(2)}` : '';
+  text(`t=${tick}  ${frameRate().toFixed(0)} fps  ×${P.stepsPerFrame}  H ${cur.nH || 0}  P ${cur.nP || 0}  color=${MODES[viewMode]}${sf}${paused ? '  ⏸ PAUSED' : ''}`, gx + 12, gy + 17);
+}
+
+function drawCharts() {
+  const top = height - CHART_H;
+  noStroke(); fill(18, 22, 28); rect(0, top, width, CHART_H);
+  const n = 4, pad = 8, w = (width - pad * (n + 1)) / n, h = CHART_H - 2 * pad;
+  chart(pad, top + pad, w, h, 'Population (each series scaled to its own max)',
+    [[S.nH, COL_H, cur.nH, v => v | 0], [S.nP, COL_P, cur.nP, v => v | 0], [S.plantCov, COL_G, cur.plant, v => (v * 100).toFixed(0) + '%']], true);
+  chart(pad * 2 + w, top + pad, w, h, 'Average speed', [[S.hSp, COL_H, cur.hSp, v => v.toFixed(2)], [S.pSp, COL_P, cur.pSp, v => v.toFixed(2)]], false);
+  chart(pad * 3 + w * 2, top + pad, w, h, 'Average vision', [[S.hVi, COL_H, cur.hVi, v => v.toFixed(2)], [S.pVi, COL_P, cur.pVi, v => v.toFixed(2)]], false);
+  chart(pad * 4 + w * 3, top + pad, w, h, 'Average reproduction rate', [[S.hRe, COL_H, cur.hRe, v => v.toFixed(3)], [S.pRe, COL_P, cur.pRe, v => v.toFixed(3)]], false);
+}
+
+function chart(x, y, w, h, title, series, normEach) {
+  noStroke(); fill(28, 33, 41); rect(x, y, w, h, 4);
+  fill(139, 148, 158); textSize(11); textAlign(LEFT, TOP); textFont('system-ui, sans-serif');
+  text(title, x + 6, y + 4);
+  // current-value labels
+  textAlign(RIGHT, TOP); textFont('ui-monospace, Menlo, monospace');
+  let lx = x + w - 6;
+  for (let s = series.length - 1; s >= 0; s--) {
+    const [, col, val, fmt] = series[s];
+    const str = (val === undefined || Number.isNaN(val)) ? '–' : fmt(val);
+    fill(col[0], col[1], col[2]); text(str, lx, y + 18); lx -= textWidth(str) + 10;
+  }
+  if (S.count < 2) return;
+  const py = y + 34, ph = h - 40, px0 = x + 6, pw = w - 12;
+  // ranges
+  let gmin = Infinity, gmax = -Infinity; const maxes = [];
+  for (const [arr] of series) {
+    let mn = Infinity, mx = -Infinity;
+    for (let k = 0; k < S.count; k++) { const v = arr[(S.ptr - S.count + k + HIST) % HIST]; if (Number.isNaN(v)) continue; if (v < mn) mn = v; if (v > mx) mx = v; }
+    maxes.push(mx > 0 ? mx : 1); if (mn < gmin) gmin = mn; if (mx > gmax) gmax = mx;
+  }
+  if (!normEach) { const padR = (gmax - gmin) * 0.1 || 0.1; gmin -= padR; gmax += padR; }
+  // grid line
+  stroke(50, 56, 66); strokeWeight(1); line(px0, py + ph / 2, px0 + pw, py + ph / 2);
+  noFill(); strokeWeight(1.5);
+  series.forEach(([arr, col], si) => {
+    stroke(col[0], col[1], col[2]);
+    beginShape();
+    for (let k = 0; k < S.count; k++) {
+      const v = arr[(S.ptr - S.count + k + HIST) % HIST];
+      if (Number.isNaN(v)) { endShape(); beginShape(); continue; }
+      const nv = normEach ? v / maxes[si] : (v - gmin) / (gmax - gmin);
+      vertex(px0 + (k / (HIST - 1)) * pw, py + ph - clamp(nv, 0, 1) * ph);
+    }
+    endShape();
+  });
+  noStroke();
+}
+
+// ---- DOM panel --------------------------------------------------------------
+const SLIDERS = [
+  ['Simulation', [
+    { k: 'stepsPerFrame', l: 'Steps per frame', min: 1, max: 12, step: 1 },
+  ]],
+  ['Evolution', [
+    { k: 'mutRate', l: 'Mutation rate (per trait)', min: 0, max: 1, step: 0.01 },
+    { k: 'mutSize', l: 'Mutation size', min: 0, max: 0.6, step: 0.01 },
+  ]],
+  ['Plants', [
+    { k: 'plantK', l: 'Carrying capacity', min: 0.1, max: 1, step: 0.01 },
+    { k: 'plantGrowth', l: 'Growth rate', min: 0, max: 0.3, step: 0.005 },
+    { k: 'season', l: 'Seasonal amplitude', min: 0, max: 1.2, step: 0.01 },
+    { k: 'seasonPeriod', l: 'Season length (steps)', min: 200, max: 4000, step: 50 },
+  ]],
+  ['Interaction strengths', [
+    { k: 'grazeGain', l: 'Grazing energy gain', min: 1, max: 20, step: 0.5 },
+    { k: 'bite', l: 'Bite size', min: 0.02, max: 0.5, step: 0.01 },
+    { k: 'attack', l: 'Attack success', min: 0, max: 1, step: 0.01 },
+    { k: 'predGain', l: 'Predation efficiency', min: 0.1, max: 1.5, step: 0.01 },
+    { k: 'hMeta', l: 'Herbivore metabolism', min: 0.05, max: 0.6, step: 0.01 },
+    { k: 'pMeta', l: 'Predator metabolism', min: 0.05, max: 0.6, step: 0.01 },
+    { k: 'crowding', l: 'Crowding penalty', min: 0, max: 1.5, step: 0.05 },
+  ]],
+  ['Initial populations (applied on reset)', [
+    { k: 'initH', l: 'Herbivores', min: 0, max: 8000, step: 50 },
+    { k: 'initP', l: 'Predators', min: 0, max: 2000, step: 10 },
+  ]],
+];
+const fmtVal = (v, step) => step >= 1 ? String(v) : v.toFixed(step < 0.01 ? 3 : 2);
+
+function buildPanel() {
+  const root = document.getElementById('controls');
+  for (const [group, items] of SLIDERS) {
+    const h = document.createElement('h2'); h.textContent = group; root.appendChild(h);
+    for (const it of items) {
+      const row = document.createElement('div'); row.className = 'row';
+      const lab = document.createElement('label'); lab.textContent = it.l;
+      const inp = document.createElement('input'); inp.type = 'range'; inp.min = it.min; inp.max = it.max; inp.step = it.step; inp.value = P[it.k];
+      const val = document.createElement('span'); val.className = 'val'; val.textContent = fmtVal(P[it.k], it.step);
+      inp.addEventListener('input', () => { P[it.k] = parseFloat(inp.value); val.textContent = fmtVal(P[it.k], it.step); });
+      inp.addEventListener('change', () => inp.blur());
+      row.append(lab, inp, val); root.appendChild(row);
+    }
+  }
+  const btn = (id, fn) => { const b = document.getElementById(id); b.addEventListener('click', () => { fn(); b.blur(); }); return b; };
+  const bp = btn('btnPause', () => togglePause());
+  btn('btnReset', () => resetSim());
+  btn('btnCat', () => catastrophe());
+  btn('btnAddH', () => addRandom(HERB, 200));
+  btn('btnAddP', () => addRandom(PRED, 40));
+  document.getElementById('gridSel').addEventListener('change', e => { P.gridSize = +e.target.value; resetSim(); e.target.blur(); });
+  document.getElementById('modeSel').addEventListener('change', e => { viewMode = +e.target.value; e.target.blur(); });
+  window._pauseBtn = bp;
+}
+function togglePause() { paused = !paused; window._pauseBtn.textContent = paused ? 'Resume' : 'Pause'; }
+
+const $ = id => document.getElementById(id);
+const f2 = v => Number.isNaN(v) || v === undefined ? '–' : v.toFixed(2);
+const f3 = v => Number.isNaN(v) || v === undefined ? '–' : v.toFixed(3);
+function updatePanelStats() {
+  $('sH').textContent = cur.nH ?? '–'; $('sP').textContent = cur.nP ?? '–';
+  $('sHs').textContent = f2(cur.hSp); $('sPs').textContent = f2(cur.pSp);
+  $('sHv').textContent = f2(cur.hVi); $('sPv').textContent = f2(cur.pVi);
+  $('sHr').textContent = f3(cur.hRe); $('sPr').textContent = f3(cur.pRe);
+  $('sHe').textContent = f2(cur.hE); $('sPe').textContent = f2(cur.pE);
+  $('sG').textContent = cur.plant === undefined ? '–' : (cur.plant * 100).toFixed(1) + '% of capacity';
+  const ev = $('events');
+  const html = events.slice(0, 12).map(e => `<div>${e}</div>`).join('');
+  if (ev.innerHTML !== html) ev.innerHTML = html;
+}
+
+// ---- Keyboard & mouse -------------------------------------------------------
+function keyPressed() {
+  const tag = document.activeElement && document.activeElement.tagName;
+  if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+  if (keyIsDown(CONTROL) || keyIsDown(91) || keyIsDown(93)) return; // leave browser shortcuts alone
+  if (key === ' ') { togglePause(); return false; }
+  const k = key.toLowerCase();
+  if (k === 'r') resetSim();
+  else if (k === 'v') { viewMode = (viewMode + 1) % MODES.length; $('modeSel').value = viewMode; }
+  else if (key === '+' || key === '=') { P.stepsPerFrame = Math.min(12, P.stepsPerFrame + 1); syncSlider('stepsPerFrame'); }
+  else if (key === '-' || key === '_') { P.stepsPerFrame = Math.max(1, P.stepsPerFrame - 1); syncSlider('stepsPerFrame'); }
+  else if (k === 'm') catastrophe();
+  else if (k === 'h') addRandom(HERB, 200);
+  else if (k === 'p') addRandom(PRED, 40);
+  else return;
+  return false;
+}
+function syncSlider(k) {
+  document.querySelectorAll('#controls .row').forEach(r => {
+    if (r.querySelector('label').textContent === 'Steps per frame' && k === 'stepsPerFrame') {
+      r.querySelector('input').value = P.stepsPerFrame; r.querySelector('.val').textContent = P.stepsPerFrame;
+    }
+  });
+}
+function cellUnderMouse() {
+  const cx = Math.floor((mouseX - gx) / cs), cy = Math.floor((mouseY - gy) / cs);
+  if (cx < 0 || cy < 0 || cx >= W || cy >= H) return null;
+  return [cx, cy];
+}
+function interact(n) {
+  const c = cellUnderMouse(); if (!c) return;
+  if (keyIsDown(CONTROL) || keyIsDown(ALT)) fertilize(c[0], c[1], 6);
+  else if (keyIsDown(SHIFT)) spawnNear(c[0], c[1], PRED, n, 3);
+  else spawnNear(c[0], c[1], HERB, n, 3);
+}
+function mousePressed() { if (mouseX < width && mouseY < height) interact(12); }
+function mouseDragged() { if (mouseX < width && mouseY < height) interact(3); }
+</script>
+</body>
+</html>

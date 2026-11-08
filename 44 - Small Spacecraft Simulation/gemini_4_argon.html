@@ -1,0 +1,2224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+<title>CSV-04 "Kestrel" — Interactive Spacecraft Simulator (Babylon.js)</title>
+<script src="https://cdn.babylonjs.com/babylon.js"></script>
+<style>
+  :root {
+    --bg-panel: rgba(10, 16, 26, 0.84);
+    --border-cyan: rgba(56, 189, 248, 0.35);
+    --cyan: #38bdf8;
+    --amber: #f59e0b;
+    --red: #ef4444;
+    --green: #10b981;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+  }
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #020408;
+    font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, monospace;
+    color: var(--text);
+  }
+  #renderCanvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+    outline: none;
+  }
+
+  /* Crosshair & Interaction Reticle for First-Person Mode */
+  #reticle-wrap {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 15;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+  }
+  #reticle {
+    width: 18px;
+    height: 18px;
+    border: 2px solid rgba(56, 189, 248, 0.75);
+    border-radius: 50%;
+    position: relative;
+    transition: transform 0.15s ease, border-color 0.15s ease;
+  }
+  #reticle::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 4px;
+    height: 4px;
+    background: var(--cyan);
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+  }
+  #reticle.active {
+    transform: scale(1.35);
+    border-color: var(--amber);
+  }
+  #reticle-prompt {
+    background: rgba(8, 13, 22, 0.88);
+    border: 1px solid var(--border-cyan);
+    padding: 5px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: #fff;
+    white-space: nowrap;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+  }
+  #reticle-prompt.show {
+    opacity: 1;
+  }
+
+  /* Top Telemetry Bar */
+  #top-bar {
+    position: fixed;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    background: var(--bg-panel);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--border-cyan);
+    border-radius: 10px;
+    padding: 8px 16px;
+    z-index: 20;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .ship-badge {
+    font-weight: 800;
+    font-size: 13px;
+    letter-spacing: 0.08em;
+    color: var(--cyan);
+    border-right: 1px solid rgba(255,255,255,0.15);
+    padding-right: 12px;
+  }
+  .metric {
+    display: flex;
+    flex-direction: column;
+    min-width: 82px;
+  }
+  .metric-lbl {
+    font-size: 9.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+  }
+  .metric-val {
+    font-size: 13px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  .bar-mini {
+    width: 100%;
+    height: 4px;
+    background: rgba(255,255,255,0.12);
+    border-radius: 2px;
+    margin-top: 3px;
+    overflow: hidden;
+  }
+  .bar-fill {
+    height: 100%;
+    background: var(--green);
+    transition: width 0.2s ease, background 0.2s ease;
+  }
+
+  /* Left Systems & Compartment Panel */
+  #left-panel {
+    position: fixed;
+    top: 76px;
+    left: 14px;
+    width: 310px;
+    max-height: calc(100vh - 92px);
+    overflow-y: auto;
+    background: var(--bg-panel);
+    backdrop-filter: blur(14px);
+    border: 1px solid var(--border-cyan);
+    border-radius: 12px;
+    padding: 14px;
+    z-index: 20;
+    box-shadow: 0 12px 36px rgba(0,0,0,0.65);
+    transition: transform 0.25s ease;
+  }
+  #left-panel.collapsed {
+    transform: translateX(-340px);
+  }
+  #left-panel::-webkit-scrollbar { width: 4px; }
+  #left-panel::-webkit-scrollbar-thumb { background: rgba(56,189,248,0.3); border-radius: 2px; }
+
+  /* Right Camera & Incident Control Panel */
+  #right-panel {
+    position: fixed;
+    top: 76px;
+    right: 14px;
+    width: 280px;
+    max-height: calc(100vh - 92px);
+    overflow-y: auto;
+    background: var(--bg-panel);
+    backdrop-filter: blur(14px);
+    border: 1px solid var(--border-cyan);
+    border-radius: 12px;
+    padding: 14px;
+    z-index: 20;
+    box-shadow: 0 12px 36px rgba(0,0,0,0.65);
+    transition: transform 0.25s ease;
+  }
+  #right-panel.collapsed {
+    transform: translateX(310px);
+  }
+
+  .panel-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--cyan);
+    margin: 10px 0 7px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .panel-title:first-child {
+    margin-top: 0;
+  }
+
+  /* Room Cards */
+  .room-list {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .room-card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 7px;
+    padding: 6px 9px;
+    font-size: 11.5px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    transition: border-color 0.2s ease, background 0.2s ease;
+  }
+  .room-card.current {
+    border-color: var(--cyan);
+    background: rgba(56, 189, 248, 0.11);
+  }
+  .room-card.hazard {
+    border-color: var(--red);
+    background: rgba(239, 68, 68, 0.16);
+    animation: pulseHazard 1.2s infinite alternate;
+  }
+  @keyframes pulseHazard {
+    from { box-shadow: 0 0 4px rgba(239,68,68,0.2); }
+    to   { box-shadow: 0 0 14px rgba(239,68,68,0.6); }
+  }
+  .room-hdr {
+    display: flex;
+    justify-content: space-between;
+    font-weight: 600;
+  }
+  .room-stats {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10.5px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .tag {
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 9.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+  .tag-ok { background: rgba(16,185,129,0.2); color: #34d399; }
+  .tag-warn { background: rgba(245,158,11,0.25); color: #fbbf24; }
+  .tag-crit { background: rgba(239,68,68,0.3); color: #fca5a5; }
+
+  /* Buttons */
+  .btn-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+  .btn-grid-3 {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 5px;
+  }
+  button {
+    appearance: none;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.14);
+    color: var(--text);
+    padding: 6px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    text-align: center;
+  }
+  button:hover {
+    background: rgba(56, 189, 248, 0.16);
+    border-color: var(--cyan);
+  }
+  button.active {
+    background: rgba(56, 189, 248, 0.25);
+    border-color: var(--cyan);
+    color: #fff;
+    box-shadow: 0 0 10px rgba(56,189,248,0.25);
+  }
+  button.warn-btn {
+    border-color: rgba(245, 158, 11, 0.4);
+    color: #fcd34d;
+  }
+  button.warn-btn:hover {
+    background: rgba(245, 158, 11, 0.2);
+    border-color: var(--amber);
+  }
+  button.danger-btn {
+    border-color: rgba(239, 68, 68, 0.45);
+    color: #fca5a5;
+  }
+  button.danger-btn:hover {
+    background: rgba(239, 68, 68, 0.25);
+    border-color: var(--red);
+  }
+
+  /* Alert Banner */
+  #alert-banner {
+    position: fixed;
+    top: 66px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(220, 38, 38, 0.9);
+    border: 1px solid #fca5a5;
+    color: #fff;
+    padding: 6px 18px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    z-index: 25;
+    display: none;
+    box-shadow: 0 0 24px rgba(239, 68, 68, 0.8);
+  }
+
+  /* Log Box */
+  #ship-log {
+    background: rgba(0, 0, 0, 0.45);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 6px;
+    padding: 6px 8px;
+    height: 88px;
+    overflow-y: auto;
+    font-size: 10.5px;
+    line-height: 1.45;
+    color: #cbd5e1;
+    font-family: monospace;
+  }
+  .log-entry { margin-bottom: 3px; }
+  .log-time { color: var(--cyan); margin-right: 4px; }
+
+  /* Bottom Controls Hint */
+  #bottom-hint {
+    position: fixed;
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--bg-panel);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 999px;
+    padding: 6px 16px;
+    font-size: 11px;
+    color: var(--muted);
+    z-index: 20;
+    white-space: nowrap;
+  }
+  kbd {
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.22);
+    border-radius: 3px;
+    padding: 1px 5px;
+    color: #fff;
+    font-size: 10px;
+    font-family: monospace;
+  }
+
+  #toggle-ui-btn {
+    position: fixed;
+    bottom: 12px;
+    right: 14px;
+    z-index: 30;
+  }
+
+  @media (max-width: 900px) {
+    #left-panel, #right-panel { width: 250px; }
+    #bottom-hint { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="renderCanvas"></canvas>
+
+<!-- First-Person Crosshair & Context Prompt -->
+<div id="reticle-wrap">
+  <div id="reticle"></div>
+  <div id="reticle-prompt">Press [E] or Click to Interact</div>
+</div>
+
+<div id="alert-banner">MASTER CAUTION — ACTIVE SHIP EMERGENCY</div>
+
+<!-- Top Ship Telemetry Bar -->
+<header id="top-bar">
+  <div class="ship-badge">CSV-04 KESTREL</div>
+  <div class="metric">
+    <span class="metric-lbl">Hull Integrity</span>
+    <span class="metric-val" id="ui-hull">100%</span>
+    <div class="bar-mini"><div class="bar-fill" id="bar-hull" style="width:100%"></div></div>
+  </div>
+  <div class="metric">
+    <span class="metric-lbl">Battery Bank</span>
+    <span class="metric-val" id="ui-batt">92%</span>
+    <div class="bar-mini"><div class="bar-fill" id="bar-batt" style="width:92%"></div></div>
+  </div>
+  <div class="metric">
+    <span class="metric-lbl">Net Power</span>
+    <span class="metric-val" id="ui-pwr">+18.5 kW</span>
+  </div>
+  <div class="metric">
+    <span class="metric-lbl">Mean Ship O₂</span>
+    <span class="metric-val" id="ui-o2">98.4%</span>
+    <div class="bar-mini"><div class="bar-fill" id="bar-o2" style="width:98%"></div></div>
+  </div>
+  <div class="metric">
+    <span class="metric-lbl">O₂ Reserve</span>
+    <span class="metric-val" id="ui-o2res">100%</span>
+  </div>
+  <div class="metric">
+    <span class="metric-lbl">Orbital Phase</span>
+    <span class="metric-val" id="ui-orbit">DAY (Solar 100%)</span>
+  </div>
+</header>
+
+<!-- Left Panel: Compartments, Doors, Power Breakers -->
+<aside id="left-panel">
+  <div class="panel-title">
+    <span>Compartment Telemetry</span>
+    <span id="ui-cur-room" style="color:#fff;font-size:10px;">COCKPIT</span>
+  </div>
+  <div class="room-list" id="room-cards"></div>
+
+  <div class="panel-title">Bulkhead Doors (Click or [E])</div>
+  <div class="btn-grid" id="door-btns"></div>
+
+  <div class="panel-title">Power Bus Breakers</div>
+  <div class="btn-grid">
+    <button id="brk-reactor" class="active">Reactor Core (65kW)</button>
+    <button id="brk-lifesup" class="active">O₂ Scrubber (18kW)</button>
+    <button id="brk-lights" class="active">Interior Lights (8kW)</button>
+    <button id="brk-engine" class="active">Plasma Drive (28kW)</button>
+  </div>
+</aside>
+
+<!-- Right Panel: Camera Modes, Cutaway, Teleport, Incident Simulator -->
+<aside id="right-panel">
+  <div class="panel-title">Camera Mode <kbd>V</kbd></div>
+  <div class="btn-grid-3" id="cam-btns">
+    <button class="active" data-cam="fp">1st-Person</button>
+    <button data-cam="orbit">Ext Orbit</button>
+    <button data-cam="free">Ext Drone</button>
+  </div>
+
+  <div class="panel-title">Exterior / Interior Inspection</div>
+  <div class="btn-grid">
+    <button id="btn-cutaway">Hull Cutaway <kbd>X</kbd></button>
+    <button id="btn-audio" class="active">Ship Audio: ON</button>
+  </div>
+
+  <div class="panel-title">Quick Crew Teleport (1st-Person)</div>
+  <div class="btn-grid-3" id="tp-btns">
+    <button data-tp="cockpit">Cockpit</button>
+    <button data-tp="cabin">Cabin</button>
+    <button data-tp="airlock">Airlock</button>
+    <button data-tp="cargo">Cargo</button>
+    <button data-tp="eng">Engin.</button>
+    <button data-tp="drive">Drive</button>
+  </div>
+
+  <div class="panel-title">Simulation &amp; Emergencies</div>
+  <div class="btn-grid">
+    <button class="warn-btn" id="sim-fire">Ignite Fire</button>
+    <button class="warn-btn" id="sim-breach">Hull Breach</button>
+    <button class="warn-btn" id="sim-short">Reactor Fault</button>
+    <button class="active" id="sim-repair">Auto-Repair All</button>
+  </div>
+
+  <div class="panel-title">Persistent Ship Log</div>
+  <div id="ship-log"></div>
+  <div style="margin-top:6px;">
+    <button class="danger-btn" id="btn-reset-save" style="width:100%;">Reset Saved Ship State</button>
+  </div>
+</aside>
+
+<div id="bottom-hint">
+  <kbd>WASD</kbd> Walk · <kbd>Mouse</kbd> Look/Click · <kbd>E</kbd> Open Door / Repair Hazard · <kbd>X</kbd> Cutaway Roof · <kbd>V</kbd> Switch Camera · <kbd>H</kbd> Toggle UI
+</div>
+
+<button id="toggle-ui-btn">Hide UI <kbd>H</kbd></button>
+
+<script>
+(function() {
+  "use strict";
+
+  // ============================================================================
+  // 1. PROCEDURAL WEB AUDIO SYNTHESIZER (Alarms, Doors, Welder, Hum, Venting)
+  // ============================================================================
+  class ShipAudio {
+    constructor() {
+      this.ctx = null;
+      this.enabled = true;
+      this.humGain = null;
+      this.lastAlarmTime = 0;
+      this.lastStepTime = 0;
+    }
+
+    init() {
+      if (this.ctx) return;
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      this.ctx = new AudioCtx();
+
+      // Continuous low-frequency ship reactor & ventilation rumble
+      const osc1 = this.ctx.createOscillator();
+      const osc2 = this.ctx.createOscillator();
+      this.humGain = this.ctx.createGain();
+      osc1.type = "sawtooth";
+      osc1.frequency.value = 48;
+      osc2.type = "sine";
+      osc2.frequency.value = 96;
+
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.frequency.value = 130;
+
+      this.humGain.gain.value = 0.035;
+      osc1.connect(filter);
+      osc2.connect(filter);
+      filter.connect(this.humGain);
+      this.humGain.connect(this.ctx.destination);
+      osc1.start();
+      osc2.start();
+    }
+
+    setHumLevel(reactorActive, insideShip) {
+      if (!this.ctx || !this.humGain) return;
+      const target = (!this.enabled) ? 0 : (reactorActive ? (insideShip ? 0.04 : 0.015) : 0.008);
+      this.humGain.gain.setTargetAtTime(target, this.ctx.currentTime, 0.2);
+    }
+
+    playDoorSound(opening) {
+      if (!this.enabled) return;
+      this.init();
+      if (!this.ctx) return;
+      const now = this.ctx.currentTime;
+
+      // Pneumatic hiss + servo sweep
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(opening ? 140 : 240, now);
+      osc.frequency.exponentialRampToValueAtTime(opening ? 280 : 110, now + 0.45);
+
+      gain.gain.setValueAtTime(0.08, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.5);
+    }
+
+    playRepairPulse() {
+      if (!this.enabled) return;
+      this.init();
+      if (!this.ctx) return;
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(320 + Math.random() * 180, now);
+      osc.frequency.exponentialRampToValueAtTime(880, now + 0.18);
+      gain.gain.setValueAtTime(0.06, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.2);
+    }
+
+    playAlarmKlaxon() {
+      if (!this.enabled) return;
+      this.init();
+      if (!this.ctx) return;
+      const now = this.ctx.currentTime;
+      if (now - this.lastAlarmTime < 1.35) return;
+      this.lastAlarmTime = now;
+
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(520, now);
+      osc.frequency.linearRampToValueAtTime(780, now + 0.35);
+      osc.frequency.linearRampToValueAtTime(480, now + 0.65);
+
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = "bandpass";
+      filter.frequency.value = 650;
+
+      gain.gain.setValueAtTime(0.055, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.7);
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.7);
+    }
+
+    playFootstep() {
+      if (!this.enabled || !this.ctx) return;
+      const now = this.ctx.currentTime;
+      if (now - this.lastStepTime < 0.38) return;
+      this.lastStepTime = now;
+
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(95 + Math.random() * 20, now);
+      osc.frequency.exponentialRampToValueAtTime(38, now + 0.08);
+      gain.gain.setValueAtTime(0.04, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.09);
+    }
+  }
+
+  const audio = new ShipAudio();
+
+  // ============================================================================
+  // 2. SHIP COMPARTMENTS, DOORS & PERSISTENT STATE ARCHITECTURE
+  // ============================================================================
+  // Bus-sized spacecraft dimensions:
+  // Length (Z): -8.2m (Aft Engine) to +8.2m (Forward Cockpit Nose) = 16.4m total
+  // Width  (X): -2.8m (Port) to +2.8m (Starboard) = 5.6m total
+  // Height (Y):  0.0m (Deck Floor) to +2.65m (Ceiling) = 2.65m interior headroom
+
+  const DEFAULT_STATE = {
+    hullIntegrity: 100.0,
+    batteryCharge: 92.0,     // 0 - 100%
+    o2Reserve: 100.0,        // 0 - 100%
+    orbitalAngle: 0.4,       // radians around planet
+    cutawayMode: false,
+    breakers: {
+      reactor: true,
+      lifesup: true,
+      lights: true,
+      engine: true
+    },
+    reactorHealth: 100.0,
+    rooms: {
+      cockpit:  { name: "Cockpit",          o2: 99.0, pressure: 101.3, fire: false, breach: false, bounds: { xMin: -2.6, xMax:  2.6, zMin:  4.5, zMax:  8.0 } },
+      corridor: { name: "Fwd Corridor",     o2: 99.0, pressure: 101.3, fire: false, breach: false, bounds: { xMin: -0.9, xMax:  0.9, zMin:  0.8, zMax:  4.5 } },
+      cabin:    { name: "Crew Cabin",       o2: 99.0, pressure: 101.3, fire: false, breach: false, bounds: { xMin: -2.8, xMax: -0.9, zMin:  0.8, zMax:  4.5 } },
+      airlock:  { name: "EVA Airlock",      o2: 99.0, pressure: 101.3, fire: false, breach: false, bounds: { xMin:  0.9, xMax:  2.8, zMin:  0.8, zMax:  4.5 } },
+      cargo:    { name: "Cargo Bay",        o2: 99.0, pressure: 101.3, fire: false, breach: false, bounds: { xMin: -2.8, xMax:  2.8, zMin: -2.8, zMax:  0.8 } },
+      eng:      { name: "Engineering",      o2: 99.0, pressure: 101.3, fire: false, breach: false, bounds: { xMin: -2.8, xMax:  2.8, zMin: -6.0, zMax: -2.8 } },
+      drive:    { name: "Engine Room",      o2: 99.0, pressure: 101.3, fire: false, breach: false, bounds: { xMin: -2.5, xMax:  2.5, zMin: -8.1, zMax: -6.0 } }
+    },
+    doors: {
+      cockpit:  { name: "Cockpit Bulkhead", open: true,  roomA: "cockpit",  roomB: "corridor" },
+      cabin:    { name: "Crew Cabin Door",  open: true,  roomA: "cabin",    roomB: "corridor" },
+      airlockIn:{ name: "Airlock Inner",    open: false, roomA: "airlock",  roomB: "corridor" },
+      airlockEx:{ name: "Airlock Outer EVA",open: false, roomA: "airlock",  roomB: "SPACE"    },
+      cargo:    { name: "Cargo Forward",    open: true,  roomA: "corridor", roomB: "cargo"    },
+      eng:      { name: "Engineering Door", open: true,  roomA: "cargo",    roomB: "eng"      },
+      drive:    { name: "Drive Shield Door",open: false, roomA: "eng",      roomB: "drive"    }
+    }
+  };
+
+  const STORAGE_KEY = "CSV04_KESTREL_STATE_V1";
+  let shipState = loadShipState();
+
+  function loadShipState() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        // Merge safely
+        const merged = JSON.parse(JSON.stringify(DEFAULT_STATE));
+        Object.assign(merged, parsed);
+        for (let k in DEFAULT_STATE.rooms) {
+          if (parsed.rooms && parsed.rooms[k]) {
+            Object.assign(merged.rooms[k], parsed.rooms[k]);
+          }
+        }
+        for (let k in DEFAULT_STATE.doors) {
+          if (parsed.doors && parsed.doors[k]) {
+            Object.assign(merged.doors[k], parsed.doors[k]);
+          }
+        }
+        return merged;
+      }
+    } catch (e) {
+      console.warn("Could not load saved ship state:", e);
+    }
+    return JSON.parse(JSON.stringify(DEFAULT_STATE));
+  }
+
+  function saveShipState() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(shipState));
+    } catch (e) {}
+  }
+
+  function addLog(msg) {
+    const box = document.getElementById("ship-log");
+    if (!box) return;
+    const d = new Date();
+    const tStr = d.toTimeString().slice(0, 8);
+    const div = document.createElement("div");
+    div.className = "log-entry";
+    div.innerHTML = `<span class="log-time">[${tStr}]</span>${msg}`;
+    box.prepend(div);
+    while (box.children.length > 30) {
+      box.removeChild(box.lastChild);
+    }
+  }
+
+  // ============================================================================
+  // 3. BABYLON.JS ENGINE, SCENE & CAMERAS
+  // ============================================================================
+  const canvas = document.getElementById("renderCanvas");
+  const engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
+  const scene = new BABYLON.Scene(engine);
+  scene.clearColor = new BABYLON.Color4(0.008, 0.012, 0.024, 1.0);
+  scene.collisionsEnabled = true;
+  scene.gravity = new BABYLON.Vector3(0, -0.18, 0);
+
+  // Glow Layer for Emissive Consoles, Engine Plume, Reactor Core, and Status LEDs
+  const glowLayer = new BABYLON.GlowLayer("glow", scene, {
+    mainTextureSamples: 4,
+    blurKernelSize: 32
+  });
+  glowLayer.intensity = 0.65;
+
+  // 1. First-Person Walkable Interior Camera
+  const fpCamera = new BABYLON.UniversalCamera("fpCam", new BABYLON.Vector3(0, 1.68, 5.2), scene);
+  fpCamera.setTarget(new BABYLON.Vector3(0, 1.55, 7.5));
+  fpCamera.minZ = 0.12;
+  fpCamera.fov = 1.05;
+  fpCamera.speed = 0.16;
+  fpCamera.angularSensibility = 1600;
+  fpCamera.checkCollisions = true;
+  fpCamera.applyGravity = true;
+  fpCamera.ellipsoid = new BABYLON.Vector3(0.32, 0.82, 0.32);
+  fpCamera.ellipsoidOffset = new BABYLON.Vector3(0, 0.0, 0);
+  // WASD keys
+  fpCamera.keysUp = [87, 38];    // W, Up
+  fpCamera.keysDown = [83, 40];  // S, Down
+  fpCamera.keysLeft = [65, 37];  // A, Left
+  fpCamera.keysRight = [68, 39]; // D, Right
+
+  // 2. External Orbit Inspection Camera
+  const orbitCamera = new BABYLON.ArcRotateCamera(
+    "orbitCam",
+    -Math.PI * 0.32,
+    Math.PI * 0.36,
+    22.5,
+    new BABYLON.Vector3(0, 1.2, 0),
+    scene
+  );
+  orbitCamera.minZ = 0.2;
+  orbitCamera.lowerRadiusLimit = 5.5;
+  orbitCamera.upperRadiusLimit = 65.0;
+  orbitCamera.wheelPrecision = 18;
+
+  // 3. External Free Drone Camera
+  const freeCamera = new BABYLON.UniversalCamera("freeCam", new BABYLON.Vector3(14, 6.5, 12), scene);
+  freeCamera.setTarget(new BABYLON.Vector3(0, 1.2, 0));
+  freeCamera.minZ = 0.2;
+  freeCamera.speed = 0.45;
+  freeCamera.keysUp = [87, 38];
+  freeCamera.keysDown = [83, 40];
+  freeCamera.keysLeft = [65, 37];
+  freeCamera.keysRight = [68, 39];
+
+  let activeCamMode = "fp";
+  scene.activeCamera = fpCamera;
+  fpCamera.attachControl(canvas, true);
+
+  // Pointer lock on canvas click when in First-Person mode
+  canvas.addEventListener("click", () => {
+    audio.init();
+    if (activeCamMode === "fp" && document.pointerLockElement !== canvas) {
+      canvas.requestPointerLock?.();
+    }
+  });
+
+  function switchCamera(mode) {
+    activeCamMode = mode;
+    scene.activeCamera.detachControl();
+    if (document.pointerLockElement === canvas && mode !== "fp") {
+      document.exitPointerLock?.();
+    }
+    if (mode === "fp") {
+      scene.activeCamera = fpCamera;
+      fpCamera.attachControl(canvas, true);
+      document.getElementById("reticle-wrap").style.display = "flex";
+    } else if (mode === "orbit") {
+      scene.activeCamera = orbitCamera;
+      orbitCamera.attachControl(canvas, true);
+      document.getElementById("reticle-wrap").style.display = "none";
+    } else {
+      scene.activeCamera = freeCamera;
+      freeCamera.attachControl(canvas, true);
+      document.getElementById("reticle-wrap").style.display = "flex";
+    }
+    document.querySelectorAll("#cam-btns button").forEach(b => {
+      b.classList.toggle("active", b.dataset.cam === mode);
+    });
+  }
+
+  // ============================================================================
+  // 4. ORBITAL ENVIRONMENT: STARFIELD, PLANET, ATMOSPHERE & SUNLIGHT
+  // ============================================================================
+  // Hemispheric fill light
+  const hemiLight = new BABYLON.HemisphericLight("hemiLight", new BABYLON.Vector3(0, 1, 0), scene);
+  hemiLight.intensity = 0.28;
+  hemiLight.diffuse = new BABYLON.Color3(0.65, 0.78, 0.95);
+  hemiLight.groundColor = new BABYLON.Color3(0.18, 0.22, 0.30);
+
+  // Orbital Sun Directional Light
+  const sunLight = new BABYLON.DirectionalLight("sunLight", new BABYLON.Vector3(-0.7, -0.4, 0.6), scene);
+  sunLight.intensity = 2.4;
+  sunLight.diffuse = new BABYLON.Color3(1.0, 0.97, 0.92);
+
+  // Visible Sun Sphere
+  const sunMesh = BABYLON.MeshBuilder.CreateSphere("sunMesh", { diameter: 18, segments: 16 }, scene);
+  const sunMat = new BABYLON.StandardMaterial("sunMat", scene);
+  sunMat.emissiveColor = new BABYLON.Color3(1.0, 0.92, 0.75);
+  sunMat.disableLighting = true;
+  sunMesh.material = sunMat;
+  sunMesh.isPickable = false;
+
+  // Procedural Starfield PointsCloud
+  const starSPS = new BABYLON.PointsCloudSystem("stars", 1.8, scene);
+  starSPS.addPoints(2200, (particle) => {
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+    const r = 260 + Math.random() * 40;
+    particle.position.set(
+      r * Math.sin(phi) * Math.cos(theta),
+      r * Math.sin(phi) * Math.sin(theta),
+      r * Math.cos(phi)
+    );
+    const c = 0.65 + Math.random() * 0.35;
+    particle.color = new BABYLON.Color4(c, c * (0.92 + Math.random() * 0.08), 1.0, 1.0);
+  });
+  starSPS.buildMeshAsync().then(mesh => { mesh.isPickable = false; });
+
+  // Procedural Planet Below the Ship
+  const planetMesh = BABYLON.MeshBuilder.CreateSphere("planet", { diameter: 240, segments: 48 }, scene);
+  planetMesh.position.set(0, -155, 25);
+  planetMesh.isPickable = false;
+
+  const planetTex = new BABYLON.DynamicTexture("planetTex", { width: 1024, height: 512 }, scene, true);
+  const pCtx = planetTex.getContext();
+  // Paint oceanic gradient + continents + cloud bands
+  const grad = pCtx.createLinearGradient(0, 0, 0, 512);
+  grad.addColorStop(0, "#dbeafe");
+  grad.addColorStop(0.15, "#1e3a8a");
+  grad.addColorStop(0.5, "#0f2942");
+  grad.addColorStop(0.85, "#172554");
+  grad.addColorStop(1, "#e0f2fe");
+  pCtx.fillStyle = grad;
+  pCtx.fillRect(0, 0, 1024, 512);
+  // Continents
+  pCtx.fillStyle = "rgba(34, 84, 61, 0.65)";
+  for (let i = 0; i < 45; i++) {
+    pCtx.beginPath();
+    pCtx.ellipse(Math.random() * 1024, 80 + Math.random() * 350, 30 + Math.random() * 90, 15 + Math.random() * 45, Math.random() * Math.PI, 0, Math.PI * 2);
+    pCtx.fill();
+  }
+  // Swirling white cloud bands
+  pCtx.fillStyle = "rgba(255, 255, 255, 0.38)";
+  for (let i = 0; i < 80; i++) {
+    pCtx.beginPath();
+    pCtx.ellipse(Math.random() * 1024, 30 + Math.random() * 450, 40 + Math.random() * 120, 4 + Math.random() * 14, (Math.random() - 0.5) * 0.3, 0, Math.PI * 2);
+    pCtx.fill();
+  }
+  planetTex.update();
+
+  const planetMat = new BABYLON.StandardMaterial("planetMat", scene);
+  planetMat.diffuseTexture = planetTex;
+  planetMat.specularColor = new BABYLON.Color3(0.12, 0.18, 0.25);
+  planetMat.emissiveColor = new BABYLON.Color3(0.03, 0.06, 0.12);
+  planetMesh.material = planetMat;
+
+  // Atmospheric Halo Shell
+  const atmoMesh = BABYLON.MeshBuilder.CreateSphere("atmo", { diameter: 246, segments: 32 }, scene);
+  atmoMesh.position.copyFrom(planetMesh.position);
+  atmoMesh.isPickable = false;
+  const atmoMat = new BABYLON.StandardMaterial("atmoMat", scene);
+  atmoMat.emissiveColor = new BABYLON.Color3(0.18, 0.52, 0.95);
+  atmoMat.alpha = 0.18;
+  atmoMat.backFaceCulling = true;
+  atmoMesh.material = atmoMat;
+
+  // ============================================================================
+  // 5. MATERIALS & TEXTURE FACTORY
+  // ============================================================================
+  const mats = {};
+
+  function createPBR(name, albedoHex, metallic, roughness, emissiveHex = null, alpha = 1.0) {
+    const m = new BABYLON.PBRMetallicRoughnessMaterial(name, scene);
+    m.baseColor = BABYLON.Color3.FromHexString(albedoHex);
+    m.metallic = metallic;
+    m.roughness = roughness;
+    if (emissiveHex) {
+      m.emissiveColor = BABYLON.Color3.FromHexString(emissiveHex);
+    }
+    if (alpha < 1.0) {
+      m.alpha = alpha;
+      m.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_ALPHABLEND;
+    }
+    return m;
+  }
+
+  // Exterior & Structural Materials
+  mats.hullWhite   = createPBR("hullWhite", "#d8dee9", 0.35, 0.42);
+  mats.hullDark    = createPBR("hullDark",  "#2b3340", 0.65, 0.45);
+  mats.hullAccent  = createPBR("hullAccent","#d97706", 0.40, 0.38); // safety amber stripe
+  mats.solarPanel  = createPBR("solar",     "#0f294a", 0.85, 0.22, "#06152d");
+  mats.chrome      = createPBR("chrome",    "#cbd5e1", 0.92, 0.18);
+  mats.floorDeck   = createPBR("floorDeck", "#1e2530", 0.55, 0.55);
+  mats.wallPanel   = createPBR("wallPanel", "#475569", 0.45, 0.50);
+  mats.ribSteel    = createPBR("ribSteel",  "#334155", 0.70, 0.40);
+  mats.doorMetal   = createPBR("doorMetal", "#64748b", 0.65, 0.35);
+  mats.fabricBlue  = createPBR("fabricBlue","#2563eb", 0.05, 0.85);
+  mats.fabricGrey  = createPBR("fabricGrey","#94a3b8", 0.05, 0.85);
+  mats.crateAmber  = createPBR("crateAmb",  "#b45309", 0.35, 0.55);
+  mats.crateOlive  = createPBR("crateOlv",  "#3f6212", 0.35, 0.55);
+  mats.o2Tank      = createPBR("o2Tank",    "#0284c7", 0.60, 0.30);
+  mats.fuelTank    = createPBR("fuelTank",  "#dc2626", 0.55, 0.35);
+  mats.copperPipe  = createPBR("copper",    "#b87333", 0.88, 0.28);
+
+  // Transparent Armored Viewport Glass
+  mats.glass = new BABYLON.PBRMetallicRoughnessMaterial("glass", scene);
+  mats.glass.baseColor = new BABYLON.Color3(0.55, 0.82, 0.98);
+  mats.glass.metallic = 0.1;
+  mats.glass.roughness = 0.08;
+  mats.glass.alpha = 0.24;
+  mats.glass.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_ALPHABLEND;
+  mats.glass.backFaceCulling = false;
+
+  // Emissive Materials
+  mats.reactorGlow = createPBR("reactorGlow", "#38bdf8", 0.1, 0.2, "#0ea5e9");
+  mats.enginePlume = createPBR("enginePlume", "#60a5fa", 0.0, 0.1, "#3b82f6", 0.72);
+  mats.ledGreen    = createPBR("ledGreen",    "#10b981", 0.0, 0.2, "#10b981");
+  mats.ledRed      = createPBR("ledRed",      "#ef4444", 0.0, 0.2, "#ef4444");
+  mats.ledAmber    = createPBR("ledAmber",    "#f59e0b", 0.0, 0.2, "#f59e0b");
+  mats.ledCyan     = createPBR("ledCyan",     "#38bdf8", 0.0, 0.2, "#38bdf8");
+
+  // Shared Soft Radial Particle Texture (for Fire, Smoke, Air Venting, Welder)
+  function createRadialParticleTexture() {
+    const tex = new BABYLON.DynamicTexture("partTex", 64, scene, true);
+    const ctx = tex.getContext();
+    const g = ctx.createRadialGradient(32, 32, 2, 32, 32, 30);
+    g.addColorStop(0, "rgba(255,255,255,1)");
+    g.addColorStop(0.4, "rgba(255,255,255,0.6)");
+    g.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 64, 64);
+    tex.update();
+    return tex;
+  }
+  const particleTex = createRadialParticleTexture();
+
+  // ============================================================================
+  // 6. SPACECRAFT GEOMETRY BUILDER (EXTERIOR + 7 COMPARTMENTS + DOORS)
+  // ============================================================================
+  const shipRoot = new BABYLON.TransformNode("shipRoot", scene);
+  const cutawayMeshes = [];   // Upper roof/ceiling panels hidden when Cutaway Mode is ON
+  const interactables = new Map(); // mesh.name -> { type, id, label, action }
+  const doorObjects = {};     // id -> { leftPanel, rightPanel, ledMeshes, curOffset }
+  const roomLights = {};      // roomId -> PointLight
+
+  function registerInteractable(mesh, info) {
+    mesh.isPickable = true;
+    interactables.set(mesh.name, info);
+  }
+
+  function makeBox(name, w, h, d, x, y, z, mat, collide = true, isCutaway = false) {
+    const b = BABYLON.MeshBuilder.CreateBox(name, { width: w, height: h, depth: d }, scene);
+    b.position.set(x, y, z);
+    b.material = mat;
+    b.checkCollisions = collide;
+    b.isPickable = false;
+    b.parent = shipRoot;
+    if (isCutaway) cutawayMeshes.push(b);
+    return b;
+  }
+
+  function makeCyl(name, diam, h, x, y, z, mat, collide = false, rotX = 0, rotZ = 0) {
+    const c = BABYLON.MeshBuilder.CreateCylinder(name, { diameter: diam, height: h, tessellation: 20 }, scene);
+    c.position.set(x, y, z);
+    c.rotation.set(rotX, 0, rotZ);
+    c.material = mat;
+    c.checkCollisions = collide;
+    c.isPickable = false;
+    c.parent = shipRoot;
+    return c;
+  }
+
+  // --------------------------------------------------------------------------
+  // A. MAIN DECK FLOOR, UNDERBELLY HULL & LANDING SKIDS
+  // --------------------------------------------------------------------------
+  // Main interior floor deck (Z: -8.1 to +8.0, X: -2.8 to +2.8)
+  makeBox("mainDeckFloor", 5.6, 0.16, 12.6, 0, -0.08, -1.8, mats.floorDeck, true);
+  // Tapered forward cockpit deck floor (Z: +4.5 to +8.0)
+  makeBox("cockpitDeckFloor", 4.8, 0.16, 3.6, 0, -0.08, 6.25, mats.floorDeck, true);
+
+  // Exterior Ventral Hull Belly & Keel
+  makeBox("ventralKeel", 5.2, 0.38, 15.2, 0, -0.35, -0.2, mats.hullDark, false);
+  // Central Spine Walkway Grating strip
+  for (let z = -5.6; z <= 4.2; z += 0.7) {
+    makeBox("grate_" + z, 1.4, 0.02, 0.52, 0, 0.01, z, mats.ribSteel, false);
+  }
+
+  // 4 Heavy Landing Skids Underneath
+  const skidCoords = [[-2.1, 4.2], [2.1, 4.2], [-2.1, -4.8], [2.1, -4.8]];
+  skidCoords.forEach(([sx, sz], idx) => {
+    makeCyl("skidStrut_" + idx, 0.18, 0.9, sx, -0.75, sz, mats.chrome, false, 0, sx < 0 ? 0.2 : -0.2);
+    makeBox("skidPad_" + idx, 0.55, 0.10, 1.8, sx + (sx < 0 ? -0.1 : 0.1), -1.18, sz, mats.hullDark, false);
+  });
+
+  // --------------------------------------------------------------------------
+  // B. EXTERIOR SIDE WALLS WITH VIEWPORT WINDOW CUTOUTS
+  // --------------------------------------------------------------------------
+  const WALL_H = 2.65;
+  const WALL_Y = WALL_H * 0.5;
+
+  // Port Side Wall (X = -2.8, Z from -8.1 to +4.5)
+  // Has a window in the Crew Cabin (Z: +1.8 to +3.5, Y: 1.0 to 1.95)
+  makeBox("portWallAft", 0.16, WALL_H, 9.9, -2.8, WALL_Y, -3.15, mats.hullWhite, true);
+  makeBox("portWallFwd", 0.16, WALL_H, 1.0, -2.8, WALL_Y,  4.00, mats.hullWhite, true);
+  makeBox("portWinBot",  0.16, 1.00,   1.7, -2.8, 0.50,    2.65, mats.hullWhite, true);
+  makeBox("portWinTop",  0.16, 0.70,   1.7, -2.8, 2.30,    2.65, mats.hullWhite, true);
+  makeBox("portWinGlass",0.06, 0.95,   1.7, -2.8, 1.475,   2.65, mats.glass,     true);
+
+  // Starboard Side Wall (X = +2.8, Z from -8.1 to +4.5)
+  // Has the Outer EVA Airlock Door opening at (Z: +2.05 to +3.25, Y: 0.0 to 2.15)
+  makeBox("stbdWallAft", 0.16, WALL_H, 10.15, 2.8, WALL_Y, -3.025, mats.hullWhite, true);
+  makeBox("stbdWallFwd", 0.16, WALL_H, 1.25,  2.8, WALL_Y,  3.875, mats.hullWhite, true);
+  makeBox("stbdDoorTop", 0.16, 0.50,   1.20,  2.8, 2.40,    2.65,  mats.hullWhite, true);
+  // External EVA Docking Collar Frame around Starboard Airlock
+  makeBox("evaCollarTop", 0.38, 0.18, 1.6, 2.95, 2.25, 2.65, mats.hullAccent, false);
+  makeBox("evaCollarBot", 0.38, 0.18, 1.6, 2.95, 0.05, 2.65, mats.hullAccent, false);
+  makeBox("evaCollarL",   0.38, 2.30, 0.18,2.95, 1.15, 1.92, mats.hullAccent, false);
+  makeBox("evaCollarR",   0.38, 2.30, 0.18,2.95, 1.15, 3.38, mats.hullAccent, false);
+
+  // Exterior Longitudinal Amber Safety Stripes
+  makeBox("stripePort", 0.05, 0.22, 9.8, -2.89, 1.35, -3.1, mats.hullAccent, false);
+  makeBox("stripeStbd", 0.05, 0.22, 9.8,  2.89, 1.35, -3.1, mats.hullAccent, false);
+
+  // Aft Exterior Bulkhead (Z = -8.1)
+  makeBox("aftWallL",   1.6, WALL_H, 0.22, -2.0, WALL_Y, -8.1, mats.hullDark, true);
+  makeBox("aftWallR",   1.6, WALL_H, 0.22,  2.0, WALL_Y, -8.1, mats.hullDark, true);
+  makeBox("aftWallMid", 2.4, WALL_H, 0.22,  0.0, WALL_Y, -8.1, mats.hullDark, true);
+
+  // --------------------------------------------------------------------------
+  // C. FORWARD COCKPIT HULL & ARMORED GLASS CANOPY (Z: +4.5 to +8.1)
+  // --------------------------------------------------------------------------
+  // Lower nose hull walls
+  makeBox("cockpitLowL", 0.16, 1.05, 3.5, -2.4, 0.525, 6.25, mats.hullWhite, true);
+  makeBox("cockpitLowR", 0.16, 1.05, 3.5,  2.4, 0.525, 6.25, mats.hullWhite, true);
+  makeBox("cockpitNose", 4.96, 1.05, 0.18, 0.0, 0.525, 8.00, mats.hullWhite, true);
+  makeBox("noseBumper",  5.10, 0.35, 0.35, 0.0, 0.35,  8.15, mats.hullDark,  false);
+
+  // Wrap-around Armored Glass Windscreens (Front, Port-Fwd, Starboard-Fwd, Overhead)
+  const frontGlass = makeBox("cockpitGlassFront", 4.75, 1.55, 0.06, 0, 1.80, 7.96, mats.glass, true);
+  makeBox("cockpitGlassL", 0.06, 1.55, 3.45, -2.38, 1.80, 6.25, mats.glass, true);
+  makeBox("cockpitGlassR", 0.06, 1.55, 3.45,  2.38, 1.80, 6.25, mats.glass, true);
+  void frontGlass;
+
+  // Canopy structural mullions/frames
+  makeBox("canopyPillarL", 0.14, 1.62, 0.14, -2.38, 1.82, 7.96, mats.hullDark, false);
+  makeBox("canopyPillarR", 0.14, 1.62, 0.14,  2.38, 1.82, 7.96, mats.hullDark, false);
+  makeBox("canopyPillarM", 0.10, 1.62, 0.10,  0.00, 1.82, 7.96, mats.hullDark, false);
+
+  // --------------------------------------------------------------------------
+  // D. ROOF HULL PLATES & SKYLIGHT (SUPPORTING CUTAWAY INSPECTION MODE)
+  // --------------------------------------------------------------------------
+  // Roof plates are registered with `isCutaway = true` so pressing [X] reveals the full interior!
+  makeBox("roofCockpit", 4.9, 0.14, 3.6,  0.0, 2.68,  6.25, mats.hullWhite, true, true);
+  makeBox("roofHabL",    2.2, 0.16, 3.7, -1.7, 2.68,  2.65, mats.hullWhite, true, true);
+  makeBox("roofHabR",    2.2, 0.16, 3.7,  1.7, 2.68,  2.65, mats.hullWhite, true, true);
+  makeBox("roofCorr",    1.2, 0.16, 3.7,  0.0, 2.68,  2.65, mats.hullDark,  true, true);
+  // Cargo Bay Roof with central armored glass skylight so you can see inside even without cutaway!
+  makeBox("roofCargoL",  1.6, 0.16, 3.6, -2.0, 2.68, -1.00, mats.hullWhite, true, true);
+  makeBox("roofCargoR",  1.6, 0.16, 3.6,  2.0, 2.68, -1.00, mats.hullWhite, true, true);
+  makeBox("cargoSkylight",2.4, 0.08, 3.4, 0.0, 2.68, -1.00, mats.glass,     true, false);
+  // Engineering & Drive Roof
+  makeBox("roofEng",     5.7, 0.18, 5.3,  0.0, 2.68, -5.45, mats.hullWhite, true, true);
+
+  // Dorsal Spine Greebles (Comms Dish, Radiator Fins, Navigation Strobes)
+  const dishBase = makeCyl("dishBase", 0.6, 0.35, -1.6, 2.92, 3.2, mats.hullDark, false);
+  const dishBowl = BABYLON.MeshBuilder.CreateCylinder("dishBowl", { diameterTop: 1.35, diameterBottom: 0.25, height: 0.35 }, scene);
+  dishBowl.position.set(-1.6, 3.25, 3.2);
+  dishBowl.rotation.x = 0.45;
+  dishBowl.material = mats.hullWhite;
+  dishBowl.parent = shipRoot;
+  cutawayMeshes.push(dishBase, dishBowl);
+
+  // Articulated Solar Array Wings (Port & Starboard mounted at Z = -4.2)
+  const solarWingL = new BABYLON.TransformNode("solarWingL", scene);
+  solarWingL.position.set(-2.9, 1.8, -4.2);
+  solarWingL.parent = shipRoot;
+  const solarWingR = new BABYLON.TransformNode("solarWingR", scene);
+  solarWingR.position.set(2.9, 1.8, -4.2);
+  solarWingR.parent = shipRoot;
+
+  function buildSolarArray(parent, dir) {
+    const boom = BABYLON.MeshBuilder.CreateCylinder("sBoom", { diameter: 0.16, height: 5.4 }, scene);
+    boom.rotation.z = Math.PI * 0.5;
+    boom.position.x = dir * 2.7;
+    boom.material = mats.chrome;
+    boom.parent = parent;
+
+    for (let i = 0; i < 4; i++) {
+      const panel = BABYLON.MeshBuilder.CreateBox("sPanel_" + i, { width: 1.15, height: 0.04, depth: 2.3 }, scene);
+      panel.position.set(dir * (0.95 + i * 1.25), 0, 0);
+      panel.material = mats.solarPanel;
+      panel.parent = parent;
+    }
+  }
+  buildSolarArray(solarWingL, -1);
+  buildSolarArray(solarWingR,  1);
+
+  // Exterior Magnetic Nozzle Engine Bell & Glowing Plasma Thrust Plume (Z = -8.2 to -10.5)
+  const nozzleOuter = BABYLON.MeshBuilder.CreateCylinder("nozzleOuter", { diameterTop: 1.45, diameterBottom: 2.35, height: 1.45, tessellation: 28 }, scene);
+  nozzleOuter.rotation.x = Math.PI * 0.5;
+  nozzleOuter.position.set(0, 1.32, -8.85);
+  nozzleOuter.material = mats.hullDark;
+  nozzleOuter.parent = shipRoot;
+
+  const enginePlumeMesh = BABYLON.MeshBuilder.CreateCylinder("enginePlumeMesh", { diameterTop: 1.25, diameterBottom: 0.1, height: 3.4, tessellation: 20 }, scene);
+  enginePlumeMesh.rotation.x = -Math.PI * 0.5;
+  enginePlumeMesh.position.set(0, 1.32, -10.5);
+  enginePlumeMesh.material = mats.enginePlume;
+  enginePlumeMesh.isPickable = false;
+  enginePlumeMesh.parent = shipRoot;
+
+  // --------------------------------------------------------------------------
+  // E. INTERIOR BULKHEAD WALLS & INTERACTIVE SLIDING DOORS
+  // --------------------------------------------------------------------------
+  // Helper to build a bulkhead wall along X (transverse) with a central doorway
+  function buildTransverseBulkhead(name, zPos, xMin, xMax, doorX, doorId, label) {
+    const doorW = 1.15;
+    const doorH = 2.12;
+    const leftW = (doorX - doorW * 0.5) - xMin;
+    const rightW = xMax - (doorX + doorW * 0.5);
+
+    if (leftW > 0.05) {
+      makeBox(name + "_L", leftW, WALL_H, 0.14, xMin + leftW * 0.5, WALL_Y, zPos, mats.wallPanel, true);
+    }
+    if (rightW > 0.05) {
+      makeBox(name + "_R", rightW, WALL_H, 0.14, xMax - rightW * 0.5, WALL_Y, zPos, mats.wallPanel, true);
+    }
+    // Header lintel above door
+    makeBox(name + "_Top", doorW, WALL_H - doorH, 0.14, doorX, doorH + (WALL_H - doorH) * 0.5, zPos, mats.wallPanel, true);
+
+    // Door Frame & LED Strips
+    makeBox(name + "_FrameL", 0.08, doorH, 0.20, doorX - doorW * 0.5, doorH * 0.5, zPos, mats.ribSteel, false);
+    makeBox(name + "_FrameR", 0.08, doorH, 0.20, doorX + doorW * 0.5, doorH * 0.5, zPos, mats.ribSteel, false);
+    const ledA = makeBox(name + "_LedA", 0.9, 0.07, 0.22, doorX, doorH + 0.08, zPos, mats.ledGreen, false);
+
+    // Two bi-parting sliding door leaves
+    const leafW = doorW * 0.5 + 0.02;
+    const leafL = makeBox("doorLeafL_" + doorId, leafW, doorH - 0.04, 0.08, doorX - leafW * 0.5, doorH * 0.5, zPos, mats.doorMetal, true);
+    const leafR = makeBox("doorLeafR_" + doorId, leafW, doorH - 0.04, 0.08, doorX + leafW * 0.5, doorH * 0.5, zPos, mats.doorMetal, true);
+
+    // Interactive Keypad Panels on both sides of the bulkhead
+    const padF = makeBox("doorPadF_" + doorId, 0.18, 0.26, 0.05, doorX + doorW * 0.5 + 0.18, 1.32, zPos + 0.09, mats.ledCyan, false);
+    const padB = makeBox("doorPadB_" + doorId, 0.18, 0.26, 0.05, doorX + doorW * 0.5 + 0.18, 1.32, zPos - 0.09, mats.ledCyan, false);
+
+    const info = { type: "door", id: doorId, label: `${label} [E]` };
+    registerInteractable(leafL, info);
+    registerInteractable(leafR, info);
+    registerInteractable(padF, info);
+    registerInteractable(padB, info);
+
+    doorObjects[doorId] = {
+      axis: "x",
+      baseL: doorX - leafW * 0.5,
+      baseR: doorX + leafW * 0.5,
+      slideDist: leafW - 0.06,
+      leafL,
+      leafR,
+      led: ledA,
+      curOpen: shipState.doors[doorId].open ? 1.0 : 0.0
+    };
+  }
+
+  // Helper to build a longitudinal wall along Z (separating Corridor from Cabin & Airlock)
+  function buildLongitudinalBulkhead(name, xPos, zMin, zMax, doorZ, doorId, label) {
+    const doorW = 1.10;
+    const doorH = 2.12;
+    const aftLen = (doorZ - doorW * 0.5) - zMin;
+    const fwdLen = zMax - (doorZ + doorW * 0.5);
+
+    if (aftLen > 0.05) {
+      makeBox(name + "_Aft", 0.14, WALL_H, aftLen, xPos, WALL_Y, zMin + aftLen * 0.5, mats.wallPanel, true);
+    }
+    if (fwdLen > 0.05) {
+      makeBox(name + "_Fwd", 0.14, WALL_H, fwdLen, xPos, WALL_Y, zMax - fwdLen * 0.5, mats.wallPanel, true);
+    }
+    makeBox(name + "_Top", 0.14, WALL_H - doorH, doorW, xPos, doorH + (WALL_H - doorH) * 0.5, doorZ, mats.wallPanel, true);
+
+    const ledA = makeBox(name + "_Led", 0.22, 0.07, 0.85, xPos, doorH + 0.08, doorZ, mats.ledGreen, false);
+    const leafW = doorW * 0.5 + 0.02;
+    const leafL = makeBox("doorLeafL_" + doorId, 0.08, doorH - 0.04, leafW, xPos, doorH * 0.5, doorZ - leafW * 0.5, mats.doorMetal, true);
+    const leafR = makeBox("doorLeafR_" + doorId, 0.08, doorH - 0.04, leafW, xPos, doorH * 0.5, doorZ + leafW * 0.5, mats.doorMetal, true);
+
+    const padIn  = makeBox("doorPadIn_"  + doorId, 0.05, 0.26, 0.18, xPos + 0.09, 1.32, doorZ + doorW * 0.5 + 0.18, mats.ledCyan, false);
+    const padOut = makeBox("doorPadOut_" + doorId, 0.05, 0.26, 0.18, xPos - 0.09, 1.32, doorZ + doorW * 0.5 + 0.18, mats.ledCyan, false);
+
+    const info = { type: "door", id: doorId, label: `${label} [E]` };
+    registerInteractable(leafL, info);
+    registerInteractable(leafR, info);
+    registerInteractable(padIn, info);
+    registerInteractable(padOut, info);
+
+    doorObjects[doorId] = {
+      axis: "z",
+      baseL: doorZ - leafW * 0.5,
+      baseR: doorZ + leafW * 0.5,
+      slideDist: leafW - 0.06,
+      leafL,
+      leafR,
+      led: ledA,
+      curOpen: shipState.doors[doorId].open ? 1.0 : 0.0
+    };
+  }
+
+  // Build All 7 Bulkhead Doors:
+  // 1. Cockpit Bulkhead (Z = +4.5)
+  buildTransverseBulkhead("bhCockpit", 4.5, -2.8, 2.8, 0.0, "cockpit", "Cockpit Bulkhead Door");
+  // 2. Forward Cargo Bulkhead (Z = +0.8)
+  buildTransverseBulkhead("bhCargoFwd", 0.8, -2.8, 2.8, 0.0, "cargo", "Cargo Bay Forward Door");
+  // 3. Engineering Bulkhead (Z = -2.8)
+  buildTransverseBulkhead("bhEng", -2.8, -2.8, 2.8, 0.0, "eng", "Engineering Bulkhead Door");
+  // 4. Engine Compartment Radiation Shield Bulkhead (Z = -6.0)
+  buildTransverseBulkhead("bhDrive", -6.0, -2.8, 2.8, 0.0, "drive", "Engine Room Shield Door");
+  // 5. Crew Cabin Door (Port Wall of Corridor, X = -0.9, Z: 0.8 to 4.5)
+  buildLongitudinalBulkhead("bhCabin", -0.9, 0.8, 4.5, 2.65, "cabin", "Crew Cabin Door");
+  // 6. Airlock Inner Door (Starboard Wall of Corridor, X = +0.9, Z: 0.8 to 4.5)
+  buildLongitudinalBulkhead("bhAirlockIn", 0.9, 0.8, 4.5, 2.65, "airlockIn", "Airlock Inner Door");
+  // 7. Airlock Outer EVA Door (Starboard Hull Wall, X = +2.8, Z = 2.65)
+  buildLongitudinalBulkhead("bhAirlockEx", 2.8, 2.05, 3.25, 2.65, "airlockEx", "Outer EVA Hatch (Vacuum!)");
+
+  // --------------------------------------------------------------------------
+  // F. INTERIOR LIGHTING & COMPARTMENT FURNISHINGS / PROPS
+  // --------------------------------------------------------------------------
+  function addRoomLight(roomId, x, y, z, colorHex = "#e0f2fe") {
+    const pt = new BABYLON.PointLight("light_" + roomId, new BABYLON.Vector3(x, y, z), scene);
+    pt.intensity = 0.78;
+    pt.range = 7.5;
+    pt.diffuse = BABYLON.Color3.FromHexString(colorHex);
+    roomLights[roomId] = pt;
+    // Ceiling light fixture strip mesh
+    makeBox("fixture_" + roomId, 0.85, 0.05, 0.22, x, 2.58, z, mats.ledCyan, false, true);
+  }
+
+  addRoomLight("cockpit",  0.0, 2.4,  6.2);
+  addRoomLight("corridor", 0.0, 2.4,  2.65);
+  addRoomLight("cabin",   -1.85,2.4,  2.65, "#fef3c7");
+  addRoomLight("airlock",  1.85,2.4,  2.65, "#bae6fd");
+  addRoomLight("cargo",    0.0, 2.4, -1.0);
+  addRoomLight("eng",      0.0, 2.4, -4.4,  "#bae6fd");
+  addRoomLight("drive",    0.0, 2.4, -7.0,  "#fed7aa");
+
+  // --- 1. COCKPIT FURNISHINGS (Z: +4.5 to +8.0) ---
+  // Main Helm Dashboard Console
+  makeBox("helmDesk", 3.6, 0.82, 0.95, 0, 0.41, 7.25, mats.hullDark, true);
+  // Pilot & Co-Pilot Seats
+  [-0.85, 0.85].forEach((sx, idx) => {
+    makeBox("seatBase_" + idx, 0.62, 0.42, 0.62, sx, 0.21, 6.15, mats.ribSteel, true);
+    makeBox("seatBack_" + idx, 0.60, 0.85, 0.14, sx, 0.75, 5.88, mats.fabricBlue, false);
+  });
+
+  // Dynamic Canvas Telemetry Display on the Cockpit Helm
+  const helmScreenTex = new BABYLON.DynamicTexture("helmScreenTex", { width: 512, height: 256 }, scene, true);
+  const helmScreenMat = new BABYLON.StandardMaterial("helmScreenMat", scene);
+  helmScreenMat.emissiveTexture = helmScreenTex;
+  helmScreenMat.disableLighting = true;
+
+  const helmScreenMesh = BABYLON.MeshBuilder.CreatePlane("helmScreenMesh", { width: 1.65, height: 0.72 }, scene);
+  helmScreenMesh.position.set(0, 1.15, 7.15);
+  helmScreenMesh.rotation.x = 0.32;
+  helmScreenMesh.material = helmScreenMat;
+  helmScreenMesh.parent = shipRoot;
+  registerInteractable(helmScreenMesh, {
+    type: "console",
+    id: "helm",
+    label: "Helm Flight & Solar Telemetry [Click/E]"
+  });
+
+  // --- 2. CREW CABIN FURNISHINGS (X: -2.8 to -0.9, Z: +0.8 to +4.5) ---
+  // Double Bunks along forward cabin wall
+  makeBox("bunkFrame", 1.65, 1.85, 0.85, -1.85, 0.92, 3.92, mats.ribSteel, true);
+  makeBox("mattressLow", 1.55, 0.14, 0.78, -1.85, 0.45, 3.92, mats.fabricBlue, false);
+  makeBox("mattressHigh",1.55, 0.14, 0.78, -1.85, 1.35, 3.92, mats.fabricBlue, false);
+  makeBox("pillowLow",   0.35, 0.10, 0.55, -2.35, 0.56, 3.92, mats.fabricGrey, false);
+  makeBox("pillowHigh",  0.35, 0.10, 0.55, -2.35, 1.46, 3.92, mats.fabricGrey, false);
+
+  // Galley Table & Medical / O2 Scrubber Unit
+  makeBox("galleyTable", 0.85, 0.76, 1.10, -2.25, 0.38, 2.25, mats.hullWhite, true);
+  const scrubberBox = makeBox("o2ScrubberMesh", 0.72, 1.65, 0.62, -1.85, 0.825, 1.22, mats.o2Tank, true);
+  registerInteractable(scrubberBox, {
+    type: "breaker",
+    id: "lifesup",
+    label: "Life-Support O₂ Scrubber Unit [Toggle E]"
+  });
+
+  // --- 3. AIRLOCK & EVA BAY FURNISHINGS (X: +0.9 to +2.8, Z: +0.8 to +4.5) ---
+  // EVA Spacesuit Locker Rack (Aft wall of airlock)
+  makeBox("evaRack", 1.55, 2.05, 0.58, 1.85, 1.025, 1.20, mats.ribSteel, true);
+  // Two Stylized EVA Suits hanging in rack
+  [1.52, 2.18].forEach((sx, idx) => {
+    makeBox("evaTorso_" + idx, 0.42, 0.68, 0.32, sx, 1.18, 1.32, mats.hullWhite, false);
+    const helm = BABYLON.MeshBuilder.CreateSphere("evaHelm_" + idx, { diameter: 0.34 }, scene);
+    helm.position.set(sx, 1.68, 1.32);
+    helm.material = mats.hullAccent;
+    helm.parent = shipRoot;
+  });
+
+  // --- 4. CARGO BAY FURNISHINGS (Z: -2.8 to +0.8, X: -2.8 to +2.8) ---
+  // Portside Magnetized Cargo Containers
+  makeBox("cargoCrate1", 1.15, 1.05, 1.15, -2.0, 0.525, -0.2, mats.crateAmber, true);
+  makeBox("cargoCrate2", 1.05, 0.95, 1.05, -2.0, 1.525, -0.2, mats.crateOlive, true);
+  makeBox("cargoCrate3", 1.15, 1.15, 1.45, -1.9, 0.575, -1.65, mats.crateOlive, true);
+
+  // Starboard Ship Battery Bank & O2 Reserve Cylinders
+  const battBank = makeBox("batteryBankMesh", 0.88, 1.55, 1.65, 2.15, 0.775, -0.35, mats.hullDark, true);
+  makeBox("battLedStrip", 0.06, 1.25, 1.35, 1.69, 0.82, -0.35, mats.ledGreen, false);
+  registerInteractable(battBank, {
+    type: "console",
+    id: "battery",
+    label: "Main Lithium-Sulfur Capacitor Bank [Click/E]"
+  });
+
+  // 3 Blue O2 Reserve Tanks in Starboard Aft Cargo Bay
+  [-1.55, -1.95, -2.35].forEach((tz, idx) => {
+    const tank = makeCyl("o2ResTank_" + idx, 0.36, 1.55, 2.30, 0.78, tz, mats.o2Tank, true);
+    registerInteractable(tank, {
+      type: "o2refill",
+      id: "o2tank",
+      label: "Emergency O₂ Reserve Manifold [Press E to Boost Room O₂]"
+    });
+  });
+
+  // --- 5. ENGINEERING ROOM FURNISHINGS (Z: -6.0 to -2.8, X: -2.8 to +2.8) ---
+  // Glowing Tokamak Fusion Reactor Column (Port-Center Engineering)
+  makeCyl("reactorBase", 1.55, 0.38, -1.45, 0.19, -4.4, mats.hullDark, true);
+  makeCyl("reactorCap",  1.55, 0.38, -1.45, 2.42, -4.4, mats.hullDark, true);
+  const reactorCoreMesh = makeCyl("reactorCoreMesh", 0.95, 1.95, -1.45, 1.30, -4.4, mats.reactorGlow, true);
+  // Torus magnetic confinement rings around the core
+  [0.75, 1.30, 1.85].forEach((ry, idx) => {
+    const ring = BABYLON.MeshBuilder.CreateTorus("reactorRing_" + idx, { diameter: 1.28, thickness: 0.12, tessellation: 24 }, scene);
+    ring.position.set(-1.45, ry, -4.4);
+    ring.material = mats.copperPipe;
+    ring.parent = shipRoot;
+  });
+  registerInteractable(reactorCoreMesh, {
+    type: "breaker",
+    id: "reactor",
+    label: "Fusion Reactor Core & Breaker [Press E to Toggle / Repair]"
+  });
+
+  // Starboard Engineering Diagnostic Console
+  const engConsole = makeBox("engConsoleMesh", 0.85, 1.25, 1.85, 2.10, 0.625, -4.4, mats.hullDark, true);
+  makeBox("engScreen", 0.08, 0.55, 1.45, 1.65, 1.15, -4.4, mats.ledCyan, false);
+  registerInteractable(engConsole, {
+    type: "breaker",
+    id: "engine",
+    label: "Engineering Drive & Power Bus Terminal [Press E]"
+  });
+
+  // --- 6. ENGINE COMPARTMENT FURNISHINGS (Z: -8.1 to -6.0, X: -2.5 to +2.5) ---
+  // Central Plasma Drive Injector Assembly
+  const driveCore = makeCyl("driveInjector", 1.25, 1.95, 0, 1.15, -7.1, mats.chrome, true, Math.PI * 0.5, 0);
+  // Deuterium / He-3 Fuel Spheres on Port and Starboard sides
+  [-1.65, 1.65].forEach((fx, idx) => {
+    const fTank = makeCyl("fuelTank_" + idx, 0.82, 1.75, fx, 0.88, -7.1, mats.fuelTank, true);
+    void fTank;
+  });
+  registerInteractable(driveCore, {
+    type: "breaker",
+    id: "engine",
+    label: "Magnetic Plasma Drive Assembly [Press E]"
+  });
+
+  // ============================================================================
+  // 7. HAZARDS, PARTICLE SYSTEMS (FIRE, HULL BREACH, WELDER) & REPAIRS
+  // ============================================================================
+  const activeHazardSystems = {}; // key: "fire_roomId" or "breach_roomId" -> { particleSys, markerMesh, light }
+
+  const ROOM_CENTERS = {
+    cockpit:  new BABYLON.Vector3( 0.8, 0.4,  6.4),
+    corridor: new BABYLON.Vector3( 0.0, 0.4,  2.6),
+    cabin:    new BABYLON.Vector3(-1.8, 0.4,  2.2),
+    airlock:  new BABYLON.Vector3( 1.8, 0.4,  2.2),
+    cargo:    new BABYLON.Vector3(-0.8, 0.4, -1.2),
+    eng:      new BABYLON.Vector3( 0.8, 0.4, -4.4),
+    drive:    new BABYLON.Vector3( 0.0, 0.4, -7.0)
+  };
+
+  function spawnFireVisuals(roomId) {
+    const key = "fire_" + roomId;
+    if (activeHazardSystems[key]) return;
+
+    const pos = ROOM_CENTERS[roomId].clone();
+    // Interactive hazard target collider so player can aim at the fire and press E / click
+    const marker = BABYLON.MeshBuilder.CreateSphere("hazard_" + key, { diameter: 1.15 }, scene);
+    marker.position.copyFrom(pos);
+    marker.position.y += 0.35;
+    marker.visibility = 0.01; // nearly invisible collider
+    registerInteractable(marker, {
+      type: "hazard_fire",
+      roomId: roomId,
+      label: `🔥 ACTIVE FIRE in ${shipState.rooms[roomId].name} — Hold/Press [E] or Click to Extinguish!`
+    });
+
+    const ps = new BABYLON.ParticleSystem("ps_" + key, 350, scene);
+    ps.particleTexture = particleTex;
+    ps.emitter = marker;
+    ps.minEmitBox = new BABYLON.Vector3(-0.35, -0.1, -0.35);
+    ps.maxEmitBox = new BABYLON.Vector3( 0.35,  0.2,  0.35);
+    ps.color1 = new BABYLON.Color4(1.0, 0.55, 0.1, 0.9);
+    ps.color2 = new BABYLON.Color4(0.95, 0.15, 0.05, 0.75);
+    ps.colorDead = new BABYLON.Color4(0.15, 0.15, 0.15, 0.0);
+    ps.minSize = 0.25;
+    ps.maxSize = 0.65;
+    ps.minLifeTime = 0.35;
+    ps.maxLifeTime = 0.85;
+    ps.emitRate = 160;
+    ps.blendMode = BABYLON.ParticleSystem.BLENDMODE_ONEONE;
+    ps.direction1 = new BABYLON.Vector3(-0.3, 1.4, -0.3);
+    ps.direction2 = new BABYLON.Vector3( 0.3, 2.2,  0.3);
+    ps.start();
+
+    activeHazardSystems[key] = { ps, marker };
+  }
+
+  function removeFireVisuals(roomId) {
+    const key = "fire_" + roomId;
+    const h = activeHazardSystems[key];
+    if (!h) return;
+    h.ps.stop();
+    setTimeout(() => h.ps.dispose(), 600);
+    interactables.delete(h.marker.name);
+    h.marker.dispose();
+    delete activeHazardSystems[key];
+  }
+
+  function spawnBreachVisuals(roomId) {
+    const key = "breach_" + roomId;
+    if (activeHazardSystems[key]) return;
+
+    const pos = ROOM_CENTERS[roomId].clone();
+    pos.y = 1.25;
+    // Place breach near outer wall of that room
+    if (roomId === "cabin") pos.x = -2.65;
+    else if (roomId === "airlock") pos.x = 2.65;
+    else if (roomId === "cockpit") pos.z = 7.75;
+    else pos.x = -2.65;
+
+    const marker = BABYLON.MeshBuilder.CreateSphere("hazard_" + key, { diameter: 0.95 }, scene);
+    marker.position.copyFrom(pos);
+    marker.material = mats.ledRed;
+    marker.scaling.set(0.18, 0.55, 0.55);
+    registerInteractable(marker, {
+      type: "hazard_breach",
+      roomId: roomId,
+      label: `⚠️ HULL BREACH in ${shipState.rooms[roomId].name} — Press [E] or Click to Plasma-Weld!`
+    });
+
+    // Decompression venting air mist particles
+    const ps = new BABYLON.ParticleSystem("ps_" + key, 280, scene);
+    ps.particleTexture = particleTex;
+    ps.emitter = marker;
+    ps.color1 = new BABYLON.Color4(0.75, 0.92, 1.0, 0.65);
+    ps.color2 = new BABYLON.Color4(0.45, 0.78, 1.0, 0.35);
+    ps.colorDead = new BABYLON.Color4(0.2, 0.5, 0.9, 0.0);
+    ps.minSize = 0.15;
+    ps.maxSize = 0.55;
+    ps.minLifeTime = 0.25;
+    ps.maxLifeTime = 0.65;
+    ps.emitRate = 180;
+    ps.blendMode = BABYLON.ParticleSystem.BLENDMODE_ONEONE;
+    const outX = pos.x < 0 ? -3.5 : 3.5;
+    ps.direction1 = new BABYLON.Vector3(outX, -0.5, -0.5);
+    ps.direction2 = new BABYLON.Vector3(outX * 1.4, 0.5, 0.5);
+    ps.start();
+
+    activeHazardSystems[key] = { ps, marker };
+  }
+
+  function removeBreachVisuals(roomId) {
+    const key = "breach_" + roomId;
+    const h = activeHazardSystems[key];
+    if (!h) return;
+    h.ps.stop();
+    setTimeout(() => h.ps.dispose(), 500);
+    interactables.delete(h.marker.name);
+    h.marker.dispose();
+    delete activeHazardSystems[key];
+  }
+
+  // Multi-Tool Repair Spray / Extinguisher Burst Effect
+  function triggerRepairBurst(targetPos, isFire) {
+    audio.playRepairPulse();
+    const ps = new BABYLON.ParticleSystem("repairBurst", 120, scene);
+    ps.particleTexture = particleTex;
+    ps.emitter = targetPos.clone();
+    ps.color1 = isFire ? new BABYLON.Color4(0.85, 0.96, 1.0, 0.9) : new BABYLON.Color4(0.2, 0.85, 1.0, 1.0);
+    ps.color2 = isFire ? new BABYLON.Color4(0.6, 0.85, 1.0, 0.5)  : new BABYLON.Color4(1.0, 0.8, 0.2, 0.9);
+    ps.colorDead = new BABYLON.Color4(0, 0, 0, 0);
+    ps.minSize = 0.12;
+    ps.maxSize = 0.38;
+    ps.minLifeTime = 0.15;
+    ps.maxLifeTime = 0.35;
+    ps.emitRate = 300;
+    ps.blendMode = BABYLON.ParticleSystem.BLENDMODE_ONEONE;
+    ps.direction1 = new BABYLON.Vector3(-1, -0.5, -1);
+    ps.direction2 = new BABYLON.Vector3( 1,  1.2,  1);
+    ps.start();
+    setTimeout(() => {
+      ps.stop();
+      setTimeout(() => ps.dispose(), 400);
+    }, 260);
+  }
+
+  // Restore any active hazards from saved state
+  for (let rId in shipState.rooms) {
+    if (shipState.rooms[rId].fire) spawnFireVisuals(rId);
+    if (shipState.rooms[rId].breach) spawnBreachVisuals(rId);
+  }
+
+  // ============================================================================
+  // 8. INTERACTION SYSTEM (DOORS, REPAIRS, BREAKERS, CONSOLES)
+  // ============================================================================
+  let hoveredInteractable = null;
+
+  function toggleDoor(doorId) {
+    const d = shipState.doors[doorId];
+    if (!d) return;
+
+    // Safety warning if opening Outer EVA Airlock while Inner Airlock door is open
+    if (doorId === "airlockEx" && !d.open && shipState.doors.airlockIn.open) {
+      addLog("⚠️ WARNING: Outer EVA Hatch opened while Inner Door unsealed! Rapid decompression!");
+    }
+
+    d.open = !d.open;
+    audio.playDoorSound(d.open);
+    addLog(`${d.name}: ${d.open ? "OPENED" : "CLOSED"}`);
+    saveShipState();
+    updateDoorButtonsUI();
+  }
+
+  function executeInteraction(info, hitPoint) {
+    if (!info) return;
+    if (info.type === "door") {
+      toggleDoor(info.id);
+    } else if (info.type === "hazard_fire") {
+      const rm = shipState.rooms[info.roomId];
+      rm.fire = false;
+      removeFireVisuals(info.roomId);
+      triggerRepairBurst(hitPoint || ROOM_CENTERS[info.roomId], true);
+      addLog(`✅ Extinguished fire in ${rm.name}.`);
+      saveShipState();
+    } else if (info.type === "hazard_breach") {
+      const rm = shipState.rooms[info.roomId];
+      rm.breach = false;
+      shipState.hullIntegrity = Math.min(100, shipState.hullIntegrity + 12);
+      removeBreachVisuals(info.roomId);
+      triggerRepairBurst(hitPoint || ROOM_CENTERS[info.roomId], false);
+      addLog(`✅ Welded hull breach in ${rm.name}.`);
+      saveShipState();
+    } else if (info.type === "breaker") {
+      if (info.id === "reactor" && shipState.reactorHealth < 100) {
+        shipState.reactorHealth = 100;
+        shipState.breakers.reactor = true;
+        triggerRepairBurst(hitPoint || new BABYLON.Vector3(-1.45, 1.3, -4.4), false);
+        addLog(`✅ Repaired Fusion Reactor containment fault.`);
+      } else {
+        shipState.breakers[info.id] = !shipState.breakers[info.id];
+        addLog(`Breaker [${info.id.toUpperCase()}]: ${shipState.breakers[info.id] ? "ONLINE" : "OFFLINE"}`);
+      }
+      updateBreakerButtonsUI();
+      saveShipState();
+    } else if (info.type === "o2refill") {
+      if (shipState.o2Reserve >= 5) {
+        shipState.o2Reserve = Math.max(0, shipState.o2Reserve - 8);
+        for (let k in shipState.rooms) {
+          shipState.rooms[k].o2 = Math.min(100, shipState.rooms[k].o2 + 18);
+          shipState.rooms[k].pressure = Math.min(101.3, shipState.rooms[k].pressure + 20);
+        }
+        audio.playDoorSound(true);
+        addLog(`💨 Injected emergency O₂ reserve into ship ventilation.`);
+        saveShipState();
+      } else {
+        addLog(`❌ O₂ Reserve tanks depleted!`);
+      }
+    } else if (info.type === "console") {
+      audio.playRepairPulse();
+      addLog(`📊 Diagnostics nominal. Battery: ${shipState.batteryCharge.toFixed(1)}%, Hull: ${shipState.hullIntegrity.toFixed(0)}%.`);
+    }
+  }
+
+  // Raycast from center of screen in First-Person / Free Drone mode
+  function updateReticleRaycast() {
+    const reticleEl = document.getElementById("reticle");
+    const promptEl = document.getElementById("reticle-prompt");
+    if (activeCamMode === "orbit") {
+      hoveredInteractable = null;
+      return;
+    }
+
+    const cam = scene.activeCamera;
+    const ray = cam.getForwardRay(4.2);
+    const pick = scene.pickWithRay(ray, (m) => interactables.has(m.name));
+
+    if (pick && pick.hit && pick.pickedMesh) {
+      const info = interactables.get(pick.pickedMesh.name);
+      hoveredInteractable = { info, point: pick.pickedPoint };
+      reticleEl.classList.add("active");
+      promptEl.textContent = info.label;
+      promptEl.classList.add("show");
+    } else {
+      hoveredInteractable = null;
+      reticleEl.classList.remove("active");
+      promptEl.classList.remove("show");
+    }
+  }
+
+  // Click picking (works in both Orbit and First-Person modes)
+  scene.onPointerObservable.add((pointerInfo) => {
+    if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERDOWN && pointerInfo.event.button === 0) {
+      if (activeCamMode === "fp" && document.pointerLockElement === canvas) {
+        if (hoveredInteractable) {
+          executeInteraction(hoveredInteractable.info, hoveredInteractable.point);
+        }
+      } else {
+        const pick = pointerInfo.pickInfo;
+        if (pick && pick.hit && pick.pickedMesh && interactables.has(pick.pickedMesh.name)) {
+          const dist = BABYLON.Vector3.Distance(scene.activeCamera.position, pick.pickedPoint);
+          if (activeCamMode !== "fp" || dist <= 5.5) {
+            executeInteraction(interactables.get(pick.pickedMesh.name), pick.pickedPoint);
+          }
+        }
+      }
+    }
+  });
+
+  // ============================================================================
+  // 9. SIMULATION ENGINE (OXYGEN, PRESSURE, POWER, ORBIT, DOORS, ALARMS)
+  // ============================================================================
+  function getPlayerRoom() {
+    const p = fpCamera.position;
+    if (p.y < -0.5 || p.y > 3.2) return "EXTERIOR";
+    for (let rId in shipState.rooms) {
+      const b = shipState.rooms[rId].bounds;
+      if (p.x >= b.xMin && p.x <= b.xMax && p.z >= b.zMin && p.z <= b.zMax) {
+        return rId;
+      }
+    }
+    return "EXTERIOR";
+  }
+
+  let simAccum = 0;
+  let helmDrawAccum = 0;
+
+  function updateSimulation(dt) {
+    // 1. Orbital Day/Night Cycle Progression
+    shipState.orbitalAngle = (shipState.orbitalAngle + dt * 0.045) % (Math.PI * 2);
+    const sunX = Math.cos(shipState.orbitalAngle) * 160;
+    const sunY = Math.sin(shipState.orbitalAngle) * 110 + 15;
+    const sunZ = 75;
+    sunMesh.position.set(sunX, sunY, sunZ);
+    sunLight.direction = new BABYLON.Vector3(-sunX, -sunY, -sunZ).normalize();
+
+    // Solar daylight factor (drops when sun dips behind the planet below Y = -20)
+    const solarFactor = BABYLON.Scalar.Clamp((sunY + 25) / 65, 0.0, 1.0);
+    sunLight.intensity = 0.25 + 2.35 * solarFactor;
+    hemiLight.intensity = 0.12 + 0.22 * solarFactor;
+
+    // Rotate solar wings slowly to track the sun
+    solarWingL.rotation.z = Math.sin(shipState.orbitalAngle) * 0.25;
+    solarWingR.rotation.z = Math.sin(shipState.orbitalAngle) * 0.25;
+    planetMesh.rotation.y += dt * 0.012;
+
+    // 2. Power Network Simulation (Generation vs Load)
+    const hasPower = shipState.batteryCharge > 0.5 || shipState.breakers.reactor;
+    const reactorOutput = (shipState.breakers.reactor && shipState.reactorHealth > 20)
+      ? 65.0 * (shipState.reactorHealth / 100)
+      : 0.0;
+    const solarOutput = 24.0 * solarFactor;
+    const totalGen = reactorOutput + solarOutput;
+
+    let totalLoad = 4.5; // Base avionics & sensors
+    if (shipState.breakers.lifesup) totalLoad += 18.0;
+    if (shipState.breakers.lights)  totalLoad += 8.0;
+    if (shipState.breakers.engine)  totalLoad += 28.0;
+
+    const netPower = totalGen - totalLoad; // kW
+    shipState.batteryCharge = BABYLON.Scalar.Clamp(
+      shipState.batteryCharge + (netPower * dt * 0.045),
+      0.0,
+      100.0
+    );
+
+    const busPowered = shipState.batteryCharge > 0.2 || totalGen >= totalLoad;
+
+    // Update Engine Plume & Reactor Core Visuals
+    const driveActive = busPowered && shipState.breakers.engine;
+    enginePlumeMesh.setEnabled(driveActive);
+    if (driveActive) {
+      const flicker = 0.92 + Math.random() * 0.16;
+      enginePlumeMesh.scaling.set(flicker, 0.9 + Math.random() * 0.25, flicker);
+    }
+    mats.reactorGlow.emissiveColor = (shipState.breakers.reactor && shipState.reactorHealth > 20)
+      ? new BABYLON.Color3(0.05, 0.65, 0.98)
+      : new BABYLON.Color3(0.25, 0.05, 0.05);
+
+    // 3. Animate Sliding Bulkhead Doors
+    for (let dId in doorObjects) {
+      const obj = doorObjects[dId];
+      const target = shipState.doors[dId].open ? 1.0 : 0.0;
+      const speed = busPowered ? 3.2 : 0.85; // sluggish manual speed if unpowered
+      obj.curOpen = BABYLON.Scalar.Lerp(obj.curOpen, target, Math.min(1, dt * speed));
+
+      const offset = obj.curOpen * obj.slideDist;
+      if (obj.axis === "x") {
+        obj.leafL.position.x = obj.baseL - offset;
+        obj.leafR.position.x = obj.baseR + offset;
+      } else {
+        obj.leafL.position.z = obj.baseL - offset;
+        obj.leafR.position.z = obj.baseR + offset;
+      }
+
+      // Disable collision when door is > 65% open so player can walk right through
+      const blocking = obj.curOpen < 0.65;
+      obj.leafL.checkCollisions = blocking;
+      obj.leafR.checkCollisions = blocking;
+      obj.led.material = !busPowered ? mats.ledRed : (shipState.doors[dId].open ? mats.ledGreen : mats.ledCyan);
+    }
+
+    // 4. Room-by-Room Atmosphere (O2 & Pressure Equalization, Scrubber, Leaks, Fires)
+    const rooms = shipState.rooms;
+    const doors = shipState.doors;
+
+    // Equalize through open doors
+    for (let dId in doors) {
+      const d = doors[dId];
+      if (!d.open) continue;
+      if (d.roomB === "SPACE") {
+        // Outer EVA Airlock open to vacuum!
+        const rA = rooms[d.roomA];
+        rA.pressure = Math.max(0, rA.pressure - 38.0 * dt);
+        rA.o2 = Math.max(0, rA.o2 - 32.0 * dt);
+      } else {
+        const rA = rooms[d.roomA];
+        const rB = rooms[d.roomB];
+        const avgO2 = (rA.o2 + rB.o2) * 0.5;
+        const avgP  = (rA.pressure + rB.pressure) * 0.5;
+        const eqRate = Math.min(1, dt * 3.5);
+        rA.o2 = BABYLON.Scalar.Lerp(rA.o2, avgO2, eqRate);
+        rB.o2 = BABYLON.Scalar.Lerp(rB.o2, avgO2, eqRate);
+        rA.pressure = BABYLON.Scalar.Lerp(rA.pressure, avgP, eqRate);
+        rB.pressure = BABYLON.Scalar.Lerp(rB.pressure, avgP, eqRate);
+      }
+    }
+
+    // Per-room updates (Fires, Breaches, Scrubber, Interior Lights)
+    let anyEmergency = false;
+    const lightsOn = busPowered && shipState.breakers.lights;
+    const scrubberActive = busPowered && shipState.breakers.lifesup && shipState.o2Reserve > 0;
+
+    for (let rId in rooms) {
+      const rm = rooms[rId];
+      // Crew baseline O2 consumption
+      rm.o2 = Math.max(0, rm.o2 - 0.08 * dt);
+
+      // Life-support scrubber replenishment
+      if (scrubberActive && !rm.breach && !(rId === "airlock" && doors.airlockEx.open)) {
+        if (rm.o2 < 99.2) {
+          rm.o2 = Math.min(100, rm.o2 + 2.8 * dt);
+          shipState.o2Reserve = Math.max(0, shipState.o2Reserve - 0.015 * dt);
+        }
+        if (rm.pressure < 101.3) {
+          rm.pressure = Math.min(101.3, rm.pressure + 4.5 * dt);
+        }
+      }
+
+      // Active Fire consumes O2 and damages hull
+      if (rm.fire) {
+        anyEmergency = true;
+        rm.o2 = Math.max(0, rm.o2 - 4.2 * dt);
+        shipState.hullIntegrity = Math.max(0, shipState.hullIntegrity - 0.35 * dt);
+        // Fire self-extinguishes if room O2 drops below 12% (vacuum starvation!)
+        if (rm.o2 < 12.0) {
+          rm.fire = false;
+          removeFireVisuals(rId);
+          addLog(`💨 Fire in ${rm.name} starved of oxygen and extinguished.`);
+        }
+      }
+
+      // Active Hull Breach vents pressure and O2
+      if (rm.breach) {
+        anyEmergency = true;
+        rm.pressure = Math.max(0, rm.pressure - 14.0 * dt);
+        rm.o2 = Math.max(0, rm.o2 - 11.0 * dt);
+        shipState.hullIntegrity = Math.max(0, shipState.hullIntegrity - 0.20 * dt);
+      }
+
+      if (rm.o2 < 55.0 || rm.pressure < 60.0) {
+        anyEmergency = true;
+      }
+
+      // Dynamic Compartment Lighting (Normal vs Fire Flicker vs Emergency Red vs Off)
+      const pt = roomLights[rId];
+      if (pt) {
+        if (rm.fire) {
+          pt.diffuse.set(1.0, 0.38 + Math.random() * 0.25, 0.08);
+          pt.intensity = 0.95 + Math.random() * 0.45;
+        } else if (rm.breach || rm.o2 < 50) {
+          const pulse = 0.5 + 0.5 * Math.sin(performance.now() * 0.008);
+          pt.diffuse.set(1.0, 0.15, 0.15);
+          pt.intensity = 0.35 + 0.65 * pulse;
+        } else if (lightsOn) {
+          pt.diffuse.set(0.88, 0.95, 1.0);
+          pt.intensity = 0.78;
+        } else {
+          // Emergency backup dim amber glow
+          pt.diffuse.set(0.75, 0.35, 0.1);
+          pt.intensity = 0.16;
+        }
+      }
+    }
+
+    if (shipState.reactorHealth < 70) anyEmergency = true;
+
+    // Klaxon Alarm & Banner
+    const banner = document.getElementById("alert-banner");
+    if (anyEmergency) {
+      banner.style.display = "block";
+      audio.playAlarmKlaxon();
+    } else {
+      banner.style.display = "none";
+    }
+
+    // Footstep sound when walking in First-Person
+    const curRoom = getPlayerRoom();
+    audio.setHumLevel(shipState.breakers.reactor, curRoom !== "EXTERIOR");
+
+    // Periodic UI & Helm Screen Refresh
+    simAccum += dt;
+    if (simAccum > 0.2) {
+      simAccum = 0;
+      updateTelemetryUI(netPower, solarFactor, curRoom);
+    }
+
+    helmDrawAccum += dt;
+    if (helmDrawAccum > 0.5) {
+      helmDrawAccum = 0;
+      drawHelmScreen(netPower, solarFactor);
+      saveShipState();
+    }
+  }
+
+  // Paint live ship schematic & bars onto the 3D Cockpit Helm Screen
+  function drawHelmScreen(netPower, solarFactor) {
+    const ctx = helmScreenTex.getContext();
+    ctx.fillStyle = "#06101e";
+    ctx.fillRect(0, 0, 512, 256);
+
+    ctx.strokeStyle = "#38bdf8";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(6, 6, 500, 244);
+
+    ctx.fillStyle = "#38bdf8";
+    ctx.font = "bold 20px monospace";
+    ctx.fillText("CSV-04 KESTREL // HELM TELEMETRY", 22, 34);
+
+    ctx.font = "16px monospace";
+    ctx.fillStyle = "#e2e8f0";
+    ctx.fillText(`HULL INTEGRITY : ${shipState.hullIntegrity.toFixed(1)}%`, 22, 70);
+    ctx.fillText(`BATTERY CHARGE : ${shipState.batteryCharge.toFixed(1)}%`, 22, 98);
+    ctx.fillText(`NET POWER BUS  : ${(netPower >= 0 ? "+" : "") + netPower.toFixed(1)} kW`, 22, 126);
+    ctx.fillText(`SOLAR EXPOSURE : ${(solarFactor * 100).toFixed(0)}%`, 22, 154);
+    ctx.fillText(`REACTOR CORE   : ${shipState.breakers.reactor ? "ONLINE" : "STANDBY"} (${shipState.reactorHealth.toFixed(0)}%)`, 22, 182);
+    ctx.fillText(`O2 RESERVES    : ${shipState.o2Reserve.toFixed(1)}%`, 22, 210);
+
+    // Mini compartment status blocks on right side of helm screen
+    let ry = 55;
+    for (let rId in shipState.rooms) {
+      const rm = shipState.rooms[rId];
+      ctx.fillStyle = (rm.fire || rm.breach || rm.o2 < 60) ? "#ef4444" : "#10b981";
+      ctx.fillRect(320, ry, 165, 22);
+      ctx.fillStyle = "#020617";
+      ctx.font = "bold 13px monospace";
+      ctx.fillText(`${rm.name.slice(0, 9)}: ${rm.o2.toFixed(0)}%`, 326, ry + 16);
+      ry += 27;
+    }
+
+    helmScreenTex.update();
+  }
+
+  // ============================================================================
+  // 10. HTML HUD & INTERACTIVE UI BINDINGS
+  // ============================================================================
+  function initRoomCardsUI() {
+    const container = document.getElementById("room-cards");
+    container.innerHTML = "";
+    for (let rId in shipState.rooms) {
+      const rm = shipState.rooms[rId];
+      const div = document.createElement("div");
+      div.className = "room-card";
+      div.id = "rcard_" + rId;
+      div.innerHTML = `
+        <div class="room-hdr">
+          <span>${rm.name}</span>
+          <span class="tag tag-ok" id="rtag_${rId}">NOMINAL</span>
+        </div>
+        <div class="room-stats">
+          <span id="ro2_${rId}">O₂: 99.0%</span>
+          <span id="rpr_${rId}">101.3 kPa</span>
+        </div>
+      `;
+      container.appendChild(div);
+    }
+  }
+
+  function initDoorButtonsUI() {
+    const container = document.getElementById("door-btns");
+    container.innerHTML = "";
+    for (let dId in shipState.doors) {
+      const d = shipState.doors[dId];
+      const btn = document.createElement("button");
+      btn.id = "dbtn_" + dId;
+      if (dId === "airlockEx") btn.classList.add("warn-btn");
+      btn.addEventListener("click", () => toggleDoor(dId));
+      container.appendChild(btn);
+    }
+    updateDoorButtonsUI();
+  }
+
+  function updateDoorButtonsUI() {
+    for (let dId in shipState.doors) {
+      const d = shipState.doors[dId];
+      const btn = document.getElementById("dbtn_" + dId);
+      if (!btn) continue;
+      btn.textContent = `${d.name.replace(" Bulkhead", "").replace(" Door", "")}: ${d.open ? "OPEN" : "SHUT"}`;
+      btn.classList.toggle("active", d.open);
+    }
+  }
+
+  function updateBreakerButtonsUI() {
+    for (let k in shipState.breakers) {
+      const btn = document.getElementById("brk-" + k);
+      if (btn) btn.classList.toggle("active", shipState.breakers[k]);
+    }
+  }
+
+  function updateTelemetryUI(netPower, solarFactor, curRoom) {
+    // Top bar metrics
+    document.getElementById("ui-hull").textContent = `${shipState.hullIntegrity.toFixed(0)}%`;
+    document.getElementById("bar-hull").style.width = `${shipState.hullIntegrity}%`;
+    document.getElementById("bar-hull").style.background = shipState.hullIntegrity > 60 ? "var(--green)" : "var(--red)";
+
+    document.getElementById("ui-batt").textContent = `${shipState.batteryCharge.toFixed(0)}%`;
+    document.getElementById("bar-batt").style.width = `${shipState.batteryCharge}%`;
+
+    const pwrEl = document.getElementById("ui-pwr");
+    pwrEl.textContent = `${netPower >= 0 ? "+" : ""}${netPower.toFixed(1)} kW`;
+    pwrEl.style.color = netPower >= 0 ? "#34d399" : "#fbbf24";
+
+    let sumO2 = 0, count = 0;
+    for (let rId in shipState.rooms) {
+      sumO2 += shipState.rooms[rId].o2;
+      count++;
+    }
+    const meanO2 = sumO2 / count;
+    document.getElementById("ui-o2").textContent = `${meanO2.toFixed(1)}%`;
+    document.getElementById("bar-o2").style.width = `${meanO2}%`;
+    document.getElementById("bar-o2").style.background = meanO2 > 65 ? "var(--cyan)" : "var(--red)";
+
+    document.getElementById("ui-o2res").textContent = `${shipState.o2Reserve.toFixed(0)}%`;
+    document.getElementById("ui-orbit").textContent = solarFactor > 0.25
+      ? `DAY (Solar ${(solarFactor * 100).toFixed(0)}%)`
+      : `ECLIPSE NIGHT`;
+
+    const curRoomName = shipState.rooms[curRoom] ? shipState.rooms[curRoom].name.toUpperCase() : "EXTERIOR EVA";
+    document.getElementById("ui-cur-room").textContent = curRoomName;
+
+    // Update each room card
+    for (let rId in shipState.rooms) {
+      const rm = shipState.rooms[rId];
+      const card = document.getElementById("rcard_" + rId);
+      const tag  = document.getElementById("rtag_" + rId);
+      document.getElementById("ro2_" + rId).textContent = `O₂: ${rm.o2.toFixed(1)}%`;
+      document.getElementById("rpr_" + rId).textContent = `${rm.pressure.toFixed(1)} kPa`;
+
+      card.classList.toggle("current", rId === curRoom);
+      const isCrit = rm.fire || rm.breach || rm.o2 < 45 || rm.pressure < 50;
+      card.classList.toggle("hazard", isCrit);
+
+      if (rm.fire) {
+        tag.className = "tag tag-crit";
+        tag.textContent = "🔥 FIRE";
+      } else if (rm.breach) {
+        tag.className = "tag tag-crit";
+        tag.textContent = "⚠️ BREACH";
+      } else if (rm.o2 < 65 || rm.pressure < 75) {
+        tag.className = "tag tag-warn";
+        tag.textContent = "LOW ATMO";
+      } else {
+        tag.className = "tag tag-ok";
+        tag.textContent = "NOMINAL";
+      }
+    }
+  }
+
+  function applyCutawayState() {
+    cutawayMeshes.forEach(m => m.setEnabled(!shipState.cutawayMode));
+    const btn = document.getElementById("btn-cutaway");
+    if (btn) btn.classList.toggle("active", shipState.cutawayMode);
+  }
+
+  // Bind UI Buttons
+  initRoomCardsUI();
+  initDoorButtonsUI();
+  updateBreakerButtonsUI();
+  applyCutawayState();
+
+  document.querySelectorAll("#cam-btns button").forEach(btn => {
+    btn.addEventListener("click", () => switchCamera(btn.dataset.cam));
+  });
+
+  document.getElementById("btn-cutaway").addEventListener("click", () => {
+    shipState.cutawayMode = !shipState.cutawayMode;
+    applyCutawayState();
+    addLog(`Hull Cutaway Inspection: ${shipState.cutawayMode ? "ENABLED" : "DISABLED"}`);
+  });
+
+  document.getElementById("btn-audio").addEventListener("click", (e) => {
+    audio.init();
+    audio.enabled = !audio.enabled;
+    e.currentTarget.textContent = `Ship Audio: ${audio.enabled ? "ON" : "MUTED"}`;
+    e.currentTarget.classList.toggle("active", audio.enabled);
+  });
+
+  // Breaker buttons
+  ["reactor", "lifesup", "lights", "engine"].forEach(k => {
+    document.getElementById("brk-" + k).addEventListener("click", () => {
+      shipState.breakers[k] = !shipState.breakers[k];
+      updateBreakerButtonsUI();
+      addLog(`Breaker [${k.toUpperCase()}]: ${shipState.breakers[k] ? "ONLINE" : "OFFLINE"}`);
+      saveShipState();
+    });
+  });
+
+  // Teleport buttons for rapid exploration of all 7 compartments
+  const TELEPORT_POINTS = {
+    cockpit: { pos: new BABYLON.Vector3( 0.0, 1.68,  5.6), target: new BABYLON.Vector3( 0.0, 1.4,  7.8) },
+    cabin:   { pos: new BABYLON.Vector3(-1.8, 1.68,  2.6), target: new BABYLON.Vector3(-2.2, 1.4,  3.8) },
+    airlock: { pos: new BABYLON.Vector3( 1.8, 1.68,  2.6), target: new BABYLON.Vector3( 2.8, 1.4,  2.65)},
+    cargo:   { pos: new BABYLON.Vector3( 0.0, 1.68, -1.0), target: new BABYLON.Vector3( 2.2, 1.3, -1.2) },
+    eng:     { pos: new BABYLON.Vector3( 0.4, 1.68, -4.2), target: new BABYLON.Vector3(-1.4, 1.3, -4.4) },
+    drive:   { pos: new BABYLON.Vector3( 0.0, 1.68, -6.5), target: new BABYLON.Vector3( 0.0, 1.2, -7.5) }
+  };
+
+  document.querySelectorAll("#tp-btns button").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const dest = TELEPORT_POINTS[btn.dataset.tp];
+      if (!dest) return;
+      if (btn.dataset.tp === "drive") shipState.doors.drive.open = true;
+      if (btn.dataset.tp === "airlock") shipState.doors.airlockIn.open = true;
+      updateDoorButtonsUI();
+      switchCamera("fp");
+      fpCamera.position.copyFrom(dest.pos);
+      fpCamera.setTarget(dest.target);
+      addLog(`Moved crew member to ${btn.textContent}.`);
+    });
+  });
+
+  // Simulation & Emergency Incident Triggers
+  document.getElementById("sim-fire").addEventListener("click", () => {
+    const candidates = ["eng", "cargo", "cockpit", "drive"];
+    const rId = candidates[Math.floor(Math.random() * candidates.length)];
+    shipState.rooms[rId].fire = true;
+    spawnFireVisuals(rId);
+    addLog(`🔥 ALERT: Electrical fire ignited in ${shipState.rooms[rId].name}!`);
+    saveShipState();
+  });
+
+  document.getElementById("sim-breach").addEventListener("click", () => {
+    const candidates = ["cargo", "cabin", "airlock", "eng"];
+    const rId = candidates[Math.floor(Math.random() * candidates.length)];
+    shipState.rooms[rId].breach = true;
+    shipState.hullIntegrity = Math.max(20, shipState.hullIntegrity - 15);
+    spawnBreachVisuals(rId);
+    addLog(`⚠️ ALERT: Micrometeoroid hull breach in ${shipState.rooms[rId].name}!`);
+    saveShipState();
+  });
+
+  document.getElementById("sim-short").addEventListener("click", () => {
+    shipState.reactorHealth = 35.0;
+    shipState.breakers.reactor = false;
+    updateBreakerButtonsUI();
+    addLog(`⚡ ALERT: Fusion Reactor magnetic containment fault! Reactor tripped offline.`);
+    saveShipState();
+  });
+
+  document.getElementById("sim-repair").addEventListener("click", () => {
+    shipState.hullIntegrity = 100.0;
+    shipState.reactorHealth = 100.0;
+    shipState.batteryCharge = 100.0;
+    shipState.o2Reserve = 100.0;
+    shipState.breakers.reactor = true;
+    shipState.breakers.lifesup = true;
+    shipState.breakers.lights = true;
+    shipState.doors.airlockEx.open = false;
+    for (let rId in shipState.rooms) {
+      shipState.rooms[rId].fire = false;
+      shipState.rooms[rId].breach = false;
+      shipState.rooms[rId].o2 = 99.5;
+      shipState.rooms[rId].pressure = 101.3;
+      removeFireVisuals(rId);
+      removeBreachVisuals(rId);
+    }
+    updateDoorButtonsUI();
+    updateBreakerButtonsUI();
+    audio.playRepairPulse();
+    addLog(`✅ All ship systems, hull breaches, fires, and atmosphere restored to nominal.`);
+    saveShipState();
+  });
+
+  document.getElementById("btn-reset-save").addEventListener("click", () => {
+    localStorage.removeItem(STORAGE_KEY);
+    document.getElementById("sim-repair").click();
+    fpCamera.position.set(0, 1.68, 5.2);
+    fpCamera.setTarget(new BABYLON.Vector3(0, 1.55, 7.5));
+    addLog(`🔄 Ship state reset to factory defaults.`);
+  });
+
+  const toggleUiBtn = document.getElementById("toggle-ui-btn");
+  function togglePanels() {
+    const lp = document.getElementById("left-panel");
+    const rp = document.getElementById("right-panel");
+    const collapsed = lp.classList.toggle("collapsed");
+    rp.classList.toggle("collapsed", collapsed);
+    toggleUiBtn.innerHTML = `${collapsed ? "Show UI" : "Hide UI"} <kbd>H</kbd>`;
+  }
+  toggleUiBtn.addEventListener("click", togglePanels);
+
+  // Keyboard Shortcuts
+  const keysHeld = {};
+  window.addEventListener("keydown", (e) => {
+    keysHeld[e.code] = true;
+    if (e.code === "KeyE") {
+      if (hoveredInteractable) {
+        executeInteraction(hoveredInteractable.info, hoveredInteractable.point);
+      }
+    } else if (e.code === "KeyX") {
+      document.getElementById("btn-cutaway").click();
+    } else if (e.code === "KeyV") {
+      const order = ["fp", "orbit", "free"];
+      const next = order[(order.indexOf(activeCamMode) + 1) % order.length];
+      switchCamera(next);
+    } else if (e.code === "KeyH") {
+      togglePanels();
+    }
+  });
+  window.addEventListener("keyup", (e) => {
+    keysHeld[e.code] = false;
+  });
+
+  // ============================================================================
+  // 11. MAIN RENDER & PHYSICS LOOP
+  // ============================================================================
+  addLog("CSV-04 Kestrel systems initialized. Use WASD to walk, [E] to interact.");
+
+  let lastTime = performance.now();
+  engine.runRenderLoop(() => {
+    const now = performance.now();
+    const dt = Math.min(0.1, (now - lastTime) * 0.001);
+    lastTime = now;
+
+    // Keep First-Person player at eye height on deck and play footsteps when moving
+    if (activeCamMode === "fp") {
+      fpCamera.speed = keysHeld["ShiftLeft"] ? 0.25 : 0.15;
+      const targetY = keysHeld["KeyC"] ? 1.15 : 1.68;
+      fpCamera.position.y = BABYLON.Scalar.Lerp(fpCamera.position.y, targetY, 0.25);
+      // Clamp player within ship bounds so they don't fall into space
+      fpCamera.position.x = BABYLON.Scalar.Clamp(fpCamera.position.x, -2.55, 2.55);
+      fpCamera.position.z = BABYLON.Scalar.Clamp(fpCamera.position.z, -7.80, 7.65);
+
+      if (keysHeld["KeyW"] || keysHeld["KeyA"] || keysHeld["KeyS"] || keysHeld["KeyD"]) {
+        audio.playFootstep();
+      }
+    }
+
+    updateReticleRaycast();
+    updateSimulation(dt);
+    scene.render();
+  });
+
+  window.addEventListener("resize", () => engine.resize());
+})();
+</script>
+</body>
+</html>

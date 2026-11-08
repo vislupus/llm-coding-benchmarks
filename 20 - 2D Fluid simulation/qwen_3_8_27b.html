@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fluid Dynamics — Navier–Stokes (p5.js)</title>
+<style>
+  :root{
+    --bg:#070a12; --panel:rgba(15,20,34,.82); --line:rgba(120,150,220,.18);
+    --txt:#dbe4f5; --dim:#8593b4; --accent:#5fd0ff; --accent2:#ff7ad9;
+    --mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--txt);
+    font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif}
+  #canvas-holder{position:fixed;inset:0}
+  canvas{display:block}
+
+  .panel{position:fixed;top:16px;right:16px;width:300px;max-height:calc(100vh - 32px);
+    overflow:auto;background:var(--panel);backdrop-filter:blur(14px);
+    border:1px solid var(--line);border-radius:16px;padding:16px 16px 14px;
+    box-shadow:0 20px 60px rgba(0,0,0,.55);z-index:10;
+    transition:transform .35s cubic-bezier(.2,.8,.2,1),opacity .35s}
+  .panel.hidden{transform:translateX(calc(100% + 24px));opacity:0;pointer-events:none}
+  .panel::-webkit-scrollbar{width:8px}
+  .panel::-webkit-scrollbar-thumb{background:rgba(120,150,220,.3);border-radius:4px}
+
+  .brand{display:flex;align-items:baseline;gap:10px;margin-bottom:2px}
+  .brand h1{font-size:1.15rem;letter-spacing:.02em;font-weight:700}
+  .brand .tag{font-size:.62rem;letter-spacing:.22em;text-transform:uppercase;color:var(--dim)}
+  .sub{font-size:.72rem;color:var(--dim);margin-bottom:14px;font-family:var(--mono)}
+
+  .section{padding:12px 0;border-top:1px solid var(--line)}
+  .section:first-of-type{border-top:none;padding-top:0}
+  .section h2{font-size:.66rem;letter-spacing:.2em;text-transform:uppercase;
+    color:var(--accent);margin-bottom:10px;font-weight:600}
+
+  .ctrl{margin-bottom:11px}
+  .ctrl .row{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px}
+  .ctrl label{font-size:.78rem;color:var(--txt)}
+  .ctrl .val{font-family:var(--mono);font-size:.72rem;color:var(--accent);
+    background:rgba(95,208,255,.1);padding:1px 7px;border-radius:6px;min-width:44px;text-align:center}
+
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:5px;border-radius:5px;
+    background:linear-gradient(90deg,var(--accent),var(--accent2));outline:none;cursor:pointer}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;border-radius:50%;
+    background:#fff;box-shadow:0 0 0 3px rgba(95,208,255,.35),0 2px 6px rgba(0,0,0,.5);cursor:pointer}
+  input[type=range]::-moz-range-thumb{width:15px;height:15px;border:none;border-radius:50%;
+    background:#fff;box-shadow:0 0 0 3px rgba(95,208,255,.35);cursor:pointer}
+
+  .btns{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+  .btn{font-family:var(--mono);font-size:.72rem;padding:8px 6px;border-radius:9px;cursor:pointer;
+    border:1px solid var(--line);background:rgba(255,255,255,.03);color:var(--txt);
+    transition:.15s;text-align:center;letter-spacing:.02em}
+  .btn:hover{background:rgba(95,208,255,.14);border-color:var(--accent);transform:translateY(-1px)}
+  .btn.active{background:linear-gradient(135deg,rgba(95,208,255,.28),rgba(255,122,217,.28));
+    border-color:var(--accent);color:#fff}
+  .btn.wide{grid-column:1/-1}
+
+  .keys{font-size:.72rem;line-height:1.85;color:var(--dim)}
+  .keys kbd{font-family:var(--mono);background:rgba(255,255,255,.07);border:1px solid var(--line);
+    border-radius:5px;padding:1px 6px;color:var(--txt);font-size:.68rem;margin-right:2px}
+
+  .stats{position:fixed;left:16px;bottom:16px;font-family:var(--mono);font-size:.72rem;
+    color:var(--dim);background:var(--panel);backdrop-filter:blur(10px);
+    border:1px solid var(--line);border-radius:12px;padding:10px 14px;z-index:10;line-height:1.7}
+  .stats b{color:var(--accent);font-weight:600}
+
+  .hint{position:fixed;left:16px;top:16px;font-size:.78rem;color:var(--dim);z-index:10;
+    background:var(--panel);backdrop-filter:blur(10px);border:1px solid var(--line);
+    border-radius:12px;padding:10px 14px;max-width:250px;line-height:1.5}
+  .hint b{color:var(--txt)}
+
+  .toggle-panel{position:fixed;top:16px;right:16px;z-index:11;width:42px;height:42px;border-radius:12px;
+    border:1px solid var(--line);background:var(--panel);backdrop-filter:blur(10px);color:var(--txt);
+    cursor:pointer;font-size:1.1rem;display:none;align-items:center;justify-content:center}
+  .toggle-panel.show{display:flex}
+  @media(max-width:640px){
+    .panel{width:min(300px,calc(100vw - 32px))}
+    .hint{display:none}
+  }
+</style>
+</head>
+<body>
+<div id="canvas-holder"></div>
+
+<div class="hint">
+  <b>Drag</b> the mouse to stir the fluid.<br>
+  <b>Right-drag</b> (or hold <kbd>Shift</kbd>) to inject dye.<br>
+  <b>Keys</b> add colors & forces.
+</div>
+
+<button class="toggle-panel" id="toggleBtn">☰</button>
+
+<div class="panel" id="panel">
+  <div class="brand"><h1>Fluid Dynamics</h1><span class="tag">Navier–Stokes</span></div>
+  <div class="sub">grid solver · additive diffusion · bloom</div>
+
+  <div class="section">
+    <h2>Physics</h2>
+    <div class="ctrl"><div class="row"><label>Viscosity</label><span class="val" id="vViscosity"></span></div>
+      <input type="range" id="viscosity" min="0" max="0.005" step="0.0001" value="0.0002"></div>
+    <div class="ctrl"><div class="row"><label>Density Diffusion</label><span class="val" id="vDiffusion"></span></div>
+      <input type="range" id="diffusion" min="0" max="0.002" step="0.00002" value="0.00006"></div>
+    <div class="ctrl"><div class="row"><label>Vorticity</label><span class="val" id="vVort"></span></div>
+      <input type="range" id="vorticity" min="0" max="5" step="0.05" value="1.6"></div>
+    <div class="ctrl"><div class="row"><label>Time Scale</label><span class="val" id="vDt"></span></div>
+      <input type="range" id="dt" min="0.2" max="3" step="0.05" value="1"></div>
+  </div>
+
+  <div class="section">
+    <h2>Rendering</h2>
+    <div class="ctrl"><div class="row"><label>Color Fade</label><span class="val" id="vFade"></span></div>
+      <input type="range" id="fade" min="0" max="0.06" step="0.001" value="0.012"></div>
+    <div class="ctrl"><div class="row"><label>Exposure</label><span class="val" id="vExposure"></span></div>
+      <input type="range" id="exposure" min="0.4" max="2.5" step="0.05" value="1.2"></div>
+    <div class="ctrl"><div class="row"><label>Bloom</label><span class="val" id="vBloom"></span></div>
+      <input type="range" id="bloom" min="0" max="1" step="0.02" value="0.55"></div>
+  </div>
+
+  <div class="section">
+    <h2>Scene</h2>
+    <div class="btns">
+      <div class="btn" id="bVortex">Vortex: Off</div>
+      <div class="btn" id="bObstacle">Obstacle: Off</div>
+      <div class="btn" id="bGravity">Gravity: Off</div>
+      <div class="btn" id="bBloom">Bloom: On</div>
+      <div class="btn" id="bReset">Reset Scene</div>
+      <div class="btn" id="bBurst">Burst</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Keys</h2>
+    <div class="keys">
+      <kbd>1</kbd>–<kbd>6</kbd> add colored dye &nbsp; <kbd>Space</kbd> burst<br>
+      <kbd>R</kbd> reset &nbsp; <kbd>V</kbd> vortex &nbsp; <kbd>O</kbd> obstacle<br>
+      <kbd>G</kbd> gravity &nbsp; <kbd>B</kbd> bloom &nbsp; <kbd>H</kbd> hide UI
+    </div>
+  </div>
+</div>
+
+<div class="stats" id="stats"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
+<script>
+/* ============================================================
+   Stable Fluids (Jos Stam) — grid-based Navier–Stokes solver
+   Velocity is advected + diffused + projected (incompressible).
+   Density (RGB dye) is advected + diffused, giving smooth mixing.
+   Vorticity confinement re-injects fine swirls lost to diffusion.
+   ============================================================ */
+
+let N, size, u, v, u0, v0, r, g, b, r0, g0, b0, s, s0, obstacle;
+let W, H, cell, gridW, gridH;
+let img, off, bloom, bloomSmall;
+let frameCount = 0;
+
+const params = {
+  dt: 1, viscosity: 0.0002, diffusion: 0.00006, vorticity: 1.6,
+  fade: 0.012, exposure: 1.2, bloom: 0.55,
+  vortex: false, obstacle: false, gravity: false, bloomOn: true
+};
+
+const PALETTE = [
+  [255,  90,  90], [ 90, 255, 150], [ 90, 170, 255],
+  [255, 210,  90], [255, 120, 230], [170, 110, 255]
+];
+let colorIndex = 0;
+
+const mouse = { x:0, y:0, px:0, py:0, down:false, dye:false };
+
+/* ---------- p5 lifecycle ---------- */
+function setup(){
+  W = windowWidth; H = windowHeight;
+  const cnv = createCanvas(W, H);
+  cnv.parent('canvas-holder');
+  pixelDensity(1);
+  frameRate(60);
+
+  N = 160;                 // internal simulation resolution (N+2)^2 grid
+  size = (N+2)*(N+2);
+  cell = W / N;            // pixels per cell
+
+  u = new Float32Array(size); v = new Float32Array(size);
+  u0 = new Float32Array(size); v0 = new Float32Array(size);
+  r = new Float32Array(size); g = new Float32Array(size); b = new Float32Array(size);
+  r0 = new Float32Array(size); g0 = new Float32Array(size); b0 = new Float32Array(size);
+  s = new Float32Array(size); s0 = new Float32Array(size);
+  obstacle = new Uint8Array(size);
+
+  img = createImage(N, N);
+  off = createGraphics(W, H);
+  off.pixelDensity(1);
+  bloom = createGraphics(W, H);
+  bloom.pixelDensity(1);
+  bloomSmall = createGraphics(max(1, floor(W/4)), max(1, floor(H/4)));
+  bloomSmall.pixelDensity(1);
+
+  placeObstacle();
+  seed();
+  bindUI();
+}
+
+function windowResized(){
+  W = windowWidth; H = windowHeight;
+  resizeCanvas(W, H);
+  cell = W / N;
+  off.size(W, H); bloom.size(W, H);
+  bloomSmall.size(max(1, floor(W/4)), max(1, floor(H/4)));
+}
+
+function draw(){
+  frameCount++;
+  const dt = 0.1 * params.dt;
+  applyForces();
+  step(dt);
+  render();
+  if (frameCount % 15 === 0) updateStats();
+}
+
+/* ---------- index helpers ---------- */
+const IX = (i,j) => i + (N+2)*j;
+
+/* ---------- solver core ---------- */
+function setBnd(b, x){
+  for (let i=1; i<=N; i++){
+    x[IX(0,i)]   = b===1 ? -x[IX(1,i)]   : x[IX(1,i)];
+    x[IX(N+1,i)] = b===1 ? -x[IX(N,i)]   : x[IX(N,i)];
+    x[IX(i,0)]   = b===2 ? -x[IX(i,1)]   : x[IX(i,1)];
+    x[IX(i,N+1)] = b===2 ? -x[IX(i,N)]   : x[IX(i,N)];
+  }
+  x[IX(0,0)]     = 0.5*(x[IX(1,0)]   + x[IX(0,1)]);
+  x[IX(0,N+1)]   = 0.5*(x[IX(1,N+1)] + x[IX(0,N)]);
+  x[IX(N+1,0)]   = 0.5*(x[IX(N,0)]   + x[IX(N+1,1)]);
+  x[IX(N+1,N+1)] = 0.5*(x[IX(N,N+1)] + x[IX(N+1,N)]);
+}
+
+function linSolve(b, x, x0, a, c, iters){
+  const invC = 1/c;
+  for (let k=0; k<iters; k++){
+    for (let j=1; j<=N; j++){
+      const row = (N+2)*j;
+      for (let i=1; i<=N; i++){
+        const idx = i+row;
+        x[idx] = (x0[idx] + a*(x[idx-1]+x[idx+1]+x[idx-(N+2)]+x[idx+(N+2)])) * invC;
+      }
+    }
+    setBnd(b, x);
+  }
+}
+
+function diffuse(b, x, x0, diff, dt, iters){
+  const a = dt * diff * N * N;
+  linSolve(b, x, x0, a, 1 + 4*a, iters);
+}
+
+function advect(b, d, d0, uu, vv, dt){
+  const dt0 = dt * N;
+  for (let j=1; j<=N; j++){
+    for (let i=1; i<=N; i++){
+      const idx = IX(i,j);
+      let x = i - dt0*uu[idx];
+      let y = j - dt0*vv[idx];
+      if (x < 0.5) x = 0.5; else if (x > N+0.5) x = N+0.5;
+      if (y < 0.5) y = 0.5; else if (y > N+0.5) y = N+0.5;
+      const i0 = x|0, i1 = i0+1, j0 = y|0, j1 = j0+1;
+      const s1 = x-i0, s0 = 1-s1, t1 = y-j0, t0 = 1-t1;
+      d[idx] = s0*(t0*d0[IX(i0,j0)] + t1*d0[IX(i0,j1)])
+             + s1*(t0*d0[IX(i1,j0)] + t1*d0[IX(i1,j1)]);
+    }
+  }
+  setBnd(b, d);
+}
+
+function project(uu, vv, p, div){
+  const h = 1/N;
+  for (let j=1; j<=N; j++){
+    for (let i=1; i<=N; i++){
+      const idx = IX(i,j);
+      div[idx] = -0.5*h*(uu[idx+1]-uu[idx-1]+vv[idx+(N+2)]-vv[idx-(N+2)]);
+      p[idx] = 0;
+    }
+  }
+  setBnd(0, div); setBnd(0, p);
+  linSolve(0, p, div, 1, 4, 12);
+  for (let j=1; j<=N; j++){
+    for (let i=1; i<=N; i++){
+      const idx = IX(i,j);
+      uu[idx] -= 0.5*(p[idx+1]-p[idx-1])/h;
+      vv[idx] -= 0.5*(p[idx+(N+2)]-p[idx-(N+2)])/h;
+    }
+  }
+  setBnd(1, uu); setBnd(2, vv);
+}
+
+function vorticityConfinement(dt){
+  for (let j=1; j<=N; j++){
+    for (let i=1; i<=N; i++){
+      const idx = IX(i,j);
+      const curl = 0.5*((v[idx+1]-v[idx-1]) - (u[idx+(N+2)]-u[idx-(N+2)]));
+      s[idx] = curl;
+    }
+  }
+  for (let j=1; j<=N; j++){
+    for (let i=1; i<=N; i++){
+      const idx = IX(i,j);
+      const dwdx = 0.5*(Math.abs(s[idx+1]) - Math.abs(s[idx-1]));
+      const dwdy = 0.5*(Math.abs(s[idx+(N+2)]) - Math.abs(s[idx-(N+2)]));
+      let len = Math.sqrt(dwdx*dwdx + dwdy*dwdy) + 1e-5;
+      dwdx /= len; dwdy /= len;
+      const c = s[idx];
+      u[idx] += params.vorticity * dwdy * c * dt;
+      v[idx] += -params.vorticity * dwdx * c * dt;
+    }
+  }
+}
+
+function applyObstacle(){
+  if (!params.obstacle) return;
+  for (let idx=0; idx<size; idx++){
+    if (obstacle[idx]){ u[idx]=0; v[idx]=0; }
+  }
+}
+
+function step(dt){
+  // velocity
+  vorticityConfinement(dt);
+  u0.set(u); v0.set(v);
+  diffuse(1, u, u0, params.viscosity, dt, 4);
+  diffuse(2, v, v0, params.viscosity, dt, 4);
+  project(u, v, u0, v0);
+  u0.set(u); v0.set(v);
+  advect(1, u, u0, u0, v0, dt);
+  advect(2, v, v0, u0, v0, dt);
+  project(u, v, u0, v0);
+  applyObstacle();
+
+  // dye (RGB)
+  r0.set(r); g0.set(g); b0.set(b);
+  diffuse(0, r, r0, params.diffusion, dt, 4);
+  diffuse(0, g, g0, params.diffusion, dt, 4);
+  diffuse(0, b, b0, params.diffusion, dt, 4);
+  r0.set(r); g0.set(g); b0.set(b);
+  advect(0, r, r0, u, v, dt);
+  advect(0, g, g0, u, v, dt);
+  advect(0, b, b0, u, v, dt);
+
+  // fade
+  const f = 1 - params.fade;
+  for (let idx=0; idx<size; idx++){ r[idx]*=f; g[idx]*=f; b[idx]*=f; }
+}
+
+/* ---------- forces & interaction ---------- */
+function applyForces(){
+  if (params.gravity){
+    const g = 0.045 * params.dt;
+    for (let j=1; j<=N; j++) for (let i=1; i<=N; i++){
+      const idx = IX(i,j);
+      if (!obstacle[idx]) v[idx] += g;
+    }
+  }
+  if (params.vortex){
+    const cx = (N+1)/2, cy = (N+1)/2;
+    const strength = 0.09 * params.dt;
+    for (let j=1; j<=N; j++){
+      for (let i=1; i<=N; i++){
+        const idx = IX(i,j);
+        if (obstacle[idx]) continue;
+        const dx = i-cx, dy = j-cy;
+        const d = Math.sqrt(dx*dx+dy*dy) + 1e-3;
+        const f = strength / (1 + d*0.06);
+        u[idx] += -dy/d * f;   // tangential
+        v[idx] +=  dx/d * f;
+      }
+    }
+  }
+  if (mouse.down){
+    const gx = mouse.x / cell, gy = mouse.y / cell;
+    const dx = (mouse.x - mouse.px) / cell;
+    const dy = (mouse.y - mouse.py) / cell;
+    const rad = 6;
+    const i0 = max(1, floor(gx-rad)), i1 = min(N, ceil(gx+rad));
+    const j0 = max(1, floor(gy-rad)), j1 = min(N, ceil(gy+rad));
+    const R2 = rad*rad;
+    const col = PALETTE[colorIndex];
+    for (let j=j0; j<=j1; j++){
+      for (let i=i0; i<=i1; i++){
+        const ddx = i-gx, ddy = j-gy;
+        const d2 = ddx*ddx+ddy*ddy;
+        if (d2 > R2) continue;
+        const idx = IX(i,j);
+        if (obstacle[idx]) continue;
+        const w = Math.exp(-d2/(R2*0.5));
+        u[idx] += dx * 3.2 * w;
+        v[idx] += dy * 3.2 * w;
+        if (mouse.dye){
+          const amt = 130 * w;
+          r[idx] = min(255, r[idx] + col[0]*amt/255);
+          g[idx] = min(255, g[idx] + col[1]*amt/255);
+          b[idx] = min(255, b[idx] + col[2]*amt/255);
+        }
+      }
+    }
+  }
+}
+
+/* ---------- rendering ---------- */
+function render(){
+  const d = img.imageData.data;
+  const ex = params.exposure;
+  for (let j=1; j<=N; j++){
+    for (let i=1; i<=N; i++){
+      const idx = IX(i,j);
+      const p = ((j-1)*N + (i-1)) * 4;
+      d[p]   = min(255, r[idx]*ex);
+      d[p+1] = min(255, g[idx]*ex);
+      d[p+2] = min(255, b[idx]*ex);
+      d[p+3] = 255;
+    }
+  }
+  img.updatePixels();
+
+  off.clear();
+  off.noStroke();
+  off.imageMode(CORNER);
+  off.image(img, 0, 0, W, H);
+
+  if (params.bloomOn && params.bloom > 0.01){
+    bloom.clear();
+    bloom.image(off, 0, 0, W, H);
+    bloomSmall.clear();
+    bloomSmall.image(bloom, 0, 0, W, H);
+    off.blendMode(ADD);
+    off.image(bloomSmall, 0, 0, W, H, params.bloom);
+    off.blendMode(BLEND);
+  }
+
+  image(off, 0, 0);
+  drawCursor();
+}
+
+function drawCursor(){
+  const rad = 6*cell;
+  noFill();
+  stroke(255, 255, 255, mouse.down ? 120 : 60);
+  strokeWeight(1.5);
+  circle(mouse.x, mouse.y, rad*2);
+  if (mouse.down){
+    const c = PALETTE[colorIndex];
+    noStroke();
+    fill(c[0], c[1], c[2], 160);
+    circle(mouse.x, mouse.y, 8);
+  }
+}
+
+/* ---------- scene helpers ---------- */
+function placeObstacle(){
+  obstacle.fill(0);
+  if (!params.obstacle) return;
+  const cx = floor(N/2), cy = floor(N/2), rad = floor(N*0.14);
+  for (let j=1; j<=N; j++){
+    for (let i=1; i<=N; i++){
+      const dx = i-cx, dy = j-cy;
+      if (dx*dx+dy*dy < rad*rad) obstacle[IX(i,j)] = 1;
+    }
+  }
+}
+
+function seed(){
+  u.fill(0); v.fill(0); r.fill(0); g.fill(0); b.fill(0);
+  for (let k=0; k<7; k++){
+    const i = 15 + floor(random(N-30));
+    const j = 15 + floor(random(N-30));
+    const col = PALETTE[k % PALETTE.length];
+    const ang = random(TWO_PI), sp = random(1.5, 4);
+    const rad = 10;
+    for (let dj=-rad; dj<=rad; dj++){
+      for (let di=-rad; di<=rad; di++){
+        const ii=i+di, jj=j+dj;
+        if (ii<1||ii>N||jj<1||jj>N) continue;
+        const d2 = di*di+dj*dj;
+        if (d2 > rad*rad) continue;
+        const w = exp(-d2/(rad*rad*0.5));
+        const idx = IX(ii,jj);
+        r[idx] = min(255, r[idx] + col[0]*w);
+        g[idx] = min(255, g[idx] + col[1]*w);
+        b[idx] = min(255, b[idx] + col[2]*w);
+        u[idx] += Math.cos(ang)*sp*w;
+        v[idx] += Math.sin(ang)*sp*w;
+      }
+    }
+  }
+}
+
+function burst(){
+  const cx = floor(N/2), cy = floor(N/2);
+  const col = PALETTE[floor(random(PALETTE.length))];
+  const rad = 14;
+  for (let j=1; j<=N; j++){
+    for (let i=1; i<=N; i++){
+      const dx=i-cx, dy=j-cy, d2=dx*dx+dy*dy;
+      if (d2 > rad*rad) continue;
+      const w = exp(-d2/(rad*rad*0.5));
+      const idx = IX(i,j);
+      if (obstacle[idx]) continue;
+      const d = sqrt(d2)+1e-3;
+      u[idx] += dx/d * 6 * w;
+      v[idx] += dy/d * 6 * w;
+      r[idx] = min(255, r[idx] + col[0]*w);
+      g[idx] = min(255, g[idx] + col[1]*w);
+      b[idx] = min(255, b[idx] + col[2]*w);
+    }
+  }
+}
+
+/* ---------- input ---------- */
+function mouseMoved(){ mouse.x = mouseX; mouse.y = mouseY; }
+function mouseDragged(){
+  if (frameCount === 0){ mouse.px = mouseX; mouse.py = mouseY; }
+  mouse.down = true;
+  mouse.dye = (mouseButton === RIGHT) || (keyIsDown(SHIFT));
+  mouse.x = mouseX; mouse.y = mouseY;
+  return false;
+}
+function mouseReleased(){ mouse.down = false; }
+function mousePressed(){
+  if (mouseButton === RIGHT){ mouse.down = true; mouse.dye = true; mouse.px = mouseX; mouse.py = mouseY; }
+  return false;
+}
+function mouseWheel(e){
+  if (e.delta > 0) colorIndex = (colorIndex + 1) % PALETTE.length;
+  else colorIndex = (colorIndex + PALETTE.length - 1) % PALETTE.length;
+  return false;
+}
+
+function keyPressed(){
+  const k = key.toLowerCase();
+  if (k >= '1' && k <= '6'){
+    colorIndex = parseInt(k) - 1;
+    burst();
+    return false;
+  }
+  switch(k){
+    case ' ': burst(); return false;
+    case 'r': resetScene(); break;
+    case 'v': toggle('vortex', 'bVortex', 'Vortex: '); break;
+    case 'o': toggle('obstacle', 'bObstacle', 'Obstacle: '); placeObstacle(); break;
+    case 'g': toggle('gravity', 'bGravity', 'Gravity: '); break;
+    case 'b': toggle('bloomOn', 'bBloom', 'Bloom: '); break;
+    case 'h': togglePanel(); break;
+  }
+}
+
+function resetScene(){
+  seed();
+  u0.fill(0); v0.fill(0); r0.fill(0); g0.fill(0); b0.fill(0);
+}
+
+function toggle(key, btnId, prefix){
+  params[key] = !params[key];
+  const el = document.getElementById(btnId);
+  if (el) el.textContent = prefix + (params[key] ? 'On' : 'Off');
+  if (el) el.classList.toggle('active', params[key]);
+}
+
+function togglePanel(){
+  const p = document.getElementById('panel');
+  const t = document.getElementById('toggleBtn');
+  p.classList.toggle('hidden');
+  t.classList.toggle('show', p.classList.contains('hidden'));
+}
+
+/* ---------- UI wiring ---------- */
+function bindUI(){
+  const bind = (id, key, valId, fmt) => {
+    const el = document.getElementById(id);
+    const out = document.getElementById(valId);
+    const upd = () => { params[key] = parseFloat(el.value); if (out) out.textContent = fmt(params[key]); };
+    el.addEventListener('input', upd); upd();
+  };
+  bind('viscosity','viscosity','vViscosity', v=>v.toFixed(4));
+  bind('diffusion','diffusion','vDiffusion', v=>v.toFixed(5));
+  bind('vorticity','vorticity','vVort', v=>v.toFixed(2));
+  bind('dt','dt','vDt', v=>v.toFixed(2)+'×');
+  bind('fade','fade','vFade', v=>v.toFixed(3));
+  bind('exposure','exposure','vExposure', v=>v.toFixed(2));
+  bind('bloom','bloom','vBloom', v=>v.toFixed(2));
+
+  document.getElementById('bVortex').onclick = () => toggle('vortex','bVortex','Vortex: ');
+  document.getElementById('bObstacle').onclick = () => { toggle('obstacle','bObstacle','Obstacle: '); placeObstacle(); };
+  document.getElementById('bGravity').onclick = () => toggle('gravity','bGravity','Gravity: ');
+  document.getElementById('bBloom').onclick = () => toggle('bloomOn','bBloom','Bloom: ');
+  document.getElementById('bReset').onclick = resetScene;
+  document.getElementById('bBurst').onclick = burst;
+  document.getElementById('toggleBtn').onclick = togglePanel;
+
+  // reflect initial button states
+  ['bVortex','bObstacle','bGravity','bBloom'].forEach(id=>{
+    const el = document.getElementById(id);
+    const key = id.slice(1).toLowerCase();
+    el.classList.toggle('active', !!params[key]);
+  });
+}
+
+function updateStats(){
+  const el = document.getElementById('stats');
+  el.innerHTML =
+    `FPS <b>${frameRate().toFixed(0)}</b> &nbsp;·&nbsp; grid <b>${N}×${N}</b><br>` +
+    `solver <b>Navier–Stokes</b> &nbsp;·&nbsp; ${size} cells<br>` +
+    `dye <b>rgb</b> &nbsp;·&nbsp; vort <b>${params.vorticity.toFixed(2)}</b>`;
+}
+</script>
+</body>
+</html>

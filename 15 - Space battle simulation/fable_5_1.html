@@ -1,0 +1,1422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Fleet engagement</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Saira+Semi+Condensed:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #e3e9f4;
+    --muted: #8f9ab0;
+    --blue: #5fb8ff;
+    --blue-deep: #1d5fd1;
+    --red: #ff5b47;
+    --red-deep: #b3200f;
+    --glass: rgba(8, 12, 24, 0.52);
+    --line: rgba(160, 180, 220, 0.18);
+    --font: "Saira Semi Condensed", "Bahnschrift", "Arial Narrow", "Roboto Condensed", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #02030a; color: var(--ink); font-family: var(--font); }
+  #scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; outline: none; touch-action: none; }
+
+  .hud { position: fixed; inset: 0; pointer-events: none;
+    padding: max(16px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left)); }
+
+  .fleet { position: absolute; top: max(16px, env(safe-area-inset-top)); width: min(300px, 42vw); }
+  .fleet--blue { left: max(18px, env(safe-area-inset-left)); }
+  .fleet--red { right: max(18px, env(safe-area-inset-right)); text-align: right; }
+  .fleet h2 { margin: 0 0 6px; font-size: 20px; font-weight: 700; letter-spacing: 0.01em; line-height: 1.1; }
+  .fleet--blue h2 { color: var(--blue); }
+  .fleet--red h2 { color: var(--red); }
+  .fleet .flagname { font-weight: 400; color: var(--muted); font-size: 14px; margin-left: 6px; }
+  .fleet--red .flagname { margin-left: 0; margin-right: 6px; }
+
+  .pips { display: flex; gap: 4px; align-items: flex-end; height: 18px; }
+  .fleet--red .pips { flex-direction: row-reverse; }
+  .pip { width: 12px; height: 10px; border-radius: 1px; background: currentColor; transition: opacity .4s, transform .4s; }
+  .pip.flag { width: 22px; height: 16px; clip-path: polygon(0 100%, 50% 0, 100% 100%); }
+  .fleet--blue .pip { color: var(--blue); }
+  .fleet--red .pip { color: var(--red); }
+  .pip.hurt { opacity: .65; }
+  .pip.dead { opacity: 1; background: transparent; box-shadow: inset 0 0 0 1px rgba(255,255,255,.28); transform: scale(.85); }
+  .pip.flag.dead { background: rgba(255,255,255,.18); }
+
+  .integrity { margin-top: 8px; height: 4px; background: var(--line); position: relative; overflow: hidden; }
+  .integrity span { position: absolute; top: 0; bottom: 0; width: 100%; transition: width .35s ease-out; }
+  .fleet--blue .integrity span { left: 0; background: linear-gradient(90deg, var(--blue-deep), var(--blue)); }
+  .fleet--red .integrity span { right: 0; background: linear-gradient(270deg, var(--red-deep), var(--red)); }
+  .meta { margin: 6px 0 0; font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  .hint { position: absolute; left: max(18px, env(safe-area-inset-left)); bottom: max(16px, env(safe-area-inset-bottom));
+    margin: 0; font-size: 14px; color: var(--muted); max-width: 40ch; }
+
+  .controls { position: absolute; right: max(18px, env(safe-area-inset-right)); bottom: max(16px, env(safe-area-inset-bottom));
+    display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; pointer-events: auto; max-width: 70vw; }
+  .controls button { font: 500 14px/1 var(--font); color: var(--ink); background: var(--glass); border: 1px solid var(--line);
+    padding: 9px 12px; border-radius: 3px; cursor: pointer; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+  .controls button[aria-pressed="true"] { border-color: rgba(200, 220, 255, .55); background: rgba(40, 60, 100, .5); }
+  .controls button:hover { border-color: rgba(220, 230, 255, .6); }
+  .controls button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+
+  #banner { position: absolute; left: 50%; top: 38%; transform: translate(-50%, -50%); text-align: center; pointer-events: none;
+    opacity: 0; transition: opacity .9s ease; width: min(90vw, 760px); }
+  #banner.show { opacity: 1; }
+  #banner .big { font-size: clamp(34px, 6.4vw, 76px); font-weight: 700; line-height: .95; letter-spacing: -0.01em;
+    text-shadow: 0 0 28px currentColor, 0 2px 0 rgba(0,0,0,.6); }
+  #banner .small { margin-top: 12px; font-size: 16px; color: var(--ink); opacity: .8; }
+  #banner.blue .big { color: var(--blue); }
+  #banner.red .big { color: var(--red); }
+  #banner.none .big { color: #ffd2a0; }
+  #banner.show .big { animation: land 1.1s cubic-bezier(.2,.8,.2,1) both; }
+  @keyframes land { from { letter-spacing: .25em; filter: blur(8px); } to { letter-spacing: -0.01em; filter: blur(0); } }
+
+  #error { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; padding: 24px; text-align: center; font-size: 18px; }
+  #error.show { display: flex; }
+
+  @media (max-width: 640px) {
+    .fleet h2 { font-size: 17px; }
+    .fleet .flagname { display: none; }
+    .pip { width: 8px; height: 8px; }
+    .pip.flag { width: 15px; height: 12px; }
+    .hint { display: none; }
+    .controls { left: 12px; right: 12px; max-width: none; justify-content: center; }
+    .controls button { padding: 8px 10px; font-size: 13px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #banner.show .big { animation: none; }
+    .pip, .integrity span, #banner { transition: none; }
+  }
+</style>
+<script src="https://cdn.babylonjs.com/babylon.js"></script>
+<script>
+  // Fallback CDN in case the official one is unreachable.
+  window.BABYLON || document.write('<script src="https://cdn.jsdelivr.net/npm/babylonjs@9/babylon.js"><\/script>');
+</script>
+</head>
+<body>
+<canvas id="scene" aria-label="3D space battle between a blue and a red fleet"></canvas>
+
+<div class="hud">
+  <section class="fleet fleet--blue" aria-label="Blue fleet status">
+    <h2>Blue fleet<span class="flagname">flagship Aegis</span></h2>
+    <div class="pips" id="pips-blue"></div>
+    <div class="integrity"><span id="int-blue"></span></div>
+    <p class="meta"><span id="count-blue">10</span> of 10 ships in action</p>
+  </section>
+
+  <section class="fleet fleet--red" aria-label="Red fleet status">
+    <h2><span class="flagname">flagship Tyrant</span>Red fleet</h2>
+    <div class="pips" id="pips-red"></div>
+    <div class="integrity"><span id="int-red"></span></div>
+    <p class="meta"><span id="count-red">10</span> of 10 ships in action</p>
+  </section>
+
+  <div id="banner" role="status" aria-live="polite"><div class="big"></div><div class="small"></div></div>
+
+  <p class="hint">Drag to orbit, scroll or pinch to zoom. The camera drifts on its own when you let go.</p>
+
+  <div class="controls">
+    <button id="btn-orbit" type="button" aria-pressed="true">Auto orbit</button>
+    <button id="btn-follow" type="button" aria-pressed="true">Follow battle</button>
+    <button id="btn-slow" type="button" aria-pressed="false">Slow motion</button>
+    <button id="btn-restart" type="button">Restart battle</button>
+  </div>
+</div>
+
+<div id="error" role="alert"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  const errorBox = document.getElementById('error');
+  function fail(msg) { errorBox.textContent = msg; errorBox.classList.add('show'); }
+
+  if (!window.BABYLON) { fail('Babylon.js could not be loaded. Check your internet connection and reload the page.'); return; }
+
+  const B = BABYLON;
+  const V3 = B.Vector3, C3 = B.Color3, C4 = B.Color4, Q = B.Quaternion, MB = B.MeshBuilder;
+  const canvas = document.getElementById('scene');
+
+  let engine;
+  try {
+    engine = new B.Engine(canvas, true, { stencil: true, antialias: true, preserveDrawingBuffer: false }, true);
+  } catch (e) {
+    fail('WebGL is not available in this browser, so the battle cannot be rendered.');
+    return;
+  }
+
+  const scene = new B.Scene(engine);
+  scene.clearColor = new C4(0.006, 0.008, 0.02, 1);
+  scene.ambientColor = new C3(0.06, 0.06, 0.09);
+  scene.skipPointerMovePicking = true;
+
+  // ---------------------------------------------------------------- helpers
+  const rand = (a, b) => a + Math.random() * (b - a);
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const randUnit = () => {
+    const z = rand(-1, 1), t = rand(0, Math.PI * 2), r = Math.sqrt(1 - z * z);
+    return new V3(r * Math.cos(t), z, r * Math.sin(t));
+  };
+  const easeOut = (u) => 1 - Math.pow(1 - u, 3);
+
+  // ---------------------------------------------------------------- camera
+  const camera = new B.ArcRotateCamera('cam', -Math.PI / 2 + 1.05, 1.18, 150, V3.Zero(), scene);
+  camera.attachControl(canvas, true);
+  camera.lowerRadiusLimit = 25;
+  camera.upperRadiusLimit = 600;
+  camera.wheelDeltaPercentage = 0.012;
+  camera.pinchDeltaPercentage = 0.004;
+  camera.minZ = 1;
+  camera.maxZ = 9000;
+  camera.fov = 0.9;
+  camera.inertia = 0.88;
+  camera.panningSensibility = 0;
+  camera.useAutoRotationBehavior = true;
+  camera.autoRotationBehavior.idleRotationSpeed = 0.06;
+  camera.autoRotationBehavior.idleRotationWaitTime = 3500;
+  camera.autoRotationBehavior.idleRotationSpinupTime = 2500;
+  camera.autoRotationBehavior.zoomStopsAnimation = false;
+
+  // ---------------------------------------------------------------- lights
+  const hemi = new B.HemisphericLight('hemi', new V3(0.2, 1, 0.1), scene);
+  hemi.intensity = 0.32;
+  hemi.diffuse = new C3(0.55, 0.62, 0.9);
+  hemi.groundColor = new C3(0.14, 0.05, 0.14);
+  hemi.specular = C3.Black();
+
+  const SUN_DIR = new V3(-0.8, -0.35, 0.55).normalize();
+  const sun = new B.DirectionalLight('sun', SUN_DIR, scene);
+  sun.intensity = 1.75;
+  sun.diffuse = new C3(1.0, 0.93, 0.82);
+  sun.specular = new C3(0.9, 0.85, 0.8);
+
+  const rim = new B.DirectionalLight('rim', new V3(0.7, 0.25, -0.6), scene);
+  rim.intensity = 0.5;
+  rim.diffuse = new C3(0.45, 0.32, 0.95);
+  rim.specular = C3.Black();
+
+  // pooled explosion lights (fixed count avoids shader recompiles)
+  const xLights = [0, 1, 2].map((i) => {
+    const l = new B.PointLight('xlight' + i, V3.Zero(), scene);
+    l.intensity = 0; l.range = 60;
+    l.diffuse = new C3(1, 0.62, 0.28); l.specular = new C3(1, 0.7, 0.4);
+    return l;
+  });
+  let xLightIdx = 0;
+
+  // ---------------------------------------------------------------- procedural textures
+  function makeTex(name, w, h, draw, alpha, mips) {
+    const t = new B.DynamicTexture(name, { width: w, height: h }, scene, !!mips);
+    const ctx = t.getContext();
+    draw(ctx, w, h);
+    t.update();
+    t.hasAlpha = !!alpha;
+    return t;
+  }
+
+  const flareTex = makeTex('flare', 128, 128, (c, w, h) => {
+    const g = c.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
+    g.addColorStop(0, 'rgba(255,255,255,1)');
+    g.addColorStop(0.15, 'rgba(255,255,255,0.9)');
+    g.addColorStop(0.4, 'rgba(255,255,255,0.32)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    c.fillStyle = g; c.fillRect(0, 0, w, h);
+  }, true, true);
+
+  const smokeTex = makeTex('smoke', 128, 128, (c, w, h) => {
+    for (let i = 0; i < 26; i++) {
+      const x = w / 2 + rand(-22, 22), y = h / 2 + rand(-22, 22), r = rand(14, 34);
+      const g = c.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, 'rgba(255,255,255,0.22)');
+      g.addColorStop(1, 'rgba(255,255,255,0)');
+      c.fillStyle = g; c.fillRect(0, 0, w, h);
+    }
+  }, true, true);
+
+  const ringTex = makeTex('ring', 256, 256, (c, w, h) => {
+    const g = c.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
+    g.addColorStop(0, 'rgba(255,255,255,0)');
+    g.addColorStop(0.62, 'rgba(255,255,255,0)');
+    g.addColorStop(0.84, 'rgba(255,255,255,0.35)');
+    g.addColorStop(0.92, 'rgba(255,255,255,0.9)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    c.fillStyle = g; c.fillRect(0, 0, w, h);
+  }, true, true);
+
+  const panelTex = makeTex('panels', 512, 512, (c, w, h) => {
+    c.fillStyle = '#b9bec6'; c.fillRect(0, 0, w, h);
+    for (let i = 0; i < 160; i++) {
+      const pw = rand(20, 120), ph = rand(12, 70), x = rand(0, w), y = rand(0, h);
+      const v = Math.floor(rand(150, 215));
+      c.fillStyle = `rgb(${v},${v + 3},${v + 8})`;
+      c.fillRect(x, y, pw, ph);
+      c.strokeStyle = 'rgba(40,45,60,0.55)'; c.lineWidth = 1.2;
+      c.strokeRect(x + 0.5, y + 0.5, pw, ph);
+    }
+    c.strokeStyle = 'rgba(30,34,48,0.7)'; c.lineWidth = 2;
+    for (let i = 0; i <= 8; i++) {
+      c.beginPath(); c.moveTo(0, i * 64); c.lineTo(w, i * 64); c.stroke();
+      c.beginPath(); c.moveTo(i * 64, 0); c.lineTo(i * 64, h); c.stroke();
+    }
+    for (let i = 0; i < 60; i++) { // greebles / vents
+      c.fillStyle = 'rgba(25,28,40,0.6)';
+      const x = rand(0, w), y = rand(0, h);
+      for (let k = 0; k < 4; k++) c.fillRect(x + k * 5, y, 3, 14);
+    }
+  }, false, true);
+  panelTex.uScale = 1.5; panelTex.vScale = 1.5;
+
+  const skyTex = makeTex('sky', 4096, 2048, (c, w, h) => {
+    const bg = c.createLinearGradient(0, 0, 0, h);
+    bg.addColorStop(0, '#020208'); bg.addColorStop(0.5, '#060714'); bg.addColorStop(1, '#020208');
+    c.fillStyle = bg; c.fillRect(0, 0, w, h);
+    c.globalCompositeOperation = 'lighter';
+    const blob = (x, y, r, col) => {
+      for (const ox of [-w, 0, w]) {
+        const g = c.createRadialGradient(x + ox, y, 0, x + ox, y, r);
+        g.addColorStop(0, col); g.addColorStop(1, 'rgba(0,0,0,0)');
+        c.fillStyle = g; c.fillRect(x + ox - r, y - r, r * 2, r * 2);
+      }
+    };
+    // nebula band following a gentle sine across the sky
+    const cols = ['rgba(120,40,170,0.10)', 'rgba(30,90,190,0.10)', 'rgba(200,60,110,0.08)', 'rgba(40,150,170,0.07)', 'rgba(230,120,60,0.05)'];
+    for (let i = 0; i < 300; i++) {
+      const x = rand(0, w);
+      const y = h * 0.5 + Math.sin(x / w * Math.PI * 2 + 0.6) * h * 0.16 + rand(-1, 1) * h * 0.11;
+      blob(x, y, rand(80, 440), cols[i % cols.length]);
+    }
+    for (let i = 0; i < 50; i++) blob(rand(0, w), rand(h * 0.2, h * 0.8), rand(300, 700), 'rgba(40,30,90,0.06)');
+    // stars
+    for (let i = 0; i < 9000; i++) {
+      const x = rand(0, w), y = rand(0, h);
+      const a = Math.pow(Math.random(), 3);
+      const tint = Math.random();
+      const col = tint < 0.15 ? `rgba(255,214,180,${0.15 + a * 0.8})` : tint < 0.3 ? `rgba(180,205,255,${0.15 + a * 0.8})` : `rgba(255,255,255,${0.12 + a * 0.85})`;
+      c.fillStyle = col;
+      const s = a > 0.9 ? 2 : a > 0.6 ? 1.4 : 1;
+      c.fillRect(x, y, s, s);
+    }
+    for (let i = 0; i < 26; i++) { // bright stars with a soft halo
+      const x = rand(0, w), y = rand(h * 0.1, h * 0.9);
+      const g = c.createRadialGradient(x, y, 0, x, y, 6);
+      g.addColorStop(0, 'rgba(255,255,255,0.95)'); g.addColorStop(1, 'rgba(160,190,255,0)');
+      c.fillStyle = g; c.fillRect(x - 6, y - 6, 12, 12);
+    }
+    c.globalCompositeOperation = 'source-over';
+  }, false, true);
+
+  const planetTex = makeTex('planet', 1024, 512, (c, w, h) => {
+    for (let y = 0; y < h; y++) {
+      const v = y / h;
+      const band = Math.sin(v * 38) * 0.5 + Math.sin(v * 91 + 1.3) * 0.25 + Math.sin(v * 13) * 0.35;
+      const r = 150 + band * 45, g = 105 + band * 30, b = 95 + band * 35;
+      c.fillStyle = `rgb(${r | 0},${g | 0},${b | 0})`;
+      c.fillRect(0, y, w, 1);
+    }
+    for (let i = 0; i < 900; i++) {
+      c.fillStyle = `rgba(${Math.random() < 0.5 ? '255,220,190' : '70,45,60'},0.06)`;
+      const y = rand(0, h);
+      c.fillRect(rand(-100, w), y, rand(60, 400), rand(1, 4));
+    }
+    const sx = w * 0.62, sy = h * 0.6; // storm
+    const g = c.createRadialGradient(sx, sy, 0, sx, sy, 46);
+    g.addColorStop(0, 'rgba(240,170,120,0.9)'); g.addColorStop(0.6, 'rgba(190,110,90,0.6)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+    c.save(); c.translate(sx, sy); c.scale(1.8, 0.7); c.translate(-sx, -sy); c.fillStyle = g; c.fillRect(sx - 60, sy - 60, 120, 120); c.restore();
+  }, false, true);
+
+  // ---------------------------------------------------------------- environment
+  const sky = MB.CreateSphere('sky', { diameter: 7000, segments: 32, sideOrientation: B.Mesh.BACKSIDE }, scene);
+  const skyMat = new B.StandardMaterial('skyMat', scene);
+  skyMat.emissiveTexture = skyTex; skyMat.disableLighting = true; skyMat.backFaceCulling = false;
+  skyMat.diffuseColor = C3.Black(); skyMat.specularColor = C3.Black();
+  sky.material = skyMat; sky.infiniteDistance = true; sky.isPickable = false;
+
+  const planet = MB.CreateSphere('planet', { diameter: 620, segments: 64 }, scene);
+  planet.position.set(-1100, 260, 1900);
+  planet.rotation.z = 0.32;
+  const planetMat = new B.StandardMaterial('planetMat', scene);
+  planetMat.diffuseTexture = planetTex; planetMat.specularColor = new C3(0.05, 0.05, 0.05);
+  planetMat.emissiveColor = new C3(0.02, 0.015, 0.03);
+  planet.material = planetMat;
+
+  const atmo = MB.CreateSphere('atmo', { diameter: 652, segments: 48 }, scene);
+  atmo.position.copyFrom(planet.position);
+  const atmoMat = new B.StandardMaterial('atmoMat', scene);
+  atmoMat.disableLighting = true;
+  atmoMat.alpha = 0; // opacity comes entirely from the fresnel rim
+  atmoMat.emissiveColor = new C3(0.45, 0.6, 1.0);
+  atmoMat.alphaMode = B.Constants.ALPHA_ADD;
+  atmoMat.opacityFresnelParameters = new B.FresnelParameters();
+  atmoMat.opacityFresnelParameters.leftColor = C3.White();
+  atmoMat.opacityFresnelParameters.rightColor = C3.Black();
+  atmoMat.opacityFresnelParameters.power = 3;
+  atmoMat.opacityFresnelParameters.bias = 0.05;
+  atmo.material = atmoMat;
+
+  // distant star (the visible source of the key light)
+  const sunDisc = MB.CreatePlane('sunDisc', { size: 520 }, scene);
+  sunDisc.position = SUN_DIR.scale(-3000);
+  sunDisc.billboardMode = B.Mesh.BILLBOARDMODE_ALL;
+  sunDisc.infiniteDistance = true;
+  const sunMat = new B.StandardMaterial('sunMat', scene);
+  sunMat.disableLighting = true; sunMat.emissiveColor = new C3(1, 0.88, 0.7);
+  sunMat.opacityTexture = flareTex; sunMat.alphaMode = B.Constants.ALPHA_ADD; sunMat.disableDepthWrite = true;
+  sunDisc.material = sunMat;
+
+  // ---------------------------------------------------------------- post-processing
+  const glow = new B.GlowLayer('glow', scene, { mainTextureSamples: 2, blurKernelSize: 48 });
+  glow.intensity = 0.95;
+  glow.addExcludedMesh(sky);
+  glow.addExcludedMesh(planet);
+  glow.addExcludedMesh(atmo);
+
+  try {
+    const pp = new B.DefaultRenderingPipeline('pp', true, scene, [camera]);
+    pp.samples = 4;
+    pp.fxaaEnabled = true;
+    pp.bloomEnabled = true;
+    pp.bloomThreshold = 0.72;
+    pp.bloomWeight = 0.38;
+    pp.bloomKernel = 64;
+    pp.bloomScale = 0.5;
+    pp.imageProcessingEnabled = true;
+    const ip = pp.imageProcessing;
+    ip.toneMappingEnabled = true;
+    ip.toneMappingType = B.ImageProcessingConfiguration.TONEMAPPING_ACES;
+    ip.exposure = 1.25;
+    ip.contrast = 1.18;
+    ip.vignetteEnabled = true;
+    ip.vignetteWeight = 2.4;
+    ip.vignetteStretch = 0.35;
+    ip.vignetteColor = new C4(0, 0, 0, 0);
+    pp.chromaticAberrationEnabled = true;
+    pp.chromaticAberration.aberrationAmount = 5;
+    pp.chromaticAberration.radialIntensity = 1.4;
+    pp.grainEnabled = true;
+    pp.grain.intensity = 5;
+    pp.grain.animated = true;
+  } catch (e) {
+    console.warn('Post-processing unavailable:', e);
+  }
+
+  // ---------------------------------------------------------------- materials
+  function mat(name, o) {
+    const m = new B.StandardMaterial(name, scene);
+    m.diffuseColor = o.d || new C3(0.5, 0.5, 0.5);
+    m.specularColor = o.s || new C3(0.25, 0.25, 0.25);
+    m.specularPower = o.p || 48;
+    if (o.e) m.emissiveColor = o.e;
+    if (o.tex) m.diffuseTexture = o.tex;
+    if (o.unlit) { m.disableLighting = true; m.diffuseColor = C3.Black(); m.specularColor = C3.Black(); }
+    m.maxSimultaneousLights = 8;
+    return m;
+  }
+
+  const TEAM = {
+    blue: {
+      css: '#5fb8ff',
+      hull: mat('bHull', { d: new C3(0.8, 0.85, 0.94), tex: panelTex, s: new C3(0.5, 0.55, 0.65), p: 64 }),
+      accent: mat('bAccent', { d: new C3(0.12, 0.36, 0.88), e: new C3(0.02, 0.07, 0.2), s: new C3(0.5, 0.6, 0.8), p: 64 }),
+      glass: mat('bGlass', { d: new C3(0.03, 0.08, 0.16), e: new C3(0.22, 0.6, 1.0), s: new C3(1, 1, 1), p: 128 }),
+      engine: mat('bEngine', { e: new C3(0.55, 0.85, 1.0), unlit: true }),
+      strip: mat('bStrip', { e: new C3(0.2, 0.62, 1.0), unlit: true }),
+      bolt: mat('bBolt', { e: new C3(0.62, 0.88, 1.0), unlit: true }),
+      trail: mat('bTrail', { e: new C3(0.12, 0.45, 1.0), unlit: true }),
+      exhaust: [new C4(0.65, 0.88, 1, 1), new C4(0.2, 0.5, 1, 1), new C4(0, 0.05, 0.3, 0)],
+      fxColor: new C3(0.3, 0.6, 1.0),
+      engineLight: new C3(0.35, 0.65, 1.0),
+    },
+    red: {
+      css: '#ff5b47',
+      hull: mat('rHull', { d: new C3(0.52, 0.47, 0.48), tex: panelTex, s: new C3(0.45, 0.4, 0.38), p: 48 }),
+      accent: mat('rAccent', { d: new C3(0.78, 0.12, 0.07), e: new C3(0.22, 0.02, 0.01), s: new C3(0.7, 0.4, 0.3), p: 64 }),
+      glass: mat('rGlass', { d: new C3(0.16, 0.04, 0.02), e: new C3(1.0, 0.4, 0.12), s: new C3(1, 1, 1), p: 128 }),
+      engine: mat('rEngine', { e: new C3(1.0, 0.6, 0.25), unlit: true }),
+      strip: mat('rStrip', { e: new C3(1.0, 0.18, 0.08), unlit: true }),
+      bolt: mat('rBolt', { e: new C3(1.0, 0.55, 0.38), unlit: true }),
+      trail: mat('rTrail', { e: new C3(1.0, 0.12, 0.04), unlit: true }),
+      exhaust: [new C4(1, 0.8, 0.45, 1), new C4(1, 0.35, 0.08, 1), new C4(0.3, 0.02, 0, 0)],
+      fxColor: new C3(1.0, 0.3, 0.12),
+      engineLight: new C3(1.0, 0.5, 0.2),
+    },
+  };
+  for (const k of ['blue', 'red']) {
+    const tm = TEAM[k].trail;
+    tm.alpha = 0.6; tm.backFaceCulling = false;
+  }
+  const darkMat = mat('darkMetal', { d: new C3(0.17, 0.18, 0.21), s: new C3(0.35, 0.35, 0.38), p: 32 });
+  const hotMat = mat('hotMetal', { d: new C3(0.15, 0.1, 0.08), e: new C3(1.0, 0.42, 0.1), s: new C3(0.2, 0.2, 0.2) });
+
+  function fxMat(name, color, tex) {
+    const m = new B.StandardMaterial(name, scene);
+    m.disableLighting = true; m.emissiveColor = color;
+    m.diffuseColor = C3.Black(); m.specularColor = C3.Black();
+    m.opacityTexture = tex; m.alphaMode = B.Constants.ALPHA_ADD;
+    m.backFaceCulling = false; m.disableDepthWrite = true;
+    return m;
+  }
+  const FX = {
+    white: fxMat('fxWhite', new C3(1, 0.95, 0.85), flareTex),
+    orange: fxMat('fxOrange', new C3(0.95, 0.48, 0.12), flareTex),
+    blue: fxMat('fxBlue', new C3(0.35, 0.65, 1), flareTex),
+    red: fxMat('fxRed', new C3(1, 0.3, 0.12), flareTex),
+    ringWarm: fxMat('ringWarm', new C3(0.85, 0.6, 0.35), ringTex),
+    ringBlue: fxMat('ringBlue', new C3(0.3, 0.55, 1), ringTex),
+    ringRed: fxMat('ringRed', new C3(1, 0.3, 0.12), ringTex),
+  };
+  const shockMat = new B.StandardMaterial('shock', scene);
+  shockMat.disableLighting = true; shockMat.emissiveColor = new C3(1, 0.7, 0.4);
+  shockMat.alphaMode = B.Constants.ALPHA_ADD; shockMat.disableDepthWrite = true;
+  shockMat.alpha = 0; shockMat.backFaceCulling = true;
+  shockMat.opacityFresnelParameters = new B.FresnelParameters();
+  shockMat.opacityFresnelParameters.leftColor = C3.White();
+  shockMat.opacityFresnelParameters.rightColor = C3.Black();
+  shockMat.opacityFresnelParameters.power = 2.5;
+
+  // templates (cloned so geometry is shared)
+  const planeTpl = MB.CreatePlane('planeTpl', { size: 1 }, scene); planeTpl.setEnabled(false);
+  const sphereTpl = MB.CreateSphere('sphereTpl', { diameter: 1, segments: 24 }, scene); sphereTpl.setEnabled(false);
+  const shardTpls = [0, 1, 2, 3].map((t) => { const m = MB.CreatePolyhedron('shard' + t, { type: t, size: 0.5 }, scene); m.setEnabled(false); return m; });
+  shardTpls.push((() => { const m = MB.CreateBox('plateTpl', { width: 1, height: 0.12, depth: 1.4 }, scene); m.setEnabled(false); return m; })());
+  const boltTpl = {};
+  for (const k of ['blue', 'red']) {
+    const m = MB.CreateSphere('bolt_' + k, { diameter: 0.6, segments: 10 }, scene);
+    m.scaling.set(1, 1, 3.6);
+    m.material = TEAM[k].bolt;
+    m.setEnabled(false);
+    boltTpl[k] = m;
+  }
+
+  // ---------------------------------------------------------------- time / effects plumbing
+  let timeScale = 1;
+  let simTime = 0;
+  const effects = [];   // {t, dur, upd(u, dt), end()}
+  const timers = [];    // {t, fn}
+  function addEffect(dur, upd, end) { effects.push({ t: 0, dur, upd, end }); }
+  function after(sec, fn) { timers.push({ t: sec, fn }); }
+
+  const BASE_PS_SPEED = 1 / 60; // makes particle lifetimes/powers read as seconds and units per second
+  function tunePS(ps) { ps.updateSpeed = BASE_PS_SPEED * timeScale; ps.metadata = { tuned: true }; return ps; }
+
+  function burst(o) {
+    const ps = new B.ParticleSystem('burst', o.count + 4, scene);
+    ps.particleTexture = o.tex || flareTex;
+    ps.emitter = o.pos.clone();
+    ps.createSphereEmitter(o.radius || 0.4, 1);
+    ps.minEmitPower = o.power[0]; ps.maxEmitPower = o.power[1];
+    ps.minLifeTime = o.life[0]; ps.maxLifeTime = o.life[1];
+    ps.minSize = o.size[0]; ps.maxSize = o.size[1];
+    ps.minInitialRotation = 0; ps.maxInitialRotation = Math.PI * 2;
+    ps.minAngularSpeed = -1.5; ps.maxAngularSpeed = 1.5;
+    if (o.gradient) o.gradient.forEach(([g, c]) => ps.addColorGradient(g, c));
+    else { ps.color1 = o.c1; ps.color2 = o.c2 || o.c1; ps.colorDead = o.dead; }
+    if (o.sizeGrad) { ps.minSize = 1; ps.maxSize = 1; o.sizeGrad.forEach(([g, a, b]) => ps.addSizeGradient(g, a, b)); }
+    if (o.velGrad) o.velGrad.forEach(([g, v]) => ps.addVelocityGradient(g, v));
+    if (o.stretch) { ps.billboardMode = B.ParticleSystem.BILLBOARDMODE_STRETCHED; ps.minScaleY = o.stretch[0]; ps.maxScaleY = o.stretch[1]; }
+    ps.blendMode = o.blend === 'std' ? B.ParticleSystem.BLENDMODE_STANDARD : B.ParticleSystem.BLENDMODE_ADD;
+    ps.gravity = V3.Zero();
+    ps.manualEmitCount = o.count;
+    ps.targetStopDuration = 0.15;
+    ps.disposeOnStop = true;
+    tunePS(ps);
+    ps.start();
+    return ps;
+  }
+
+  function fxFlare(p, material, s0, s1, dur, power) {
+    const m = planeTpl.clone('flare'); m.setEnabled(true);
+    m.material = material; m.billboardMode = B.Mesh.BILLBOARDMODE_ALL;
+    m.position.copyFrom(p); m.isPickable = false;
+    m.scaling.setAll(s0);
+    addEffect(dur, (u) => { m.scaling.setAll(s0 + (s1 - s0) * easeOut(u)); m.visibility = Math.pow(1 - u, power || 1.6); }, () => m.dispose());
+  }
+  function fxRing(p, material, s0, s1, dur, normal) {
+    const m = planeTpl.clone('ring'); m.setEnabled(true);
+    m.material = material; m.isPickable = false;
+    m.position.copyFrom(p);
+    const n = normal || randUnit();
+    m.lookAt(p.add(n));
+    m.scaling.setAll(s0);
+    addEffect(dur, (u) => { m.scaling.setAll(s0 + (s1 - s0) * easeOut(u)); m.visibility = 0.85 * Math.pow(1 - u, 1.5); }, () => m.dispose());
+  }
+  function fxShock(p, s0, s1, dur) {
+    const m = sphereTpl.clone('shock'); m.setEnabled(true);
+    m.material = shockMat; m.isPickable = false;
+    m.position.copyFrom(p);
+    addEffect(dur, (u) => { m.scaling.setAll(s0 + (s1 - s0) * easeOut(u)); m.visibility = Math.pow(1 - u, 1.4) * 0.9; }, () => m.dispose());
+  }
+
+  let shake = 0;
+  function addShake(p, k) {
+    const d = V3.Distance(p, camera.position);
+    shake = Math.min(2.2, shake + k * 2.4 / (1 + d / 60));
+  }
+
+  function flashLight(p, k) {
+    const l = xLights[xLightIdx++ % xLights.length];
+    l.position.copyFrom(p);
+    l.range = 40 * k + 20;
+    addEffect(0.9 + 0.2 * k, (u) => { l.intensity = 7 * k * (1 - u) * (1 - u); }, () => { l.intensity = 0; });
+  }
+
+  // ---------------------------------------------------------------- ship construction
+  function Parts() { this.groups = {}; }
+  Parts.prototype.add = function (key, mesh, x, y, z, rx, ry, rz, sx, sy, sz) {
+    mesh.position.set(x, y, z);
+    mesh.rotation.set(rx || 0, ry || 0, rz || 0);
+    if (sx !== undefined) mesh.scaling.set(sx, sy, sz);
+    (this.groups[key] || (this.groups[key] = [])).push(mesh);
+    return mesh;
+  };
+  const box = (w, h, d) => MB.CreateBox('p', { width: w, height: h, depth: d }, scene);
+  const cyl = (h, dt, db, t) => MB.CreateCylinder('p', { height: h, diameterTop: dt, diameterBottom: db, tessellation: t || 16 }, scene);
+  const sph = (d, seg) => MB.CreateSphere('p', { diameter: d, segments: seg || 14 }, scene);
+  const HP = Math.PI / 2;
+
+  function buildBlueEscort(P) {
+    P.add('hull', cyl(4.6, 0.3, 1.25, 6), 0, 0, 0.5, HP);
+    P.add('hull', box(0.5, 0.35, 3), 0, 0.5, -0.5);
+    P.add('hull', box(1.6, 0.85, 1.5), 0, 0, -1.9);
+    P.add('glass', sph(1), 0, 0.45, 1.0, 0, 0, 0, 0.55, 0.42, 1.3);
+    P.add('hull', box(2.8, 0.1, 1.5), -1.65, -0.1, -1.1, 0, -0.38);
+    P.add('hull', box(2.8, 0.1, 1.5), 1.65, -0.1, -1.1, 0, 0.38);
+    for (const sx of [-1, 1]) {
+      P.add('dark', cyl(2.2, 0.2, 0.26, 10), sx * 2.95, -0.1, -1.2, HP);
+      P.add('accent', cyl(0.45, 0.32, 0.32, 10), sx * 2.95, -0.1, -2.3, HP);
+      P.add('dark', cyl(1.1, 0.6, 0.72, 14), sx * 0.45, 0, -3.05, HP);
+      P.add('engine', cyl(0.06, 0.5, 0.5, 14), sx * 0.45, 0, -3.62, HP);
+      P.add('strip', box(0.06, 0.08, 2.4), sx * 0.5, 0.18, 0.2);
+    }
+    P.add('accent', box(0.12, 1.1, 1.3), 0, 0.85, -2.0, -0.35);
+    P.add('accent', box(0.9, 0.2, 0.7), 0, -0.45, 1.2);
+    return { hitR: 2.6, guns: [new V3(0, -0.2, 3.1)], engines: [[-0.45, 0, -3.66, 0.25], [0.45, 0, -3.66, 0.25]], engineCenter: new V3(0, 0, -4.2), barY: 3.2 };
+  }
+
+  function buildRedEscort(P) {
+    P.add('hull', box(1.3, 0.7, 3.4), 0, 0, -0.4);
+    P.add('hull', cyl(2.0, 0.05, 1.1, 4), 0, 0, 2.3, HP, 0, 0, 1.2, 1, 0.6);
+    for (const sx of [-1, 1]) {
+      P.add('hull', box(0.32, 0.38, 3.4), sx * 1.0, 0, 0.9);
+      P.add('accent', box(0.34, 0.4, 0.5), sx * 1.0, 0, 2.75);
+      P.add('dark', box(0.8, 0.2, 0.6), sx * 0.65, 0, 0);
+      P.add('hull', box(2.4, 0.1, 1.7), sx * 1.75, -0.3, -1.1, 0, 0, -sx * 0.32);
+      P.add('accent', box(0.3, 0.5, 1.2), sx * 2.85, -0.66, -1.2);
+      P.add('accent', box(0.1, 1.1, 1.1), sx * 0.55, 0.75, -1.6, 0, 0, -sx * 0.3);
+      P.add('dark', cyl(0.8, 0.35, 0.42, 12), sx * 0.75, -0.1, -2.3, HP);
+      P.add('engine', cyl(0.06, 0.3, 0.3, 12), sx * 0.75, -0.1, -2.72, HP);
+      P.add('strip', box(0.06, 0.06, 2.8), sx * 0.66, 0.2, -0.4);
+    }
+    P.add('glass', sph(1), 0, 0.4, 0.7, 0, 0, 0, 0.5, 0.32, 1.0);
+    P.add('dark', cyl(1.2, 0.85, 1.1, 16), 0, 0, -2.6, HP);
+    P.add('engine', cyl(0.06, 0.8, 0.8, 16), 0, 0, -3.22, HP);
+    return { hitR: 2.6, guns: [new V3(0, 0, 3.4)], engines: [[0, 0, -3.26, 0.4]], engineCenter: new V3(0, 0, -3.9), barY: 3.2 };
+  }
+
+  function buildBlueFlagship(P) {
+    P.add('hull', box(3.6, 2.3, 11), 0, 0, -1);
+    P.add('hull', cyl(5.5, 0.6, 3.9, 6), 0, 0, 7.25, HP, 0, 0, 1, 1, 0.62);
+    P.add('dark', box(2.4, 1.0, 10), 0, -1.55, -0.5);
+    P.add('accent', box(0.7, 0.32, 9.5), 0, 1.25, -0.5);
+    P.add('strip', box(1.8, 0.6, 0.06), 0, -1.55, 4.53);
+    for (const sx of [-1, 1]) {
+      P.add('hull', box(1.5, 1.3, 7.5), sx * 2.5, -0.25, -1.5);
+      P.add('strip', box(0.06, 0.22, 7), sx * 3.27, 0.05, -1.5);
+      P.add('strip', box(0.08, 0.08, 9), sx * 1.82, 1.17, -1);
+      P.add('dark', cyl(3.4, 0.42, 0.55, 12), sx * 3.0, -0.3, 3.2, HP);
+      P.add('accent', cyl(0.3, 0.62, 0.62, 12), sx * 3.0, -0.3, 4.95, HP);
+      P.add('hull', box(4.2, 0.2, 2.6), sx * 3.6, 0.2, -5.2, 0, sx * 0.4);
+      P.add('strip', sph(0.4, 8), sx * 5.53, 0.2, -6.02);
+      for (const sy of [-1, 1]) {
+        P.add('dark', cyl(1.7, 1.0, 1.3, 16), sx * 1.1, sy * 0.6, -7.35, HP);
+        P.add('engine', cyl(0.08, 0.95, 0.95, 16), sx * 1.1, sy * 0.6, -8.24, HP);
+      }
+    }
+    for (const z of [3.2, -0.6]) {
+      P.add('dark', cyl(0.55, 1.3, 1.5, 16), 0, 1.6, z);
+      for (const bx of [-0.28, 0.28]) P.add('dark', cyl(2.2, 0.18, 0.18, 8), bx, 1.78, z + 1.2, HP);
+    }
+    P.add('hull', box(2.0, 1.6, 2.6), 0, 2.0, -4.6);
+    P.add('hull', box(1.4, 0.8, 1.8), 0, 3.2, -4.9);
+    P.add('glass', box(1.1, 0.16, 0.06), 0, 3.3, -3.98);
+    P.add('glass', box(1.6, 0.2, 0.06), 0, 2.3, -3.28);
+    P.add('dark', cyl(2.6, 0.05, 0.1, 6), 0.4, 4.8, -5.2);
+    P.add('dark', cyl(0.08, 1.0, 1.0, 16), -0.5, 3.85, -5.4, 0.6);
+    return {
+      hitR: 6.6, guns: [new V3(-3.0, -0.3, 5.2), new V3(3.0, -0.3, 5.2)],
+      engines: [[-1.1, 0.6, -8.3, 0.45], [1.1, 0.6, -8.3, 0.45], [-1.1, -0.6, -8.3, 0.45], [1.1, -0.6, -8.3, 0.45]],
+      engineCenter: new V3(0, 0, -9.2), barY: 6.6,
+    };
+  }
+
+  function buildRedFlagship(P) {
+    P.add('hull', box(4.4, 1.9, 10.5), 0, 0, -1);
+    P.add('hull', cyl(7.5, 0.25, 4.6, 4), 0, 0, 8.0, HP, 0, 0, 1, 1, 0.42);
+    P.add('dark', box(0.9, 1.3, 12), 0, 1.4, -0.5);
+    P.add('strip', box(0.3, 0.1, 11), 0, 2.08, -0.5);
+    P.add('dark', box(3.2, 1.0, 8.5), 0, -1.4, -1.8);
+    P.add('accent', box(0.2, 1.6, 1.8), 0, -2.4, -4.5);
+    for (const sx of [-1, 1]) {
+      P.add('hull', box(1.8, 0.35, 8.5), sx * 2.75, 0.65, -1.2, 0, 0, -sx * 0.4);
+      P.add('dark', cyl(4.2, 0.45, 0.6, 12), sx * 2.6, -0.5, 3.6, HP);
+      P.add('accent', cyl(0.35, 0.72, 0.72, 12), sx * 2.6, -0.5, 5.75, HP);
+      P.add('accent', box(0.22, 3.2, 2.4), sx * 1.7, 2.0, -5.6, 0, 0, -sx * 0.35);
+      P.add('dark', cyl(1.4, 1.0, 1.2, 14), sx * 1.95, -0.2, -6.8, HP);
+      P.add('engine', cyl(0.07, 0.95, 0.95, 14), sx * 1.95, -0.2, -7.53, HP);
+      P.add('strip', box(0.06, 0.18, 9), sx * 2.22, -0.2, -1);
+    }
+    P.add('dark', cyl(0.5, 1.4, 1.6, 16), 0, 2.3, 2.0);
+    for (const bx of [-0.3, 0.3]) P.add('dark', cyl(2.4, 0.2, 0.2, 8), bx, 2.5, 3.3, HP);
+    P.add('hull', box(1.7, 1.2, 2.2), 0, 2.6, -4.6);
+    P.add('glass', box(1.3, 0.18, 0.06), 0, 2.75, -3.48);
+    P.add('dark', cyl(1.8, 1.6, 1.9, 16), 0, 0, -7.1, HP);
+    P.add('engine', cyl(0.08, 1.5, 1.5, 16), 0, 0, -8.04, HP);
+    return {
+      hitR: 6.6, guns: [new V3(-2.6, -0.5, 6.0), new V3(2.6, -0.5, 6.0)],
+      engines: [[0, 0, -8.1, 0.7], [-1.95, -0.2, -7.6, 0.45], [1.95, -0.2, -7.6, 0.45]],
+      engineCenter: new V3(0, 0, -9.0), barY: 6.6,
+    };
+  }
+
+  // ---------------------------------------------------------------- ships
+  let ships = [];
+  let bolts = [];
+  let debris = [];
+  const fleetShips = { blue: [], red: [] };
+
+  function createBar(s) {
+    const H = s.isFlag ? 40 : 30;
+    const tex = new B.DynamicTexture('barTex', { width: 256, height: H }, scene, false);
+    const m = new B.StandardMaterial('barMat', scene);
+    m.disableLighting = true; m.emissiveTexture = tex; m.diffuseColor = C3.Black(); m.specularColor = C3.Black();
+    m.backFaceCulling = false;
+    const w = s.isFlag ? 8 : 4.2;
+    const plane = MB.CreatePlane('bar', { width: w, height: w * H / 256 }, scene);
+    plane.material = m;
+    plane.billboardMode = B.Mesh.BILLBOARDMODE_ALL;
+    plane.renderingGroupId = 1;
+    plane.isPickable = false;
+    glow.addExcludedMesh(plane);
+    s.bar = { tex, mat: m, mesh: plane, H, ghost: 1, dirty: true, pulse: 0 };
+    drawBar(s);
+  }
+
+  function drawBar(s) {
+    const b = s.bar, ctx = b.tex.getContext(), W = 256, H = b.H;
+    const r = s.hp / s.maxHp;
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#05080f'; ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = TEAM[s.team].css; ctx.lineWidth = 4; ctx.strokeRect(2, 2, W - 4, H - 4);
+    const pad = 7, iw = W - pad * 2, ih = H - pad * 2;
+    if (b.ghost > r) { ctx.fillStyle = 'rgba(255,245,230,0.9)'; ctx.fillRect(pad, pad, iw * b.ghost, ih); }
+    const hue = 120 * r;
+    const g = ctx.createLinearGradient(0, pad, 0, pad + ih);
+    g.addColorStop(0, `hsl(${hue},95%,62%)`); g.addColorStop(1, `hsl(${hue},90%,40%)`);
+    ctx.fillStyle = g; ctx.fillRect(pad, pad, iw * r, ih);
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    const ticks = s.isFlag ? 20 : 10;
+    for (let i = 1; i < ticks; i++) ctx.fillRect(pad + iw * i / ticks - 1, pad, 2, ih);
+    b.tex.update();
+    b.dirty = false;
+  }
+
+  function makeShip(team, isFlag, index) {
+    const P = new Parts();
+    const spec = isFlag ? (team === 'blue' ? buildBlueFlagship(P) : buildRedFlagship(P))
+                        : (team === 'blue' ? buildBlueEscort(P) : buildRedEscort(P));
+    const T = TEAM[team];
+    const root = new B.TransformNode(team + (isFlag ? '_flag' : '_escort' + index), scene);
+    root.rotationQuaternion = Q.Identity();
+    const mats = { hull: T.hull, accent: T.accent, glass: T.glass, engine: T.engine, strip: T.strip, dark: darkMat };
+    const meshes = [];
+    for (const key in P.groups) {
+      const list = P.groups[key];
+      const merged = list.length === 1 ? list[0] : B.Mesh.MergeMeshes(list, true, true);
+      merged.name = root.name + '_' + key;
+      merged.material = mats[key];
+      merged.parent = root;
+      merged.isPickable = false;
+      meshes.push(merged);
+    }
+
+    // bounding width (used for chain reactions)
+    root.computeWorldMatrix(true);
+    const bb = root.getHierarchyBoundingVectors(true);
+    const width = bb.max.x - bb.min.x;
+
+    const s = {
+      team, isFlag, index, root, meshes, width,
+      pos: root.position,
+      hitR: spec.hitR, guns: spec.guns, barY: spec.barY,
+      maxHp: isFlag ? 600 : 120, hp: isFlag ? 600 : 120, alive: true,
+      fwd: new V3(0, 0, 1), up: new V3(0, 1, 0), vel: V3.Zero(),
+      speed: isFlag ? 7 : 12,
+      maxSpeed: isFlag ? 7.5 : rand(19, 24), turnRate: isFlag ? 0.32 : rand(1.5, 1.9), accel: isFlag ? 3 : 14,
+      boost: 1, cooldown: rand(0.6, 3), retarget: 0, target: null,
+      state: isFlag ? 'cruise' : 'formation', stateT: 0, breakDir: new V3(0, 0, 1),
+      phase: rand(0, 100), releaseT: rand(3.0, 5.5), slot: null, orbitSign: Math.random() < 0.5 ? -1 : 1,
+      exhaust: [], burn: null,
+    };
+
+    // engine light: lights the ship's own hull from the thrusters
+    const el = new B.PointLight(root.name + '_engineLight', spec.engineCenter.clone(), scene);
+    el.parent = root;
+    el.diffuse = T.engineLight; el.specular = T.engineLight;
+    el.intensity = isFlag ? 2.6 : 1.8;
+    el.range = isFlag ? 16 : 7;
+    el.includedOnlyMeshes = meshes.slice();
+    s.light = el;
+
+    // exhaust plumes
+    for (const [ex, ey, ez, r] of spec.engines) {
+      const anchor = new B.Mesh(root.name + '_nozzle', scene);
+      anchor.parent = root; anchor.position.set(ex, ey, ez);
+      const ps = new B.ParticleSystem('exhaust', isFlag ? 220 : 110, scene);
+      ps.particleTexture = flareTex;
+      ps.emitter = anchor;
+      ps.minEmitBox = new V3(-r * 0.35, -r * 0.35, 0); ps.maxEmitBox = new V3(r * 0.35, r * 0.35, 0);
+      ps.direction1 = new V3(-0.06, -0.06, -1); ps.direction2 = new V3(0.06, 0.06, -1);
+      ps.minEmitPower = 5; ps.maxEmitPower = 10;
+      ps.minLifeTime = isFlag ? 0.3 : 0.14; ps.maxLifeTime = isFlag ? 0.6 : 0.32;
+      ps.minSize = r * 1.6; ps.maxSize = r * 2.6;
+      ps.emitRate = isFlag ? 140 : 110;
+      ps.color1 = T.exhaust[0]; ps.color2 = T.exhaust[1]; ps.colorDead = T.exhaust[2];
+      ps.blendMode = B.ParticleSystem.BLENDMODE_ADD;
+      ps.gravity = V3.Zero();
+      tunePS(ps);
+      ps.start();
+      s.exhaust.push({ ps, anchor });
+    }
+    s.centerAnchor = new B.Mesh(root.name + '_center', scene);
+    s.centerAnchor.parent = root;
+
+    createBar(s);
+    return s;
+  }
+
+  const SLOTS = [[-11, 0, 2], [11, 0, 2], [-6, 6, -5], [6, 6, -5], [-6, -6, -5], [6, -6, -5], [-19, 2, -9], [19, 2, -9], [0, 10, 6]];
+
+  function setOrientation(s) {
+    const r = V3.Cross(s.up, s.fwd).normalize();
+    const u = V3.Cross(s.fwd, r);
+    s.up.copyFrom(u);
+    Q.RotationQuaternionFromAxisToRef(r, u, s.fwd, s.root.rotationQuaternion);
+  }
+
+  function createFleets() {
+    ships = []; fleetShips.blue = []; fleetShips.red = [];
+    for (const team of ['blue', 'red']) {
+      const dir = team === 'blue' ? 1 : -1;
+      const flag = makeShip(team, true, 0);
+      flag.pos.set(dir * -6, team === 'blue' ? -4 : 6, -dir * 78);
+      flag.fwd.set(0, 0, dir);
+      flag.speed = flag.maxSpeed;
+      setOrientation(flag);
+      flag.root.computeWorldMatrix(true);
+      ships.push(flag); fleetShips[team].push(flag);
+      for (let i = 0; i < 9; i++) {
+        const e = makeShip(team, false, i);
+        e.slot = new V3(SLOTS[i][0], SLOTS[i][1], SLOTS[i][2]);
+        e.leader = flag;
+        V3.TransformCoordinatesToRef(e.slot, flag.root.getWorldMatrix(), e.pos);
+        e.fwd.copyFrom(flag.fwd); e.up.copyFrom(flag.up);
+        e.speed = flag.speed;
+        setOrientation(e);
+        ships.push(e); fleetShips[team].push(e);
+      }
+    }
+    buildPips();
+    updateHUD(true);
+  }
+
+  // ---------------------------------------------------------------- AI
+  const ARENA = 105;
+  const BOLT_SPEED = 92;
+  const RANGE = 105;
+
+  function enemiesOf(s) { return fleetShips[s.team === 'blue' ? 'red' : 'blue']; }
+
+  function pickTarget(s) {
+    let best = null, bs = Infinity;
+    for (const e of enemiesOf(s)) {
+      if (!e.alive) continue;
+      let score = V3.Distance(s.pos, e.pos) * rand(0.7, 1.3);
+      if (e.isFlag && !s.isFlag) score *= 0.8;
+      if (score < bs) { bs = score; best = e; }
+    }
+    return best;
+  }
+
+  const tmpA = new V3(), tmpB = new V3(), tmpQ = new Q();
+
+  function rotateTowards(f, d, maxAng, out) {
+    const dot = clamp(V3.Dot(f, d), -1, 1);
+    const ang = Math.acos(dot);
+    if (ang < 1e-4) { out.copyFrom(d); return out; }
+    let axis = V3.Cross(f, d);
+    if (axis.lengthSquared() < 1e-8) axis = Math.abs(f.y) < 0.9 ? V3.Cross(f, V3.Up()) : V3.Cross(f, V3.Right());
+    axis.normalize();
+    Q.RotationAxisToRef(axis, Math.min(ang, maxAng), tmpQ);
+    f.rotateByQuaternionToRef(tmpQ, out);
+    return out.normalize();
+  }
+
+  function escortSteer(s, out, t, dt) {
+    const tg = s.target;
+    if (!tg) { out.copyFrom(s.pos).scaleInPlace(-0.01).addInPlace(s.fwd); return; }
+    tmpA.copyFrom(tg.pos).subtractInPlace(s.pos);
+    const d = tmpA.length() || 0.001;
+    if (s.state === 'attack') {
+      s.boost = 1;
+      const lead = tg.pos.add(tg.vel.scale(d / (s.speed + 55)));
+      out.addInPlace(lead.subtractInPlace(s.pos).normalize());
+      if (d < (tg.isFlag ? 22 : 13)) {
+        s.state = 'break';
+        s.stateT = rand(1.3, 2.8);
+        s.breakDir = s.fwd.scale(1.0).addInPlace(randUnit().scaleInPlace(1.4)).addInPlace(tmpA.scale(-0.6 / d)).normalize();
+      }
+    } else { // break off, extend, then come around
+      s.boost = 1.28;
+      out.addInPlace(s.breakDir);
+      s.stateT -= dt;
+      if (s.stateT <= 0) s.state = 'attack';
+    }
+    // jinking so they are hard to hit and look alive
+    const right = V3.Cross(s.up, s.fwd);
+    out.addInPlace(right.scaleInPlace(Math.sin(t * 1.9 + s.phase) * 0.3));
+    out.addInPlace(s.up.scale(Math.cos(t * 1.37 + s.phase) * 0.22));
+  }
+
+  function flagSteer(s, out, t) {
+    const enemies = enemiesOf(s);
+    let tg = enemies.find((e) => e.isFlag && e.alive) || s.target;
+    if (!tg) { out.copyFrom(s.fwd); return; }
+    tmpA.copyFrom(tg.pos).subtractInPlace(s.pos);
+    const d = tmpA.length() || 0.001;
+    tmpA.scaleInPlace(1 / d);
+    if (d > 72) out.addInPlace(tmpA);
+    else {
+      const tangent = V3.Cross(tmpA, V3.Up()).normalize().scaleInPlace(s.orbitSign);
+      out.addInPlace(tangent).addInPlace(tmpA.scale(d < 48 ? -0.7 : 0.15));
+    }
+    out.y += Math.sin(t * 0.27 + s.phase) * 0.25;
+  }
+
+  function updateShip(s, dt, t) {
+    if (!s.alive) return;
+    // formation phase at the start: escorts hold their slots around the flagship
+    if (s.state === 'formation') {
+      const L = s.leader;
+      let release = !L.alive || t > s.releaseT;
+      if (!release) {
+        for (const e of enemiesOf(s)) if (e.alive && V3.DistanceSquared(e.pos, s.pos) < 55 * 55) { release = true; break; }
+      }
+      if (release) { s.state = 'attack'; s.speed = L.speed + 4; }
+      else {
+        V3.TransformCoordinatesToRef(s.slot, L.root.getWorldMatrix(), tmpB);
+        tmpB.addInPlace(L.up.scale(Math.sin(t * 1.3 + s.phase) * 0.35));
+        s.vel.copyFrom(tmpB).subtractInPlace(s.pos).scaleInPlace(1 / Math.max(dt, 1e-4));
+        s.pos.copyFrom(tmpB);
+        s.fwd.copyFrom(L.fwd); s.up.copyFrom(L.up);
+        setOrientation(s);
+        return;
+      }
+    }
+
+    s.retarget -= dt;
+    if (!s.target || !s.target.alive || s.retarget <= 0) { s.target = pickTarget(s); s.retarget = rand(4, 8); }
+
+    const desired = new V3(0, 0, 0);
+    if (s.isFlag) flagSteer(s, desired, t); else escortSteer(s, desired, t, dt);
+
+    // separation from every other ship
+    for (const o of ships) {
+      if (o === s || !o.alive) continue;
+      tmpA.copyFrom(s.pos).subtractInPlace(o.pos);
+      const d = tmpA.length();
+      const R = (s.hitR + o.hitR) * (s.isFlag ? 1.4 : 1.55);
+      if (d < R && d > 0.01) desired.addInPlace(tmpA.scaleInPlace((1 - d / R) * 2.4 / d));
+    }
+    // soft arena boundary
+    const L = s.pos.length();
+    if (L > ARENA) desired.addInPlace(s.pos.scale(-((L - ARENA) / 14) / L));
+
+    if (desired.lengthSquared() < 1e-6) desired.copyFrom(s.fwd);
+    desired.normalize();
+
+    const newF = rotateTowards(s.fwd, desired, s.turnRate * dt, tmpB);
+    // bank into the turn: tilt "up" toward the direction the nose is swinging
+    const turn = newF.subtract(s.fwd).scaleInPlace(1 / Math.max(dt, 1e-4));
+    const bankUp = s.up.add(turn.scaleInPlace(s.isFlag ? 0.6 : 0.85)).addInPlace(V3.Up().scaleInPlace(0.04));
+    B.Vector3.LerpToRef(s.up, bankUp.normalize(), clamp(dt * 3.2, 0, 1), s.up);
+    s.fwd.copyFrom(newF);
+    s.up.subtractInPlace(s.fwd.scale(V3.Dot(s.up, s.fwd))).normalize();
+
+    const align = Math.max(0, V3.Dot(s.fwd, desired));
+    const targetSpeed = s.maxSpeed * (0.55 + 0.45 * align) * s.boost;
+    s.speed += clamp(targetSpeed - s.speed, -s.accel * dt, s.accel * dt);
+    s.vel.copyFrom(s.fwd).scaleInPlace(s.speed);
+    s.pos.addInPlace(s.vel.scale(dt));
+    setOrientation(s);
+  }
+
+  // ---------------------------------------------------------------- weapons
+  function tryFire(s, dt) {
+    if (!s.alive) return;
+    s.cooldown -= dt;
+    if (s.cooldown > 0) return;
+    const tg = s.target;
+    if (!tg || !tg.alive || V3.Distance(s.pos, tg.pos) > RANGE) { s.cooldown = 0; return; }
+    s.cooldown = 3; // every ship fires once every 3 seconds; flagships fire two bolts at once
+    const wm = s.root.computeWorldMatrix(true);
+    for (const g of s.guns) {
+      const wp = V3.TransformCoordinates(g, wm);
+      let aim = tg.pos.clone();
+      for (let i = 0; i < 2; i++) {
+        const tt = V3.Distance(wp, aim) / BOLT_SPEED;
+        aim = tg.pos.add(tg.vel.scale(tt));
+      }
+      aim.addInPlace(randUnit().scaleInPlace(rand(0, s.isFlag ? 2.2 : 1.6)));
+      const dir = aim.subtract(wp).normalize();
+      spawnBolt(s, wp, dir);
+    }
+  }
+
+  function spawnBolt(s, p, dir) {
+    const m = boltTpl[s.team].clone('bolt');
+    m.setEnabled(true);
+    m.isPickable = false;
+    m.position.copyFrom(p);
+    m.lookAt(p.add(dir));
+    if (s.isFlag) m.scaling.set(1.5, 1.5, 4.6);
+    m.computeWorldMatrix(true);
+    let trail = null;
+    try {
+      // trail segments are per frame, so size them from the frame rate to keep a similar length everywhere
+      const segs = Math.round(clamp(engine.getFps() * 0.2, 5, 16));
+      trail = new B.TrailMesh('trail', m, scene, s.isFlag ? 0.42 : 0.28, segs, true);
+      trail.material = TEAM[s.team].trail;
+      trail.isPickable = false;
+    } catch (e) { trail = null; }
+    bolts.push({ m, trail, vel: dir.scale(BOLT_SPEED).addInPlace(s.vel.scale(0.25)), life: 2.6, team: s.team, dmg: s.isFlag ? 24 : rand(11, 17), prev: p.clone() });
+    fxFlare(p, s.team === 'blue' ? FX.blue : FX.red, 0.6, s.isFlag ? 4.5 : 3, 0.18, 1.2);
+  }
+
+  function removeBolt(b) {
+    if (b.trail) b.trail.dispose();
+    b.m.dispose();
+  }
+
+  function segmentHit(a, b, c, r) {
+    tmpA.copyFrom(b).subtractInPlace(a);
+    const len2 = tmpA.lengthSquared() || 1e-6;
+    let u = V3.Dot(c.subtract(a), tmpA) / len2;
+    u = clamp(u, 0, 1);
+    const p = a.add(tmpA.scale(u));
+    return V3.DistanceSquared(p, c) <= r * r ? p : null;
+  }
+
+  function updateBolts(dt) {
+    for (let i = bolts.length - 1; i >= 0; i--) {
+      const b = bolts[i];
+      b.prev.copyFrom(b.m.position);
+      b.m.position.addInPlace(b.vel.scale(dt));
+      b.life -= dt;
+      let hit = null, victim = null;
+      const foes = fleetShips[b.team === 'blue' ? 'red' : 'blue'];
+      for (const e of foes) {
+        if (!e.alive) continue;
+        const p = segmentHit(b.prev, b.m.position, e.pos, e.hitR);
+        if (p) { hit = p; victim = e; break; }
+      }
+      if (victim) {
+        // nudge the impact point onto the hull surface
+        const n = hit.subtract(victim.pos);
+        const nl = n.length();
+        const surf = nl > 0.01 ? victim.pos.add(n.scale(Math.min(1, victim.hitR * 0.7 / nl))) : hit;
+        damage(victim, b.dmg, surf, b.team);
+        removeBolt(b); bolts.splice(i, 1);
+      } else if (b.life <= 0 || b.m.position.lengthSquared() > 260 * 260) {
+        removeBolt(b); bolts.splice(i, 1);
+      }
+    }
+  }
+
+  function hitFx(p, team) {
+    fxFlare(p, team === 'blue' ? FX.blue : FX.red, 1, 5, 0.3);
+    fxFlare(p, FX.white, 0.5, 2.2, 0.18);
+    burst({
+      pos: p, count: 26, radius: 0.2, power: [8, 22], life: [0.25, 0.6], size: [0.12, 0.3], stretch: [3, 6],
+      c1: new C4(1, 0.95, 0.8, 1), c2: team === 'blue' ? new C4(0.5, 0.8, 1, 1) : new C4(1, 0.6, 0.3, 1), dead: new C4(1, 0.3, 0, 0),
+      velGrad: [[0, 1], [1, 0.2]],
+    });
+  }
+
+  function damage(s, amount, p, team) {
+    if (!s.alive) return;
+    s.hp = Math.max(0, s.hp - amount);
+    s.bar.dirty = true;
+    s.bar.pulse = 1;
+    hudDirty = true;
+    hitFx(p, team);
+    if (!s.burn && s.hp < s.maxHp * 0.4) startBurn(s);
+    if (s.hp <= 0) explode(s);
+  }
+
+  function startBurn(s) {
+    const ps = new B.ParticleSystem('burn', s.isFlag ? 260 : 120, scene);
+    ps.particleTexture = smokeTex;
+    ps.emitter = s.centerAnchor;
+    ps.createSphereEmitter(s.isFlag ? 3 : 1, 1);
+    ps.minEmitPower = 0.5; ps.maxEmitPower = 2;
+    ps.minLifeTime = 0.5; ps.maxLifeTime = 1.2;
+    ps.minSize = s.isFlag ? 1.6 : 0.8; ps.maxSize = s.isFlag ? 3.4 : 1.7;
+    ps.emitRate = s.isFlag ? 110 : 45;
+    ps.addColorGradient(0, new C4(1, 0.85, 0.45, 0.9));
+    ps.addColorGradient(0.25, new C4(1, 0.4, 0.08, 0.7));
+    ps.addColorGradient(1, new C4(0.08, 0.06, 0.06, 0));
+    ps.blendMode = B.ParticleSystem.BLENDMODE_ADD;
+    ps.gravity = V3.Zero();
+    ps.minAngularSpeed = -2; ps.maxAngularSpeed = 2;
+    tunePS(ps);
+    ps.start();
+    s.burn = ps;
+  }
+
+  // ---------------------------------------------------------------- explosions
+  function spawnExplosion(p, k, team) {
+    const teamFlare = team === 'blue' ? FX.blue : FX.red;
+    const teamRing = team === 'blue' ? FX.ringBlue : FX.ringRed;
+    fxFlare(p, FX.white, 2 * k, 9 * k, 0.3, 1.5);
+    fxFlare(p, FX.orange, 3 * k, 17 * k, 0.9, 1.9);
+    fxFlare(p, teamFlare, 2 * k, 12 * k, 0.55, 2);
+    const n1 = randUnit();
+    fxRing(p, FX.ringWarm, 1.5 * k, 24 * k, 1.2, n1);
+    fxRing(p, teamRing, 1 * k, 16 * k, 0.95, V3.Cross(n1, randUnit()).normalize());
+    fxShock(p, 0.6 * k, 13 * k, 0.7);
+
+    // fireball
+    burst({
+      pos: p, count: Math.round(70 * k), radius: 0.6 * k, power: [3 * k, 12 * k], life: [0.45, 1.2], size: [1, 1],
+      sizeGrad: [[0, 1.2 * k, 2 * k], [1, 4 * k, 6.5 * k]],
+      gradient: [[0, new C4(1, 1, 0.92, 1)], [0.15, new C4(1, 0.82, 0.35, 1)], [0.45, new C4(1, 0.32, 0.05, 0.85)], [1, new C4(0.2, 0.04, 0.02, 0)]],
+      velGrad: [[0, 1], [1, 0.25]],
+    });
+    // sparks
+    burst({
+      pos: p, count: Math.round(110 * k), radius: 0.3 * k, power: [18 * k, 55 * k], life: [0.5, 1.5], size: [0.14, 0.36], stretch: [4, 9],
+      c1: new C4(1, 0.95, 0.75, 1), c2: new C4(1, 0.65, 0.25, 1), dead: new C4(1, 0.2, 0, 0),
+      velGrad: [[0, 1], [1, 0.15]],
+    });
+    // slow embers
+    burst({
+      pos: p, count: Math.round(50 * k), radius: 1 * k, power: [4, 14 * k], life: [1.5, 3], size: [0.15, 0.45],
+      c1: new C4(1, 0.7, 0.3, 1), c2: new C4(1, 0.45, 0.1, 1), dead: new C4(0.4, 0.05, 0, 0),
+      velGrad: [[0, 1], [1, 0.3]],
+    });
+    // smoke
+    burst({
+      pos: p, count: Math.round(28 * k), radius: 1.2 * k, power: [1, 5 * k], life: [1.8, 3.6], size: [1, 1], tex: smokeTex, blend: 'std',
+      sizeGrad: [[0, 2 * k, 3 * k], [1, 7 * k, 10 * k]],
+      gradient: [[0, new C4(0.3, 0.2, 0.15, 0)], [0.1, new C4(0.22, 0.17, 0.15, 0.55)], [1, new C4(0.05, 0.05, 0.06, 0)]],
+    });
+    flashLight(p, k);
+    addShake(p, k);
+  }
+
+  function spawnDebris(s, p) {
+    const k = s.isFlag ? 2.4 : 1;
+    const n = s.isFlag ? 34 : 14;
+    const T = TEAM[s.team];
+    for (let i = 0; i < n; i++) {
+      const tpl = shardTpls[(Math.random() * shardTpls.length) | 0];
+      const m = tpl.clone('debris');
+      m.setEnabled(true); m.isPickable = false;
+      const hot = Math.random() < 0.35;
+      m.material = hot ? hotMat : (Math.random() < 0.65 ? T.hull : darkMat);
+      m.position.copyFrom(p).addInPlace(randUnit().scaleInPlace(rand(0, 1.6 * k)));
+      const sc = rand(0.5, 1.6) * (s.isFlag ? 1.7 : 1);
+      m.scaling.set(sc * rand(0.6, 1.4), sc * rand(0.4, 1.2), sc * rand(0.6, 1.6));
+      m.rotationQuaternion = Q.FromEulerAngles(rand(0, 6), rand(0, 6), rand(0, 6));
+      const vel = s.vel.scale(0.45).addInPlace(randUnit().scaleInPlace(rand(4, 18) * Math.sqrt(k)));
+      const spin = randUnit().scaleInPlace(rand(1, 6));
+      let trail = null;
+      if (hot && i % 2 === 0) {
+        trail = new B.ParticleSystem('ember', 90, scene);
+        trail.particleTexture = flareTex;
+        trail.emitter = m;
+        trail.createPointEmitter(new V3(0, 0, 0), new V3(0, 0, 0));
+        trail.minEmitPower = 0; trail.maxEmitPower = 0.2;
+        trail.minLifeTime = 0.3; trail.maxLifeTime = 0.8;
+        trail.minSize = 0.4 * Math.sqrt(k); trail.maxSize = 1.0 * Math.sqrt(k);
+        trail.emitRate = 70;
+        trail.addColorGradient(0, new C4(1, 0.85, 0.5, 1));
+        trail.addColorGradient(0.4, new C4(1, 0.4, 0.08, 0.7));
+        trail.addColorGradient(1, new C4(0.15, 0.08, 0.06, 0));
+        trail.blendMode = B.ParticleSystem.BLENDMODE_ADD;
+        trail.gravity = V3.Zero();
+        tunePS(trail);
+        trail.start();
+      }
+      debris.push({ m, vel, spin, life: rand(3, 6), age: 0, hot, trail, cooled: false });
+    }
+  }
+
+  function updateDebris(dt) {
+    for (let i = debris.length - 1; i >= 0; i--) {
+      const d = debris[i];
+      d.age += dt;
+      d.m.position.addInPlace(d.vel.scale(dt));
+      d.vel.scaleInPlace(Math.max(0, 1 - 0.18 * dt));
+      Q.RotationYawPitchRollToRef(d.spin.y * dt, d.spin.x * dt, d.spin.z * dt, tmpQ);
+      d.m.rotationQuaternion.multiplyInPlace(tmpQ);
+      if (d.hot && !d.cooled && d.age > 1.4) { d.m.material = darkMat; d.cooled = true; }
+      if (d.trail && d.age > 1.6) { d.trail.emitter = d.m.position.clone(); d.trail.stop(); d.trail.disposeOnStop = true; d.trail = null; }
+      const rem = d.life - d.age;
+      if (rem < 1) d.m.scaling.scaleInPlace(Math.max(0, 1 - dt * 2.5));
+      if (rem <= 0) {
+        if (d.trail) d.trail.dispose();
+        d.m.dispose();
+        debris.splice(i, 1);
+      }
+    }
+  }
+
+  function retireParticles(ps, at) {
+    ps.emitter = at.clone();
+    ps.stop();
+    ps.disposeOnStop = true;
+  }
+
+  function explode(s) {
+    if (!s.alive) return;
+    s.alive = false;
+    hudDirty = true;
+    const p = s.pos.clone();
+    const k = s.isFlag ? 2.1 : 1;
+
+    // stop emitters but let their particles fade out
+    for (const ex of s.exhaust) retireParticles(ex.ps, ex.anchor.getAbsolutePosition());
+    if (s.burn) retireParticles(s.burn, p);
+
+    s.bar.mesh.dispose(); s.bar.mat.dispose(); s.bar.tex.dispose();
+    s.light.dispose();
+
+    spawnExplosion(p, k, s.team);
+    spawnDebris(s, p);
+    s.root.dispose();
+
+    if (s.isFlag) {
+      // a flagship goes up in a rolling series of blasts before the final detonation
+      for (let i = 0; i < 6; i++) {
+        after(0.12 + i * 0.14 + rand(0, 0.08), () => {
+          const q = p.add(randUnit().scaleInPlace(rand(3, 8)));
+          spawnExplosion(q, 0.9, s.team);
+        });
+      }
+      after(1.05, () => spawnExplosion(p, 2.9, s.team));
+    }
+
+    // chain reaction: anything within roughly one ship-width of the blast detonates too
+    for (const o of ships) {
+      if (!o.alive || o === s) continue;
+      const gap = V3.Distance(p, o.pos) - o.hitR * 0.6;
+      if (gap < s.width) {
+        o.chainPending = true;
+        after(rand(0.15, 0.32), () => { if (o.alive) explode(o); });
+      }
+    }
+    checkVictory();
+  }
+
+  // ---------------------------------------------------------------- HUD
+  const els = {
+    pips: { blue: document.getElementById('pips-blue'), red: document.getElementById('pips-red') },
+    int: { blue: document.getElementById('int-blue'), red: document.getElementById('int-red') },
+    count: { blue: document.getElementById('count-blue'), red: document.getElementById('count-red') },
+    banner: document.getElementById('banner'),
+  };
+  let hudDirty = true;
+
+  function buildPips() {
+    for (const team of ['blue', 'red']) {
+      const box = els.pips[team];
+      box.innerHTML = '';
+      for (const s of fleetShips[team]) {
+        const el = document.createElement('span');
+        el.className = 'pip' + (s.isFlag ? ' flag' : '');
+        el.title = s.isFlag ? 'Flagship' : 'Escort';
+        box.appendChild(el);
+        s.pip = el;
+      }
+    }
+  }
+
+  function updateHUD(force) {
+    if (!hudDirty && !force) return;
+    hudDirty = false;
+    for (const team of ['blue', 'red']) {
+      let hp = 0, max = 0, alive = 0;
+      for (const s of fleetShips[team]) {
+        max += s.maxHp;
+        if (s.alive) { hp += s.hp; alive++; }
+        s.pip.classList.toggle('dead', !s.alive);
+        s.pip.classList.toggle('hurt', s.alive && s.hp < s.maxHp * 0.5);
+      }
+      els.int[team].style.width = (100 * hp / max).toFixed(1) + '%';
+      els.count[team].textContent = alive;
+    }
+  }
+
+  // ---------------------------------------------------------------- battle flow
+  let battleOver = false;
+  let restartAt = -1;
+
+  function checkVictory() {
+    if (battleOver) return;
+    // let pending chain detonations settle first
+    after(1.4, () => {
+      if (battleOver) return;
+      const b = fleetShips.blue.some((s) => s.alive);
+      const r = fleetShips.red.some((s) => s.alive);
+      if (b && r) return;
+      battleOver = true;
+      const banner = els.banner;
+      banner.classList.remove('blue', 'red', 'none');
+      if (b) { banner.classList.add('blue'); banner.querySelector('.big').textContent = 'Blue fleet holds the field'; }
+      else if (r) { banner.classList.add('red'); banner.querySelector('.big').textContent = 'Red fleet holds the field'; }
+      else { banner.classList.add('none'); banner.querySelector('.big').textContent = 'Both fleets destroyed'; }
+      banner.querySelector('.small').textContent = 'A new engagement begins in a few seconds';
+      banner.classList.add('show');
+      restartAt = simTime + 8;
+    });
+  }
+
+  function clearBattle() {
+    for (const s of ships) {
+      if (s.alive) {
+        for (const ex of s.exhaust) ex.ps.dispose();
+        if (s.burn) s.burn.dispose();
+        s.bar.mesh.dispose(); s.bar.mat.dispose(); s.bar.tex.dispose();
+        s.light.dispose();
+        s.root.dispose();
+        s.alive = false;
+      }
+    }
+    for (const b of bolts) removeBolt(b);
+    for (const d of debris) { if (d.trail) d.trail.dispose(); d.m.dispose(); }
+    for (const e of effects) e.end && e.end();
+    bolts = []; debris = []; effects.length = 0; timers.length = 0;
+    for (const ps of scene.particleSystems.slice()) ps.dispose();
+    for (const l of xLights) l.intensity = 0;
+  }
+
+  function restart() {
+    clearBattle();
+    battleOver = false; restartAt = -1;
+    els.banner.classList.remove('show');
+    simTime = 0;
+    createFleets();
+  }
+
+  // ---------------------------------------------------------------- controls
+  const btnOrbit = document.getElementById('btn-orbit');
+  const btnFollow = document.getElementById('btn-follow');
+  const btnSlow = document.getElementById('btn-slow');
+  const btnRestart = document.getElementById('btn-restart');
+  let follow = true;
+
+  btnOrbit.addEventListener('click', () => {
+    const on = btnOrbit.getAttribute('aria-pressed') !== 'true';
+    btnOrbit.setAttribute('aria-pressed', String(on));
+    camera.useAutoRotationBehavior = on;
+    if (on) {
+      camera.autoRotationBehavior.idleRotationSpeed = 0.06;
+      camera.autoRotationBehavior.idleRotationWaitTime = 3500;
+      camera.autoRotationBehavior.zoomStopsAnimation = false;
+    }
+  });
+  btnFollow.addEventListener('click', () => {
+    follow = !follow;
+    btnFollow.setAttribute('aria-pressed', String(follow));
+    camera.panningSensibility = follow ? 0 : 800;
+  });
+  btnSlow.addEventListener('click', () => {
+    const on = btnSlow.getAttribute('aria-pressed') !== 'true';
+    btnSlow.setAttribute('aria-pressed', String(on));
+    timeScale = on ? 0.25 : 1;
+    for (const ps of scene.particleSystems) ps.updateSpeed = BASE_PS_SPEED * timeScale;
+  });
+  btnRestart.addEventListener('click', restart);
+
+  // ---------------------------------------------------------------- main loop
+  const centroid = new V3();
+  function step(realDt) {
+    const dt = realDt * timeScale;
+    simTime += dt;
+
+    // timers & effects
+    for (let i = timers.length - 1; i >= 0; i--) {
+      timers[i].t -= dt;
+      if (timers[i].t <= 0) { const fn = timers[i].fn; timers.splice(i, 1); fn(); }
+    }
+    for (let i = effects.length - 1; i >= 0; i--) {
+      const e = effects[i];
+      e.t += dt;
+      const u = Math.min(1, e.t / e.dur);
+      e.upd(u, dt);
+      if (u >= 1) { e.end && e.end(); effects.splice(i, 1); }
+    }
+
+    // flagships first so formation slots use their fresh transforms
+    for (const s of ships) if (s.isFlag) { updateShip(s, dt, simTime); s.root.computeWorldMatrix(true); }
+    for (const s of ships) if (!s.isFlag) updateShip(s, dt, simTime);
+    for (const s of ships) tryFire(s, dt);
+    updateBolts(dt);
+    updateDebris(dt);
+
+    // health bars follow their ships, stay readable at any zoom
+    let n = 0;
+    centroid.set(0, 0, 0);
+    for (const s of ships) {
+      if (!s.alive) continue;
+      n++; centroid.addInPlace(s.pos);
+      const b = s.bar;
+      b.mesh.position.set(s.pos.x, s.pos.y + s.barY, s.pos.z);
+      const dist = V3.Distance(camera.position, b.mesh.position);
+      const sc = clamp(dist / 120, 0.75, 2.4) * (1 + b.pulse * 0.18);
+      b.mesh.scaling.setAll(sc);
+      b.pulse = Math.max(0, b.pulse - realDt * 4);
+      const r = s.hp / s.maxHp;
+      if (b.ghost > r) { b.ghost = Math.max(r, b.ghost - realDt * 0.6); b.dirty = true; }
+      if (b.dirty) drawBar(s);
+    }
+
+    // camera follows the centre of the fight and shakes on nearby blasts
+    if (follow && n > 0) {
+      centroid.scaleInPlace(1 / n);
+      B.Vector3.LerpToRef(camera.target, centroid, clamp(realDt * 0.5, 0, 1), camera.target);
+    }
+    shake = Math.max(0, shake - realDt * 2.6);
+    camera.targetScreenOffset.x = (Math.random() - 0.5) * shake * 2;
+    camera.targetScreenOffset.y = (Math.random() - 0.5) * shake * 2;
+
+    planet.rotation.y += realDt * 0.004;
+
+    updateHUD(false);
+    if (battleOver && restartAt > 0 && simTime >= restartAt) restart();
+  }
+  scene.onBeforeRenderObservable.add(() => step(Math.min(engine.getDeltaTime() / 1000, 0.1)));
+
+  createFleets();
+  engine.runRenderLoop(() => scene.render());
+  window.addEventListener('resize', () => engine.resize());
+  window.__battle = { scene, step, ships: () => ships, bolts: () => bolts, explode, restart };
+})();
+</script>
+</body>
+</html>

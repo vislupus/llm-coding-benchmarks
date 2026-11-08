@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Osogovo – 3D Terrain Diorama</title>
+<style>
+  :root{
+    --bg:#0b0f16; --panel:rgba(14,18,26,.74); --line:rgba(255,255,255,.12);
+    --txt:#e8edf3; --muted:#9aa6b5; --accent:#ff7a59; --accent2:#ffb347;
+  }
+  html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--txt)}
+  #renderCanvas{width:100%;height:100%;display:block;touch-action:none;outline:none}
+  .panel{position:fixed;background:var(--panel);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+    border:1px solid var(--line);border-radius:14px;padding:14px 16px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+  #hud{top:16px;left:16px;width:280px;max-width:calc(100vw - 32px)}
+  #hud h1{margin:0 0 4px;font-size:16px;font-weight:650;letter-spacing:.2px}
+  #hud p{margin:0 0 10px;font-size:12px;color:var(--muted);line-height:1.4}
+  .row{display:flex;gap:8px;align-items:center;margin-top:8px}
+  button{background:rgba(255,255,255,.08);color:var(--txt);border:1px solid var(--line);border-radius:9px;
+    padding:7px 11px;font-size:12.5px;cursor:pointer;transition:background .15s}
+  button:hover{background:rgba(255,255,255,.14)}
+  button.active{background:rgba(255,122,89,.22);border-color:rgba(255,122,89,.5)}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  label.slider{display:block;font-size:12px;color:var(--muted);margin-top:10px}
+  label.slider span{color:var(--txt);float:right}
+  input[type=range]{width:100%;margin:6px 0 0;accent-color:var(--accent)}
+  #peaks{list-style:none;margin:10px 0 0;padding:0;border-top:1px solid var(--line)}
+  #peaks li{display:flex;justify-content:space-between;gap:8px;padding:7px 2px;font-size:12.5px;cursor:pointer;
+    border-bottom:1px solid var(--line)}
+  #peaks li:hover{color:var(--accent2)}
+  #peaks li small{color:var(--muted)}
+  #peaks li b{color:var(--accent);font-weight:700;margin-right:6px}
+  #hint{right:16px;bottom:16px;font-size:12px;color:var(--muted);padding:8px 12px}
+  #hint kbd{background:rgba(255,255,255,.08);border:1px solid var(--line);border-radius:5px;padding:1px 5px;color:var(--txt);font-family:inherit}
+  .overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(6,9,14,.78);
+    z-index:10}
+  .overlay[hidden]{display:none}
+  .card{width:min(520px,calc(100vw - 40px));background:#121824;border:1px solid var(--line);border-radius:16px;padding:22px 24px;
+    box-shadow:0 20px 60px rgba(0,0,0,.5)}
+  .card h2{margin:0 0 8px;font-size:17px}
+  .card p{font-size:13px;color:var(--muted);line-height:1.5;margin:0 0 14px}
+  .card code{background:rgba(255,255,255,.08);padding:1px 5px;border-radius:4px;font-size:12px}
+  .file{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px dashed var(--line);border-radius:10px;margin-bottom:10px;font-size:13px}
+  .file span.name{color:var(--muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .file input{display:none}
+  .file label{cursor:pointer;background:rgba(255,255,255,.08);border:1px solid var(--line);border-radius:8px;padding:5px 10px;font-size:12px}
+  .card.drag{outline:2px solid var(--accent)}
+  .spinner{width:34px;height:34px;border-radius:50%;border:3px solid rgba(255,255,255,.15);border-top-color:var(--accent);
+    animation:spin .9s linear infinite;margin:0 auto 12px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  #loader .card{text-align:center;width:auto;padding:26px 36px}
+  #loader p{margin:0}
+  #err{color:#ff8a80;font-size:13px;margin-top:8px;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<canvas id="renderCanvas"></canvas>
+
+<div id="hud" class="panel">
+  <h1>Osogovo · 3D terrain diorama</h1>
+  <p>Height map + satellite/topo texture rendered as a terrain sample. Drag to orbit, scroll to zoom.</p>
+  <div class="row">
+    <button id="resetBtn">Reset view</button>
+    <button id="rotateBtn">Auto-rotate</button>
+    <button id="labelsBtn" class="active">Labels</button>
+  </div>
+  <label class="slider">Vertical exaggeration <span id="exagVal">1.0×</span>
+    <input id="exag" type="range" min="0.3" max="3" step="0.05" value="1">
+  </label>
+  <ul id="peaks"></ul>
+</div>
+
+<div id="hint" class="panel"><kbd>Drag</kbd> orbit &nbsp; <kbd>Scroll</kbd> zoom &nbsp; <kbd>Right-drag</kbd> pan</div>
+
+<div id="loader" class="overlay">
+  <div class="card"><div class="spinner"></div><p id="loaderText">Loading terrain…</p><div id="err"></div></div>
+</div>
+
+<div id="picker" class="overlay" hidden>
+  <div class="card" id="pickerCard">
+    <h2>Select the two map images</h2>
+    <p id="pickerReason"></p>
+    <div class="file">
+      <strong>Height map</strong><span class="name" id="nameHeight">Osogovo Height Map (Merged).png</span>
+      <label for="fileHeight">Choose…</label><input id="fileHeight" type="file" accept="image/*">
+    </div>
+    <div class="file">
+      <strong>Map texture</strong><span class="name" id="nameDiffuse">Osogovo_map.jpg</span>
+      <label for="fileDiffuse">Choose…</label><input id="fileDiffuse" type="file" accept="image/*">
+    </div>
+    <p>You can also drag &amp; drop both files onto this box. Nothing is uploaded – everything stays in your browser.</p>
+    <button id="buildBtn" disabled>Build terrain</button>
+  </div>
+</div>
+
+<script src="https://cdn.babylonjs.com/babylon.js"></script>
+<script>
+(() => {
+'use strict';
+
+/* ───────────────────────── Configuration ───────────────────────── */
+const CONFIG = {
+  heightMapUrl: 'Osogovo Height Map (Merged).png',  // same folder as this HTML file
+  diffuseUrl:   'Osogovo_map.jpg',
+  terrainWidth: 20,        // scene units along X (depth follows the image aspect ratio)
+  heightScale:  2.4,       // Y units of the highest point at 1.0× exaggeration
+  boxDepth:     2.2,       // how far the pedestal walls extend below the lowest terrain point
+  maxGrid:      512,       // mesh resolution along the longer side (512² ≈ 520k triangles)
+  smoothPasses: 1,         // 3×3 blur passes to soften 8-bit terracing (0 = raw)
+  peakCount:    3,
+  peakMinSeparation: 0.12, // minimum distance between chosen peaks (fraction of terrain width)
+  // Labels for the peaks, ordered highest → lowest as found in the height map.
+  // Replace with real names if you know them, e.g. ['Ruen', 'Shapka', 'Tsarev Vrah'].
+  peakNames: ['Peak 1', 'Peak 2', 'Peak 3'],
+  // Optional: real-world elevation (m) that black and white in the height map stand for,
+  // e.g. [400, 2251]. When set, labels show an estimated altitude in metres.
+  elevationRange: null,
+};
+
+/* ───────────────────────── Helpers ───────────────────────── */
+const $ = id => document.getElementById(id);
+const canvas = $('renderCanvas');
+const state = { exag: 1, labelsVisible: true };
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const im = new Image();
+    im.onload = () => resolve(im);
+    im.onerror = () => reject(new Error('Could not load "' + src + '"'));
+    im.src = src;
+  });
+}
+
+// Throws a SecurityError when the image is "tainted" (typical for file:// pages).
+function assertPixelsReadable(img) {
+  const c = document.createElement('canvas'); c.width = c.height = 2;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(img, 0, 0, 2, 2);
+  ctx.getImageData(0, 0, 1, 1);
+}
+
+async function loadImagesAuto() {
+  const hSrc = encodeURI(CONFIG.heightMapUrl), dSrc = encodeURI(CONFIG.diffuseUrl);
+  const [heightImg, diffuseImg] = await Promise.all([loadImage(hSrc), loadImage(dSrc)]);
+  assertPixelsReadable(heightImg);
+  assertPixelsReadable(diffuseImg);
+  return { heightImg, diffuseImg, diffuseSrc: dSrc };
+}
+
+function loadImagesViaPicker(reason) {
+  return new Promise(resolve => {
+    $('loader').hidden = true;
+    const panel = $('picker'), card = $('pickerCard');
+    panel.hidden = false;
+    $('pickerReason').textContent = location.protocol === 'file:'
+      ? 'This page was opened directly from disk (file://), so the browser refuses to read pixel data from images next to it. Pick the two images below, or serve the folder over HTTP (e.g. "python -m http.server") and the scene will load automatically.'
+      : (reason && reason.message ? reason.message + '. Pick the two images manually:' : 'Pick the two images:');
+
+    let hFile = null, dFile = null;
+    const inH = $('fileHeight'), inD = $('fileDiffuse'), btn = $('buildBtn');
+    const refresh = () => {
+      $('nameHeight').textContent  = hFile ? hFile.name : CONFIG.heightMapUrl;
+      $('nameDiffuse').textContent = dFile ? dFile.name : CONFIG.diffuseUrl;
+      btn.disabled = !(hFile && dFile);
+    };
+    inH.onchange = () => { hFile = inH.files[0] || null; refresh(); };
+    inD.onchange = () => { dFile = inD.files[0] || null; refresh(); };
+    card.addEventListener('dragover', e => { e.preventDefault(); card.classList.add('drag'); });
+    card.addEventListener('dragleave', () => card.classList.remove('drag'));
+    card.addEventListener('drop', e => {
+      e.preventDefault(); card.classList.remove('drag');
+      for (const f of e.dataTransfer.files) {
+        const n = f.name.toLowerCase();
+        if (/height|\.png$/.test(n)) hFile = f; else dFile = f;
+      }
+      refresh();
+    });
+    const readAsDataURL = f => new Promise((res, rej) => {
+      const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f);
+    });
+    btn.onclick = async () => {
+      btn.disabled = true; btn.textContent = 'Building…';
+      try {
+        const [hs, ds] = await Promise.all([readAsDataURL(hFile), readAsDataURL(dFile)]);
+        const [heightImg, diffuseImg] = await Promise.all([loadImage(hs), loadImage(ds)]);
+        panel.hidden = true; $('loader').hidden = false;
+        resolve({ heightImg, diffuseImg, diffuseSrc: ds });
+      } catch (err) {
+        btn.disabled = false; btn.textContent = 'Build terrain';
+        alert('Could not read the images: ' + err.message);
+      }
+    };
+    refresh();
+  });
+}
+
+/* ───────────────────────── Height-map processing ───────────────────────── */
+function downsample(img, gw, gh) {
+  let src = img, sw = img.naturalWidth, sh = img.naturalHeight;
+  // Halve step by step so the browser's bilinear filter does not alias on big maps.
+  while (sw / 2 >= gw && sh / 2 >= gh) {
+    const c = document.createElement('canvas');
+    c.width = Math.max(gw, Math.floor(sw / 2)); c.height = Math.max(gh, Math.floor(sh / 2));
+    const ctx = c.getContext('2d');
+    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(src, 0, 0, c.width, c.height);
+    src = c; sw = c.width; sh = c.height;
+  }
+  const c = document.createElement('canvas'); c.width = gw; c.height = gh;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(src, 0, 0, gw, gh);
+  return ctx.getImageData(0, 0, gw, gh).data;
+}
+
+function boxBlur(h, gw, gh) {
+  const out = new Float32Array(h.length);
+  for (let r = 0; r < gh; r++) {
+    const r0 = Math.max(0, r - 1), r1 = Math.min(gh - 1, r + 1);
+    for (let c = 0; c < gw; c++) {
+      const c0 = Math.max(0, c - 1), c1 = Math.min(gw - 1, c + 1);
+      let s = 0, n = 0;
+      for (let rr = r0; rr <= r1; rr++) for (let cc = c0; cc <= c1; cc++) { s += h[rr * gw + cc]; n++; }
+      out[r * gw + c] = s / n;
+    }
+  }
+  return out;
+}
+
+function extractHeights(img) {
+  const aspect = img.naturalWidth / img.naturalHeight;
+  let gw, gh;
+  if (aspect >= 1) { gw = CONFIG.maxGrid; gh = Math.max(2, Math.round(CONFIG.maxGrid / aspect)); }
+  else { gh = CONFIG.maxGrid; gw = Math.max(2, Math.round(CONFIG.maxGrid * aspect)); }
+  const data = downsample(img, gw, gh);
+  const n = gw * gh;
+  let h = new Float32Array(n), mn = Infinity, mx = -Infinity;
+  for (let i = 0; i < n; i++) {
+    const v = (data[i * 4] + data[i * 4 + 1] + data[i * 4 + 2]) / 765;
+    h[i] = v; if (v < mn) mn = v; if (v > mx) mx = v;
+  }
+  const range = (mx - mn) || 1;
+  for (let i = 0; i < n; i++) h[i] = (h[i] - mn) / range;   // normalise 0..1
+  for (let p = 0; p < CONFIG.smoothPasses; p++) h = boxBlur(h, gw, gh);
+  return { heights: h, gw, gh, aspect, W: CONFIG.terrainWidth, D: CONFIG.terrainWidth / aspect };
+}
+
+function findPeaks(H) {
+  const { heights: h, gw, gh } = H;
+  const cand = [];
+  for (let r = 1; r < gh - 1; r++) for (let c = 1; c < gw - 1; c++) {
+    const i = r * gw + c, v = h[i];
+    if (v < 0.35) continue;
+    if (v >= h[i - 1] && v >= h[i + 1] && v >= h[i - gw] && v >= h[i + gw] &&
+        v >= h[i - gw - 1] && v >= h[i - gw + 1] && v >= h[i + gw - 1] && v >= h[i + gw + 1]) {
+      cand.push({ r, c, h: v });
+    }
+  }
+  cand.sort((a, b) => b.h - a.h);
+  const minSep = CONFIG.peakMinSeparation * gw, chosen = [];
+  for (const p of cand) {
+    if (chosen.every(q => Math.hypot(q.r - p.r, q.c - p.c) >= minSep)) chosen.push(p);
+    if (chosen.length >= CONFIG.peakCount) break;
+  }
+  return chosen;
+}
+
+/* ───────────────────────── Geometry ───────────────────────── */
+// Babylon's ComputeNormals uses n = (p1 - p2) × (p3 - p2) for triangle (p1,p2,p3).
+function babylonTriNormal(pos, i0, i1, i2) {
+  const ax = pos[i0*3]-pos[i1*3], ay = pos[i0*3+1]-pos[i1*3+1], az = pos[i0*3+2]-pos[i1*3+2];
+  const bx = pos[i2*3]-pos[i1*3], by = pos[i2*3+1]-pos[i1*3+1], bz = pos[i2*3+2]-pos[i1*3+2];
+  return [ay*bz - az*by, az*bx - ax*bz, ax*by - ay*bx];
+}
+function orientTriangles(pos, idx, start, end, wantNormal) {
+  const n = babylonTriNormal(pos, idx[start], idx[start+1], idx[start+2]);
+  const dot = n[0]*wantNormal[0] + n[1]*wantNormal[1] + n[2]*wantNormal[2];
+  if (dot < 0) for (let i = start; i < end; i += 3) { const t = idx[i+1]; idx[i+1] = idx[i+2]; idx[i+2] = t; }
+}
+
+function buildTerrainGeometry(H, scale) {
+  const { heights: h, gw, gh, W, D } = H;
+  const positions = new Float32Array(gw * gh * 3), uvs = new Float32Array(gw * gh * 2);
+  for (let r = 0; r < gh; r++) for (let c = 0; c < gw; c++) {
+    const i = r * gw + c;
+    positions[i*3]   = (c / (gw - 1) - 0.5) * W;
+    positions[i*3+1] = h[i] * scale;
+    positions[i*3+2] = (0.5 - r / (gh - 1)) * D;      // image top → +Z (north)
+    uvs[i*2] = c / (gw - 1); uvs[i*2+1] = 1 - r / (gh - 1);
+  }
+  const indices = new Uint32Array((gw - 1) * (gh - 1) * 6);
+  let k = 0;
+  for (let r = 0; r < gh - 1; r++) for (let c = 0; c < gw - 1; c++) {
+    const a = r * gw + c, b = a + 1, cc = a + gw, d = cc + 1;
+    indices[k++] = a; indices[k++] = b; indices[k++] = cc;
+    indices[k++] = b; indices[k++] = d; indices[k++] = cc;
+  }
+  orientTriangles(positions, indices, 0, indices.length, [0, 1, 0]);
+  return { positions, uvs, indices };
+}
+
+// Walls hang from the four terrain edges down to y = -boxDepth; a flat quad closes the bottom.
+function buildPedestalGeometry(H, scale) {
+  const { heights: h, gw, gh, W, D } = H, bd = CONFIG.boxDepth;
+  const positions = [], uvs = [], indices = [], topMap = [];
+  const xOf = c => (c / (gw - 1) - 0.5) * W, zOf = r => (0.5 - r / (gh - 1)) * D;
+  const edges = [
+    { normal: [0, 0, 1],  pts: Array.from({ length: gw }, (_, c) => ({ x: xOf(c), z: zOf(0),      hi: c })) },
+    { normal: [0, 0, -1], pts: Array.from({ length: gw }, (_, c) => ({ x: xOf(c), z: zOf(gh - 1), hi: (gh - 1) * gw + c })) },
+    { normal: [-1, 0, 0], pts: Array.from({ length: gh }, (_, r) => ({ x: xOf(0),      z: zOf(r), hi: r * gw })) },
+    { normal: [1, 0, 0],  pts: Array.from({ length: gh }, (_, r) => ({ x: xOf(gw - 1), z: zOf(r), hi: r * gw + gw - 1 })) },
+  ];
+  for (const e of edges) {
+    const base = positions.length / 3, idxStart = indices.length;
+    let dist = 0;
+    e.pts.forEach((p, k) => {
+      if (k > 0) dist += Math.hypot(p.x - e.pts[k-1].x, p.z - e.pts[k-1].z);
+      const y = h[p.hi] * scale;
+      positions.push(p.x, y, p.z);   uvs.push(dist / W, (y + bd) / (scale + bd)); topMap.push(p.hi);
+      positions.push(p.x, -bd, p.z); uvs.push(dist / W, 0);                       topMap.push(-1);
+    });
+    for (let k = 0; k < e.pts.length - 1; k++) {
+      const t0 = base + 2*k, b0 = t0 + 1, t1 = t0 + 2, b1 = t0 + 3;
+      indices.push(t0, t1, b0, t1, b1, b0);
+    }
+    orientTriangles(positions, indices, idxStart, indices.length, e.normal);
+  }
+  // bottom lid
+  const base = positions.length / 3, idxStart = indices.length;
+  positions.push(-W/2, -bd, -D/2,  W/2, -bd, -D/2,  W/2, -bd, D/2,  -W/2, -bd, D/2);
+  uvs.push(0, 0, 1, 0, 1, 0, 0, 0); topMap.push(-1, -1, -1, -1);
+  indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+  orientTriangles(positions, indices, idxStart, indices.length, [0, -1, 0]);
+  return { positions: new Float32Array(positions), uvs: new Float32Array(uvs), indices: new Uint32Array(indices), topMap };
+}
+
+function applyVertexData(mesh, g) {
+  const vd = new BABYLON.VertexData();
+  vd.positions = g.positions; vd.indices = g.indices; vd.uvs = g.uvs;
+  const normals = new Float32Array(g.positions.length);
+  BABYLON.VertexData.ComputeNormals(g.positions, g.indices, normals);
+  vd.normals = normals;
+  vd.applyToMesh(mesh, true);
+}
+
+/* ───────────────────────── Textures ───────────────────────── */
+function makeStrataTexture(scene) {
+  const w = 256, hgt = 1024;
+  const dt = new BABYLON.DynamicTexture('strata', { width: w, height: hgt }, scene, true);
+  const ctx = dt.getContext();
+  const grad = ctx.createLinearGradient(0, 0, 0, hgt);     // top (surface) → bottom
+  grad.addColorStop(0, '#7b6a55'); grad.addColorStop(0.08, '#6c5b47');
+  grad.addColorStop(0.55, '#55473a'); grad.addColorStop(1, '#3b3129');
+  ctx.fillStyle = grad; ctx.fillRect(0, 0, w, hgt);
+  // sedimentary bands
+  let y = 40, seed = 7;
+  const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+  while (y < hgt) {
+    const th = 6 + rnd() * 26, dark = rnd() < 0.5;
+    ctx.fillStyle = dark ? `rgba(20,14,10,${0.08 + rnd() * 0.14})` : `rgba(255,235,200,${0.03 + rnd() * 0.06})`;
+    ctx.fillRect(0, y, w, th);
+    y += th + 10 + rnd() * 40;
+  }
+  // fine grain
+  const img = ctx.getImageData(0, 0, w, hgt), d = img.data;
+  for (let i = 0; i < d.length; i += 4) { const n = (rnd() - 0.5) * 18; d[i] += n; d[i+1] += n; d[i+2] += n; }
+  ctx.putImageData(img, 0, 0);
+  dt.update();
+  dt.wrapU = BABYLON.Texture.WRAP_ADDRESSMODE; dt.wrapV = BABYLON.Texture.CLAMP_ADDRESSMODE;
+  return dt;
+}
+
+function makeLabel(text, scene) {
+  const font = 'bold 46px system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+  const probe = new BABYLON.DynamicTexture('probe', { width: 8, height: 8 }, scene, false);
+  const pctx = probe.getContext(); pctx.font = font;
+  const tw = Math.ceil(pctx.measureText(text).width); probe.dispose();
+  const pad = 34, w = tw + pad * 2, hgt = 92;
+  const dt = new BABYLON.DynamicTexture('label-' + text, { width: w, height: hgt }, scene, true);
+  dt.hasAlpha = true;
+  const c = dt.getContext();
+  c.clearRect(0, 0, w, hgt);
+  const r = 22;
+  c.beginPath();
+  c.moveTo(r, 2); c.lineTo(w - r, 2); c.quadraticCurveTo(w - 2, 2, w - 2, r);
+  c.lineTo(w - 2, hgt - r); c.quadraticCurveTo(w - 2, hgt - 2, w - r, hgt - 2);
+  c.lineTo(r, hgt - 2); c.quadraticCurveTo(2, hgt - 2, 2, hgt - r);
+  c.lineTo(2, r); c.quadraticCurveTo(2, 2, r, 2); c.closePath();
+  c.fillStyle = 'rgba(12,16,24,0.86)'; c.fill();
+  c.lineWidth = 3; c.strokeStyle = 'rgba(255,122,89,0.9)'; c.stroke();
+  c.font = font; c.fillStyle = '#ffffff'; c.textBaseline = 'middle';
+  c.fillText(text, pad, hgt / 2 + 2);
+  dt.update();
+
+  const labelH = 0.62, plane = BABYLON.MeshBuilder.CreatePlane('labelPlane', { width: labelH * w / hgt, height: labelH }, scene);
+  const mat = new BABYLON.StandardMaterial('labelMat', scene);
+  mat.diffuseTexture = dt; mat.useAlphaFromDiffuseTexture = true;
+  mat.emissiveColor = BABYLON.Color3.White(); mat.disableLighting = true; mat.backFaceCulling = false;
+  plane.material = mat;
+  plane.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;   // always faces the camera
+  plane.renderingGroupId = 1;                             // drawn on top → always readable
+  plane.isPickable = false;
+  return { plane, height: labelH };
+}
+
+/* ───────────────────────── Scene ───────────────────────── */
+function buildScene(engine, imgs) {
+  const scene = new BABYLON.Scene(engine);
+  scene.clearColor = new BABYLON.Color4(0.055, 0.07, 0.10, 1);
+  const ipc = scene.imageProcessingConfiguration;
+  ipc.contrast = 1.12; ipc.exposure = 1.0;
+  ipc.vignetteEnabled = true; ipc.vignetteWeight = 1.6; ipc.vignetteColor = new BABYLON.Color4(0, 0, 0, 0);
+
+  const H = extractHeights(imgs.heightImg);
+  const { W, D } = H;
+  const S = () => CONFIG.heightScale * state.exag;
+
+  // Camera
+  const camera = new BABYLON.ArcRotateCamera('cam', -Math.PI / 2 + 0.35, 1.08, Math.max(W, D) * 1.6,
+    new BABYLON.Vector3(0, S() * 0.35, 0), scene);
+  const home = { alpha: camera.alpha, beta: camera.beta, radius: camera.radius, target: camera.target.clone() };
+  camera.lowerRadiusLimit = 3; camera.upperRadiusLimit = Math.max(W, D) * 6;
+  camera.lowerBetaLimit = 0.05; camera.upperBetaLimit = Math.PI / 2 + 0.35;
+  camera.minZ = 0.05; camera.maxZ = 1000;
+  camera.wheelDeltaPercentage = 0.02; camera.pinchDeltaPercentage = 0.02;
+  camera.panningSensibility = 300; camera.inertia = 0.85; camera.angularSensibilityX = 900; camera.angularSensibilityY = 900;
+  camera.attachControl(canvas, true);
+  camera.useAutoRotationBehavior = false;
+
+  // Lights
+  const hemi = new BABYLON.HemisphericLight('hemi', new BABYLON.Vector3(0, 1, 0), scene);
+  hemi.intensity = 0.55; hemi.diffuse = new BABYLON.Color3(0.86, 0.9, 1.0);
+  hemi.groundColor = new BABYLON.Color3(0.28, 0.24, 0.2); hemi.specular = new BABYLON.Color3(0, 0, 0);
+  const sun = new BABYLON.DirectionalLight('sun', new BABYLON.Vector3(0.55, -1, 0.4).normalize(), scene);
+  sun.position = new BABYLON.Vector3(-W * 0.9, S() * 4 + 10, -D * 0.7);
+  sun.intensity = 1.15; sun.diffuse = new BABYLON.Color3(1.0, 0.95, 0.88); sun.specular = new BABYLON.Color3(0.3, 0.3, 0.3);
+  sun.autoCalcShadowZBounds = true;
+  const shadows = new BABYLON.ShadowGenerator(2048, sun);
+  shadows.usePercentageCloserFiltering = true;
+  shadows.filteringQuality = BABYLON.ShadowGenerator.QUALITY_MEDIUM;
+  shadows.bias = 0.0008; shadows.normalBias = 0.012; shadows.setDarkness(0.3);
+
+  // Terrain (the lid)
+  const terrain = new BABYLON.Mesh('terrain', scene);
+  const terrainGeo = buildTerrainGeometry(H, S());
+  applyVertexData(terrain, terrainGeo);
+  const tMat = new BABYLON.StandardMaterial('terrainMat', scene);
+  const diffuse = new BABYLON.Texture(imgs.diffuseSrc, scene, false, true, BABYLON.Texture.TRILINEAR_SAMPLINGMODE);
+  diffuse.anisotropicFilteringLevel = 8;
+  tMat.diffuseTexture = diffuse;
+  tMat.specularColor = new BABYLON.Color3(0.06, 0.06, 0.06); tMat.specularPower = 24;
+  tMat.backFaceCulling = false;
+  terrain.material = tMat; terrain.receiveShadows = true;
+  shadows.addShadowCaster(terrain);
+
+  // Pedestal (walls + bottom)
+  const pedestal = new BABYLON.Mesh('pedestal', scene);
+  const pedGeo = buildPedestalGeometry(H, S());
+  applyVertexData(pedestal, pedGeo);
+  const pMat = new BABYLON.StandardMaterial('pedestalMat', scene);
+  pMat.diffuseTexture = makeStrataTexture(scene);
+  pMat.specularColor = new BABYLON.Color3(0.03, 0.03, 0.03);
+  pMat.backFaceCulling = false;
+  pedestal.material = pMat; pedestal.receiveShadows = true;
+
+  // Peaks & markers
+  const peaks = findPeaks(H);
+  const glow = new BABYLON.GlowLayer('glow', scene, { blurKernelSize: 24 });
+  glow.intensity = 0.55;
+  const markerMat = new BABYLON.StandardMaterial('markerMat', scene);
+  markerMat.diffuseColor = new BABYLON.Color3(1, 0.48, 0.35);
+  markerMat.emissiveColor = new BABYLON.Color3(0.9, 0.33, 0.2);
+  markerMat.specularColor = new BABYLON.Color3(0.4, 0.4, 0.4);
+  const pinMat = new BABYLON.StandardMaterial('pinMat', scene);
+  pinMat.diffuseColor = new BABYLON.Color3(1, 1, 1); pinMat.emissiveColor = new BABYLON.Color3(0.85, 0.85, 0.85);
+  const pinH = 1.0, labelMeshes = [], markers = [];
+
+  peaks.forEach((p, i) => {
+    const root = new BABYLON.TransformNode('peak' + i, scene);
+    root.position.set((p.c / (H.gw - 1) - 0.5) * W, p.h * S(), (0.5 - p.r / (H.gh - 1)) * D);
+    const pin = BABYLON.MeshBuilder.CreateCylinder('pin', { height: pinH, diameter: 0.05 }, scene);
+    pin.position.y = pinH / 2; pin.material = pinMat; pin.parent = root;
+    const head = BABYLON.MeshBuilder.CreateSphere('head', { diameter: 0.26, segments: 16 }, scene);
+    head.position.y = pinH; head.material = markerMat; head.parent = root; head.renderingGroupId = 1;
+    const ring = BABYLON.MeshBuilder.CreateTorus('ring', { diameter: 0.55, thickness: 0.045, tessellation: 40 }, scene);
+    ring.position.y = 0.03; ring.material = markerMat; ring.parent = root;
+    glow.addIncludedOnlyMesh(head); glow.addIncludedOnlyMesh(ring);
+
+    const name = CONFIG.peakNames[i] || ('Peak ' + (i + 1));
+    let text = name;
+    if (Array.isArray(CONFIG.elevationRange)) {
+      const [lo, hi] = CONFIG.elevationRange;
+      text += ' · ' + Math.round(lo + p.h * (hi - lo)) + ' m';
+    }
+    const label = makeLabel(text, scene);
+    label.plane.parent = root; label.plane.position.y = pinH + 0.25 + label.height / 2;
+    labelMeshes.push(label.plane);
+    markers.push({ root, peak: p, name, text });
+  });
+
+  // HUD peak list
+  const list = $('peaks');
+  list.innerHTML = '';
+  markers.forEach((m, i) => {
+    const li = document.createElement('li');
+    li.innerHTML = `<span><b>${i + 1}</b>${m.name}</span><small>${Math.round(m.peak.h * 100)} % of max height</small>`;
+    li.title = 'Fly to this peak';
+    li.onclick = () => flyTo(m.root.position, Math.max(W, D) * 0.55);
+    list.appendChild(li);
+  });
+  if (!markers.length) list.innerHTML = '<li><small>No distinct peaks found in the height map.</small></li>';
+
+  function flyTo(target, radius) {
+    const ease = new BABYLON.CubicEase(); ease.setEasingMode(BABYLON.EasingFunction.EASINGMODE_EASEINOUT);
+    BABYLON.Animation.CreateAndStartAnimation('t', camera, 'target', 60, 50, camera.target.clone(), target.clone(), 0, ease);
+    BABYLON.Animation.CreateAndStartAnimation('r', camera, 'radius', 60, 50, camera.radius, radius, 0, ease);
+  }
+
+  // Vertical exaggeration (updates terrain, walls and markers in place)
+  const terrainPos = terrainGeo.positions, terrainNrm = new Float32Array(terrainPos.length);
+  const pedPos = pedGeo.positions, pedUv = pedGeo.uvs, pedNrm = new Float32Array(pedPos.length);
+  function applyExaggeration() {
+    const s = S(), h = H.heights, bd = CONFIG.boxDepth;
+    for (let i = 0; i < h.length; i++) terrainPos[i * 3 + 1] = h[i] * s;
+    BABYLON.VertexData.ComputeNormals(terrainPos, terrainGeo.indices, terrainNrm);
+    terrain.updateVerticesData(BABYLON.VertexBuffer.PositionKind, terrainPos);
+    terrain.updateVerticesData(BABYLON.VertexBuffer.NormalKind, terrainNrm);
+    terrain.refreshBoundingInfo();
+    pedGeo.topMap.forEach((hi, v) => {
+      if (hi < 0) return;
+      const y = h[hi] * s;
+      pedPos[v * 3 + 1] = y; pedUv[v * 2 + 1] = (y + bd) / (s + bd);
+    });
+    BABYLON.VertexData.ComputeNormals(pedPos, pedGeo.indices, pedNrm);
+    pedestal.updateVerticesData(BABYLON.VertexBuffer.PositionKind, pedPos);
+    pedestal.updateVerticesData(BABYLON.VertexBuffer.NormalKind, pedNrm);
+    pedestal.updateVerticesData(BABYLON.VertexBuffer.UVKind, pedUv);
+    pedestal.refreshBoundingInfo();
+    markers.forEach(m => { m.root.position.y = m.peak.h * s; });
+  }
+  let pending = false;
+  $('exag').addEventListener('input', e => {
+    state.exag = parseFloat(e.target.value);
+    $('exagVal').textContent = state.exag.toFixed(2).replace(/0$/, '') + '×';
+    if (!pending) { pending = true; requestAnimationFrame(() => { pending = false; applyExaggeration(); }); }
+  });
+
+  // Buttons
+  $('resetBtn').onclick = () => {
+    const ease = new BABYLON.CubicEase(); ease.setEasingMode(BABYLON.EasingFunction.EASINGMODE_EASEINOUT);
+    ['alpha', 'beta', 'radius'].forEach(k =>
+      BABYLON.Animation.CreateAndStartAnimation(k, camera, k, 60, 45, camera[k], home[k], 0, ease));
+    BABYLON.Animation.CreateAndStartAnimation('t', camera, 'target', 60, 45, camera.target.clone(), home.target.clone(), 0, ease);
+  };
+  $('rotateBtn').onclick = e => {
+    camera.useAutoRotationBehavior = !camera.useAutoRotationBehavior;
+    if (camera.autoRotationBehavior) { camera.autoRotationBehavior.idleRotationSpeed = 0.12; camera.autoRotationBehavior.idleRotationWaitTime = 1500; }
+    e.currentTarget.classList.toggle('active', camera.useAutoRotationBehavior);
+  };
+  $('labelsBtn').onclick = e => {
+    state.labelsVisible = !state.labelsVisible;
+    labelMeshes.forEach(m => m.setEnabled(state.labelsVisible));
+    e.currentTarget.classList.toggle('active', state.labelsVisible);
+  };
+
+  return scene;
+}
+
+/* ───────────────────────── Boot ───────────────────────── */
+async function main() {
+  if (!window.BABYLON) {
+    $('loaderText').textContent = 'Babylon.js could not be loaded from the CDN.';
+    $('err').textContent = 'Check your internet connection and reload the page.';
+    return;
+  }
+  const engine = new BABYLON.Engine(canvas, true, { stencil: true, adaptToDeviceRatio: true, preserveDrawingBuffer: false });
+  let imgs;
+  try { imgs = await loadImagesAuto(); }
+  catch (err) { imgs = await loadImagesViaPicker(err); }
+  $('loaderText').textContent = 'Building terrain mesh…';
+  await new Promise(r => setTimeout(r, 30));   // let the loader text paint
+  let scene;
+  try { scene = buildScene(engine, imgs); }
+  catch (err) { $('loaderText').textContent = 'Something went wrong while building the scene.'; $('err').textContent = String(err && err.stack || err); console.error(err); return; }
+  scene.executeWhenReady(() => { $('loader').hidden = true; });
+  engine.runRenderLoop(() => scene.render());
+  window.addEventListener('resize', () => engine.resize());
+}
+main();
+})();
+</script>
+</body>
+</html>

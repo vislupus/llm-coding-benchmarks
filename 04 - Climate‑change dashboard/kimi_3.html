@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sofia Climate Dashboard · 1952–2021</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0b1220;
+    --panel: #101b31;
+    --panel2: #0d1626;
+    --border: rgba(148, 163, 184, .14);
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --accent: #38bdf8;
+    --hot: #fb7185;
+    --cold: #60a5fa;
+  }
+  body {
+    background: radial-gradient(1200px 600px at 70% -10%, rgba(56,189,248,.12), transparent 60%),
+                radial-gradient(900px 500px at 10% 110%, rgba(251,113,133,.08), transparent 60%),
+                var(--bg);
+    color: var(--text);
+    font-family: "Segoe UI", system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif;
+    min-height: 100vh;
+    padding: 0 20px 60px;
+  }
+  header { max-width: 1200px; margin: 0 auto; padding: 36px 0 10px; }
+  h1 {
+    font-size: clamp(1.5rem, 3vw, 2.2rem); font-weight: 800; letter-spacing: .3px;
+    background: linear-gradient(90deg, #7dd3fc, #38bdf8 40%, #fb923c);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .subtitle { color: var(--muted); margin-top: 6px; font-size: .95rem; }
+  .wrap { max-width: 1200px; margin: 0 auto; }
+
+  /* ---------- Controls ---------- */
+  .controls {
+    display: flex; flex-wrap: wrap; gap: 22px; align-items: center;
+    background: linear-gradient(180deg, var(--panel), var(--panel2));
+    border: 1px solid var(--border); border-radius: 14px;
+    padding: 18px 22px; margin: 22px 0;
+    position: sticky; top: 10px; z-index: 20; backdrop-filter: blur(6px);
+  }
+  .slider-group { flex: 1 1 240px; min-width: 220px; }
+  .slider-group label { display: flex; justify-content: space-between; font-size: .82rem; color: var(--muted); margin-bottom: 6px; }
+  .slider-group label b { color: var(--accent); font-variant-numeric: tabular-nums; }
+  input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer; height: 22px; }
+  .range-badge {
+    font-weight: 700; font-size: .95rem; padding: 8px 16px; white-space: nowrap;
+    background: rgba(56,189,248,.1); border: 1px solid rgba(56,189,248,.35);
+    border-radius: 999px; color: #bae6fd; font-variant-numeric: tabular-nums;
+  }
+  button.reset {
+    background: rgba(148,163,184,.12); color: var(--text); border: 1px solid var(--border);
+    padding: 8px 16px; border-radius: 999px; cursor: pointer; font-size: .85rem; transition: .2s;
+  }
+  button.reset:hover { background: rgba(148,163,184,.25); }
+
+  /* ---------- Stat cards ---------- */
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(175px, 1fr)); gap: 14px; margin-bottom: 22px; }
+  .stat {
+    background: linear-gradient(180deg, var(--panel), var(--panel2));
+    border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px;
+    transition: transform .2s, border-color .2s;
+  }
+  .stat:hover { transform: translateY(-3px); border-color: rgba(56,189,248,.4); }
+  .stat .label { font-size: .74rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+  .stat .value { font-size: 1.55rem; font-weight: 800; margin-top: 6px; font-variant-numeric: tabular-nums; }
+  .stat .sub { font-size: .78rem; color: var(--muted); margin-top: 4px; }
+  .warm { color: var(--hot); } .cool { color: var(--cold); } .neutral { color: var(--accent); }
+
+  /* ---------- Charts ---------- */
+  .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(480px, 1fr)); gap: 18px; }
+  @media (max-width: 560px) { .charts { grid-template-columns: 1fr; } }
+  .card {
+    background: linear-gradient(180deg, var(--panel), var(--panel2));
+    border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px 14px;
+  }
+  .card h2 { font-size: .98rem; font-weight: 700; }
+  .card p.desc { font-size: .78rem; color: var(--muted); margin: 3px 0 10px; }
+  .chart-box { position: relative; height: 320px; }
+
+  footer { max-width: 1200px; margin: 30px auto 0; color: var(--muted); font-size: .78rem; line-height: 1.6; }
+
+  /* ---------- Loader / fallback ---------- */
+  #loader {
+    position: fixed; inset: 0; z-index: 100; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 18px;
+    background: rgba(11,18,32,.96); text-align: center; padding: 20px;
+  }
+  .spinner {
+    width: 46px; height: 46px; border-radius: 50%;
+    border: 4px solid rgba(56,189,248,.2); border-top-color: var(--accent);
+    animation: spin 1s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #fallback { display: none; max-width: 520px; }
+  #fallback code {
+    display: block; background: #0a0f1c; border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 14px; margin: 12px 0; color: #7dd3fc; font-size: .85rem;
+  }
+  .file-btn {
+    display: inline-block; background: var(--accent); color: #082f49; font-weight: 700;
+    padding: 11px 22px; border-radius: 999px; cursor: pointer; margin-top: 8px; transition: .2s;
+  }
+  .file-btn:hover { background: #7dd3fc; }
+  .err { color: var(--hot); font-size: .85rem; }
+</style>
+</head>
+<body>
+
+<!-- Loading overlay (with file-picker fallback for file:// protocol) -->
+<div id="loader">
+  <div class="spinner" id="spinner"></div>
+  <div id="loadmsg">Loading <b>temperature_Sofia_2809794_1952-01-01 - 2021-11-28.csv</b> …</div>
+  <div id="fallback">
+    <p class="err" id="errmsg"></p>
+    <p>The browser blocked direct access to the local CSV file. Either serve this folder with a tiny local server:</p>
+    <code>python -m http.server 8000<br># then open http://localhost:8000/</code>
+    <p>…or pick the CSV file manually:</p>
+    <label class="file-btn">📂 Choose CSV file
+      <input type="file" id="fileInput" accept=".csv" style="display:none">
+    </label>
+  </div>
+</div>
+
+<header>
+  <h1>🌡️ Sofia Climate Dashboard</h1>
+  <p class="subtitle" id="datanote">Daily observations · Station 2809794 · Values converted from tenths of °C</p>
+</header>
+
+<!-- Year range controls -->
+<section class="wrap controls">
+  <div class="slider-group">
+    <label>Start year <b id="startVal">–</b></label>
+    <input type="range" id="startYear">
+  </div>
+  <div class="slider-group">
+    <label>End year <b id="endVal">–</b></label>
+    <input type="range" id="endYear">
+  </div>
+  <div class="range-badge" id="rangeBadge">–</div>
+  <button class="reset" id="resetBtn">Reset range</button>
+</section>
+
+<!-- Summary statistics -->
+<section class="wrap stats">
+  <div class="stat"><div class="label">Overall mean temp</div><div class="value neutral" id="stMean">–</div><div class="sub" id="stMeanSub"></div></div>
+  <div class="stat"><div class="label">Warming trend</div><div class="value" id="stTrend">–</div><div class="sub" id="stTrendSub"></div></div>
+  <div class="stat"><div class="label">Warmest year</div><div class="value warm" id="stWarmYr">–</div><div class="sub" id="stWarmYrSub"></div></div>
+  <div class="stat"><div class="label">Coldest year</div><div class="value cool" id="stColdYr">–</div><div class="sub" id="stColdYrSub"></div></div>
+  <div class="stat"><div class="label">Very hot days (TMAX ≥ 30 °C)</div><div class="value warm" id="stHot">–</div><div class="sub" id="stHotSub"></div></div>
+  <div class="stat"><div class="label">Very cold days (TMIN ≤ −10 °C)</div><div class="value cool" id="stCold">–</div><div class="sub" id="stColdSub"></div></div>
+</section>
+
+<!-- Charts -->
+<main class="wrap charts">
+  <div class="card">
+    <h2>Annual Mean Temperature</h2>
+    <p class="desc">Yearly average of TAVG with least-squares linear trend</p>
+    <div class="chart-box"><canvas id="chAnnual"></canvas></div>
+  </div>
+  <div class="card">
+    <h2>Annual Extremes</h2>
+    <p class="desc">Hottest day (max TMAX) and coldest night (min TMIN) of each year</p>
+    <div class="chart-box"><canvas id="chExtremes"></canvas></div>
+  </div>
+  <div class="card">
+    <h2>Monthly Climatology</h2>
+    <p class="desc">Mean TMAX / TAVG / TMIN per calendar month over the selected range</p>
+    <div class="chart-box"><canvas id="chMonthly"></canvas></div>
+  </div>
+  <div class="card">
+    <h2>Very Hot &amp; Very Cold Days per Year</h2>
+    <p class="desc">Days with TMAX ≥ 30 °C (up) · days with TMIN ≤ −10 °C (down)</p>
+    <div class="chart-box"><canvas id="chDays"></canvas></div>
+  </div>
+</main>
+
+<footer>
+  Data source: <b>temperature_Sofia_2809794_1952-01-01 - 2021-11-28.csv</b> (same folder as this file).
+  Raw values are stored in tenths of a degree and divided by 10 at load time.
+  Where TAVG is missing it is estimated as (TMAX + TMIN) / 2. Note: 2021 is a partial year (ends Nov 28).
+</footer>
+
+<script>
+'use strict';
+
+/* ================= Configuration ================= */
+const CSV_FILE = 'temperature_Sofia_2809794_1952-01-01 - 2021-11-28.csv';
+const HOT_THRESHOLD  =  30;   // °C, applied to TMAX
+const COLD_THRESHOLD = -10;   // °C, applied to TMIN
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+/* ================= State ================= */
+let DAILY  = [];   // {year, month, tavg, tmax, tmin} in °C (null = missing)
+let YEARLY = [];   // per-year aggregates, sorted ascending
+let MIN_YEAR, MAX_YEAR;
+const charts = {};
+
+const $ = id => document.getElementById(id);
+const startEl = $('startYear'), endEl = $('endYear');
+
+/* ================= CSV parsing ================= */
+function parseCSV(text) {
+  text = text.replace(/^\uFEFF/, '');              // strip BOM if present
+  const lines = text.split(/\r?\n/).filter(l => l.trim() !== '');
+  const header = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, '').toUpperCase());
+  const iDate = header.indexOf('DATE'), iAvg = header.indexOf('TAVG'),
+        iMax  = header.indexOf('TMAX'), iMin = header.indexOf('TMIN');
+  if (iDate < 0 || iMax < 0 || iMin < 0) throw new Error('Required columns DATE/TMAX/TMIN not found.');
+
+  const toC = v => {                               // tenths of °C -> °C
+    v = (v ?? '').trim();
+    if (v === '') return null;
+    const n = parseFloat(v);
+    return isNaN(n) ? null : n / 10;
+  };
+
+  const recs = [];
+  for (let i = 1; i < lines.length; i++) {
+    const c = lines[i].split(',');
+    const d = (c[iDate] || '').trim().replace(/^"|"$/g, '');
+    if (!d) continue;
+    const year  = +d.slice(0, 4);
+    const month = d.includes('-') ? +d.slice(5, 7) : +d.slice(4, 6);
+    if (!year || !month) continue;
+
+    let tavg = iAvg >= 0 ? toC(c[iAvg]) : null;
+    const tmax = toC(c[iMax]), tmin = toC(c[iMin]);
+    if (tavg === null && tmax !== null && tmin !== null) tavg = (tmax + tmin) / 2; // fallback estimate
+
+    recs.push({ year, month, tavg, tmax, tmin });
+  }
+  return recs;
+}
+
+/* ================= Aggregation ================= */
+function buildYearly(daily) {
+  const map = new Map();
+  for (const r of daily) {
+    let y = map.get(r.year);
+    if (!y) { y = { year: r.year, tSum: 0, tN: 0, hi: -Infinity, lo: Infinity, hot: 0, cold: 0 }; map.set(r.year, y); }
+    if (r.tavg !== null) { y.tSum += r.tavg; y.tN++; }
+    if (r.tmax !== null) { if (r.tmax > y.hi) y.hi = r.tmax; if (r.tmax >= HOT_THRESHOLD)  y.hot++;  }
+    if (r.tmin !== null) { if (r.tmin < y.lo) y.lo = r.tmin; if (r.tmin <= COLD_THRESHOLD) y.cold++; }
+  }
+  const arr = [...map.values()].sort((a, b) => a.year - b.year);
+  for (const y of arr) {
+    y.mean = y.tN ? y.tSum / y.tN : null;
+    if (y.hi === -Infinity) y.hi = null;
+    if (y.lo ===  Infinity) y.lo = null;
+  }
+  return arr;
+}
+
+function monthlyMeans(start, end) {
+  const b = Array.from({ length: 12 }, () => ({ aS: 0, aN: 0, xS: 0, xN: 0, nS: 0, nN: 0 }));
+  for (const r of DAILY) {
+    if (r.year < start || r.year > end) continue;
+    const m = b[r.month - 1];
+    if (r.tavg !== null) { m.aS += r.tavg; m.aN++; }
+    if (r.tmax !== null) { m.xS += r.tmax; m.xN++; }
+    if (r.tmin !== null) { m.nS += r.tmin; m.nN++; }
+  }
+  return {
+    avg: b.map(m => m.aN ? m.aS / m.aN : null),
+    max: b.map(m => m.xN ? m.xS / m.xN : null),
+    min: b.map(m => m.nN ? m.nS / m.nN : null),
+  };
+}
+
+/* Least-squares linear regression */
+function linreg(xs, ys) {
+  const n = xs.length;
+  if (n < 2) return { slope: 0, intercept: ys[0] ?? 0, ok: false };
+  let sx = 0, sy = 0, sxy = 0, sxx = 0;
+  for (let i = 0; i < n; i++) { sx += xs[i]; sy += ys[i]; sxy += xs[i] * ys[i]; sxx += xs[i] * xs[i]; }
+  const slope = (n * sxy - sx * sy) / (n * sxx - sx * sx);
+  return { slope, intercept: (sy - slope * sx) / n, ok: true };
+}
+
+const fmt = (v, d = 2) => (v === null || v === undefined || isNaN(v)) ? '—' : v.toFixed(d);
+const signed = v => (v >= 0 ? '+' : '') + v.toFixed(2);
+
+/* ================= Boot / loading ================= */
+window.addEventListener('DOMContentLoaded', async () => {
+  try {
+    const res = await fetch(encodeURI(CSV_FILE));
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    boot(await res.text());
+  } catch (e) {
+    // Typical cause: page opened via file:// -> fetch of local files is blocked
+    $('spinner').style.display = 'none';
+    $('loadmsg').style.display = 'none';
+    $('errmsg').textContent = 'Could not load the CSV automatically (' + e.message + ').';
+    $('fallback').style.display = 'block';
+  }
+});
+
+$('fileInput').addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const rd = new FileReader();
+  rd.onload = () => boot(rd.result);
+  rd.readAsText(f);
+});
+
+function boot(csvText) {
+  DAILY = parseCSV(csvText);
+  if (!DAILY.length) { $('loadmsg').textContent = 'No valid data rows found in the CSV.'; return; }
+  YEARLY = buildYearly(DAILY);
+  MIN_YEAR = YEARLY[0].year;
+  MAX_YEAR = YEARLY[YEARLY.length - 1].year;
+
+  for (const el of [startEl, endEl]) { el.min = MIN_YEAR; el.max = MAX_YEAR; el.step = 1; }
+  startEl.value = MIN_YEAR; endEl.value = MAX_YEAR;
+
+  $('datanote').textContent =
+    `${DAILY.length.toLocaleString()} daily records · ${MIN_YEAR}–${MAX_YEAR} · Station 2809794 · tenths of °C converted to °C`;
+
+  if (typeof Chart === 'undefined') { $('loadmsg').textContent = 'Chart.js failed to load (CDN unreachable).'; return; }
+
+  createCharts();
+  $('loader').style.display = 'none';
+  updateDashboard();
+}
+
+/* ================= UI events ================= */
+startEl.addEventListener('input', () => { if (+startEl.value > +endEl.value) endEl.value = startEl.value; updateDashboard(); });
+endEl.addEventListener('input',   () => { if (+endEl.value < +startEl.value) startEl.value = endEl.value; updateDashboard(); });
+$('resetBtn').addEventListener('click', () => { startEl.value = MIN_YEAR; endEl.value = MAX_YEAR; updateDashboard(); });
+
+/* ================= Charts ================= */
+function baseOpts(yTitle) {
+  return {
+    responsive: true, maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { labels: { boxWidth: 12, boxHeight: 12, usePointStyle: true } },
+      tooltip: { backgroundColor: 'rgba(10,15,28,.95)', borderColor: 'rgba(148,163,184,.25)', borderWidth: 1, padding: 10 }
+    },
+    scales: {
+      x: { grid: { display: false }, ticks: { maxTicksLimit: 16, maxRotation: 0 } },
+      y: { title: { display: true, text: yTitle }, ticks: { callback: v => v + (yTitle === '°C' ? '°' : '') } }
+    }
+  };
+}
+
+function createCharts() {
+  Chart.defaults.color = '#94a3b8';
+  Chart.defaults.borderColor = 'rgba(148,163,184,.10)';
+  Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+
+  charts.annual = new Chart($('chAnnual'), {
+    type: 'line',
+    data: { labels: [], datasets: [
+      { label: 'Yearly mean', data: [], borderColor: '#38bdf8', backgroundColor: 'rgba(56,189,248,.15)',
+        fill: true, tension: .3, pointRadius: 0, pointHoverRadius: 5, borderWidth: 2 },
+      { label: 'Linear trend', data: [], borderColor: '#fb7185', borderDash: [7, 5],
+        pointRadius: 0, pointHoverRadius: 0, borderWidth: 2, fill: false }
+    ]},
+    options: baseOpts('°C')
+  });
+
+  charts.extremes = new Chart($('chExtremes'), {
+    type: 'line',
+    data: { labels: [], datasets: [
+      { label: 'Hottest day (max TMAX)', data: [], borderColor: '#fb923c', backgroundColor: '#fb923c', tension: .25, pointRadius: 0, pointHoverRadius: 5, borderWidth: 2 },
+      { label: 'Coldest night (min TMIN)', data: [], borderColor: '#60a5fa', backgroundColor: '#60a5fa', tension: .25, pointRadius: 0, pointHoverRadius: 5, borderWidth: 2 }
+    ]},
+    options: baseOpts('°C')
+  });
+
+  charts.monthly = new Chart($('chMonthly'), {
+    type: 'line',
+    data: { labels: MONTHS, datasets: [
+      { label: 'Mean TMAX', data: [], borderColor: '#fb923c', backgroundColor: '#fb923c', tension: .35, borderWidth: 2.5, pointRadius: 3 },
+      { label: 'Mean TAVG', data: [], borderColor: '#38bdf8', backgroundColor: '#38bdf8', tension: .35, borderWidth: 2.5, pointRadius: 3 },
+      { label: 'Mean TMIN', data: [], borderColor: '#818cf8', backgroundColor: '#818cf8', tension: .35, borderWidth: 2.5, pointRadius: 3 }
+    ]},
+    options: baseOpts('°C')
+  });
+
+  charts.days = new Chart($('chDays'), {
+    type: 'bar',
+    data: { labels: [], datasets: [
+      { label: 'Hot days (TMAX ≥ 30 °C)',  data: [], backgroundColor: 'rgba(248,113,113,.85)', borderRadius: 2, stack: 's' },
+      { label: 'Cold days (TMIN ≤ −10 °C)', data: [], backgroundColor: 'rgba(96,165,250,.85)', borderRadius: 2, stack: 's' }
+    ]},
+    options: (() => {
+      const o = baseOpts('days / year');
+      o.scales.x.stacked = true; o.scales.y.stacked = true;
+      o.scales.y.ticks.callback = v => Math.abs(v);
+      o.plugins.tooltip.callbacks = { label: c => ` ${c.dataset.label}: ${Math.abs(c.parsed.y)}` };
+      return o;
+    })()
+  });
+}
+
+/* ================= Master update ================= */
+function updateDashboard() {
+  const s = +startEl.value, e = +endEl.value;
+  $('startVal').textContent = s;
+  $('endVal').textContent = e;
+  $('rangeBadge').textContent = `${s} – ${e}  (${e - s + 1} yrs)`;
+
+  const yrs   = YEARLY.filter(y => y.year >= s && y.year <= e);
+  const valid = yrs.filter(y => y.mean !== null);
+  const labels = yrs.map(y => y.year);
+
+  /* ---- Summary statistics ---- */
+  const totSum = valid.reduce((a, y) => a + y.tSum, 0);
+  const totN   = valid.reduce((a, y) => a + y.tN, 0);
+  $('stMean').textContent = totN ? fmt(totSum / totN, 2) + ' °C' : '—';
+  $('stMeanSub').textContent = totN ? `from ${totN.toLocaleString()} daily means` : '';
+
+  const reg = linreg(valid.map(y => y.year), valid.map(y => y.mean));
+  const perDecade = reg.slope * 10;
+  const trendEl = $('stTrend');
+  trendEl.textContent = reg.ok ? signed(perDecade) + ' °C/decade' : '—';
+  trendEl.className = 'value ' + (perDecade > 0.005 ? 'warm' : perDecade < -0.005 ? 'cool' : 'neutral');
+  $('stTrendSub').textContent = reg.ok
+    ? `≈ ${signed(reg.slope * (e - s))} °C over ${e - s + 1} years (least squares)` : '';
+
+  let warmYr = null, coldYr = null;
+  for (const y of valid) {
+    if (!warmYr || y.mean > warmYr.mean) warmYr = y;
+    if (!coldYr || y.mean < coldYr.mean) coldYr = y;
+  }
+  $('stWarmYr').textContent = warmYr ? warmYr.year : '—';
+  $('stWarmYrSub').textContent = warmYr ? `mean ${fmt(warmYr.mean, 2)} °C` : '';
+  $('stColdYr').textContent = coldYr ? coldYr.year : '—';
+  $('stColdYrSub').textContent = coldYr ? `mean ${fmt(coldYr.mean, 2)} °C` : '';
+
+  const hotTot = yrs.reduce((a, y) => a + y.hot, 0);
+  const coldTot = yrs.reduce((a, y) => a + y.cold, 0);
+  $('stHot').textContent = hotTot.toLocaleString();
+  $('stHotSub').textContent = `avg ${fmt(hotTot / yrs.length, 1)} days/yr`;
+  $('stCold').textContent = coldTot.toLocaleString();
+  $('stColdSub').textContent = `avg ${fmt(coldTot / yrs.length, 1)} days/yr`;
+
+  /* ---- Chart 1: annual mean + trend ---- */
+  charts.annual.data.labels = labels;
+  charts.annual.data.datasets[0].data = yrs.map(y => y.mean);
+  charts.annual.data.datasets[1].data = reg.ok ? yrs.map(y => reg.slope * y.year + reg.intercept) : [];
+  charts.annual.data.datasets[1].label = `Linear trend (${signed(perDecade)} °C/decade)`;
+  charts.annual.update();
+
+  /* ---- Chart 2: annual extremes ---- */
+  charts.extremes.data.labels = labels;
+  charts.extremes.data.datasets[0].data = yrs.map(y => y.hi);
+  charts.extremes.data.datasets[1].data = yrs.map(y => y.lo);
+  charts.extremes.update();
+
+  /* ---- Chart 3: monthly climatology ---- */
+  const mm = monthlyMeans(s, e);
+  charts.monthly.data.datasets[0].data = mm.max;
+  charts.monthly.data.datasets[1].data = mm.avg;
+  charts.monthly.data.datasets[2].data = mm.min;
+  charts.monthly.update();
+
+  /* ---- Chart 4: hot / cold days (diverging bars) ---- */
+  charts.days.data.labels = labels;
+  charts.days.data.datasets[0].data = yrs.map(y => y.hot);
+  charts.days.data.datasets[1].data = yrs.map(y => -y.cold);
+  charts.days.update();
+}
+</script>
+</body>
+</html>

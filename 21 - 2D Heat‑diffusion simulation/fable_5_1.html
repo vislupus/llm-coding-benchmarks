@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2D Heat Diffusion — p5.js</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
+<style>
+  :root{
+    --bg:#0e1116; --panel:#161b23; --line:#263040; --text:#dfe6ef; --muted:#8c99aa; --accent:#ff7a3d;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+    font:13px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;user-select:none;overflow:hidden}
+  #app{display:flex;height:100vh;width:100vw}
+  #canvas-holder{flex:1;min-width:0;display:flex;align-items:center;justify-content:center;padding:12px}
+  canvas{display:block;border-radius:6px;box-shadow:0 0 0 1px var(--line),0 10px 40px rgba(0,0,0,.5);touch-action:none}
+  #panel{width:320px;flex:none;background:var(--panel);border-left:1px solid var(--line);
+    overflow-y:auto;padding:14px 16px 24px}
+  h1{font-size:15px;margin:0 0 2px;letter-spacing:.2px}
+  h1 small{color:var(--muted);font-weight:normal;font-size:12px}
+  h2{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:18px 0 8px;
+    padding-bottom:4px;border-bottom:1px solid var(--line)}
+  .row{display:flex;align-items:center;gap:8px;margin:6px 0}
+  .row label{flex:1;color:var(--text)}
+  .row .val{width:56px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums;font-size:12px}
+  input[type=range]{width:120px;accent-color:var(--accent)}
+  select,button{background:#0e1218;color:var(--text);border:1px solid var(--line);border-radius:4px;padding:4px 6px;font:inherit}
+  select{width:150px}
+  button{cursor:pointer;padding:5px 9px}
+  button:hover{border-color:var(--accent)}
+  button.on{background:var(--accent);color:#111;border-color:var(--accent)}
+  .btns{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+  .check{display:flex;align-items:center;gap:6px;margin:5px 0}
+  #legend{height:12px;border-radius:3px;margin:6px 0 2px;border:1px solid var(--line)}
+  .legend-labels{display:flex;justify-content:space-between;color:var(--muted);font-size:11px}
+  #stats{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;color:var(--muted);
+    white-space:pre-line;background:#0b0e13;border:1px solid var(--line);border-radius:4px;padding:8px}
+  .help{color:var(--muted);font-size:12px}
+  .help kbd{display:inline-block;background:#0b0e13;border:1px solid var(--line);border-bottom-width:2px;
+    border-radius:3px;padding:0 5px;color:var(--text);font-family:inherit;font-size:11px;margin:1px 1px}
+  .help div{margin:3px 0}
+  .warn{color:#ffb060}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="canvas-holder"></div>
+
+  <aside id="panel">
+    <h1>Heat diffusion <small>∂T/∂t = ∇·(α∇T)</small></h1>
+    <div class="help">Explicit finite differences on a grid, auto-substepped to stay stable.</div>
+
+    <div id="legend"></div>
+    <div class="legend-labels"><span>cold (0)</span><span>hot (1)</span></div>
+
+    <h2>Simulation</h2>
+    <div class="row"><label>Resolution</label>
+      <select id="res">
+        <option>64</option><option>96</option><option>128</option><option>160</option>
+        <option selected>192</option><option>256</option><option>320</option><option>384</option><option>512</option>
+      </select></div>
+    <div class="row"><label>Diffusion speed</label><input type="range" id="speed" min="0.05" max="8" step="0.05"><span class="val" id="speed-val"></span></div>
+    <div class="row"><label>Conductivity ×</label><input type="range" id="kmul" min="0.05" max="3" step="0.05"><span class="val" id="kmul-val"></span></div>
+    <div class="row"><label>Ambient temp</label><input type="range" id="ambient" min="0" max="1" step="0.01"><span class="val" id="ambient-val"></span></div>
+    <div class="row"><label>Heat loss to air</label><input type="range" id="loss" min="0" max="0.02" step="0.0005"><span class="val" id="loss-val"></span></div>
+    <div class="row"><label>Convection</label><input type="range" id="conv" min="0" max="2" step="0.01"><span class="val" id="conv-val"></span></div>
+
+    <h2>Boundary</h2>
+    <div class="row"><label>Edges</label>
+      <select id="bc">
+        <option value="0">Insulated (zero flux)</option>
+        <option value="1">Constant temperature</option>
+        <option value="2">Periodic (wrap)</option>
+      </select></div>
+    <div class="row"><label>Border temp</label><input type="range" id="borderT" min="0" max="1" step="0.01"><span class="val" id="borderT-val"></span></div>
+
+    <h2>Brush</h2>
+    <div class="row"><label>Mode (left click)</label>
+      <select id="brushMode">
+        <option value="heat">Heat</option>
+        <option value="cool">Cool</option>
+        <option value="material">Paint material</option>
+      </select></div>
+    <div class="row"><label>Radius (% width)</label><input type="range" id="brushSize" min="1" max="30" step="0.5"><span class="val" id="brushSize-val"></span></div>
+    <div class="row"><label>Strength</label><input type="range" id="brushStrength" min="0.01" max="0.5" step="0.01"><span class="val" id="brushStrength-val"></span></div>
+
+    <h2>Material</h2>
+    <div class="row"><label>Preset</label><select id="material"></select></div>
+    <div class="row"><label>Custom α</label><input type="range" id="customAlpha" min="0" max="1" step="0.005"><span class="val" id="customAlpha-val"></span></div>
+    <div class="check"><input type="checkbox" id="showMat"><label for="showMat">Show material map (V)</label></div>
+    <div class="check"><input type="checkbox" id="pixelated"><label for="pixelated">Pixelated cells (P)</label></div>
+    <div class="btns">
+      <button id="btnFill">Fill grid with material</button>
+      <button id="btnDemo">Demo scene</button>
+    </div>
+
+    <h2>Run</h2>
+    <div class="btns">
+      <button id="btnPause">Pause</button>
+      <button id="btnReset">Reset temps</button>
+      <button id="btnQuench">Quench all</button>
+      <button id="btnSources">Clear sources</button>
+    </div>
+    <div style="height:10px"></div>
+    <div id="stats"></div>
+
+    <h2>Keyboard</h2>
+    <div class="help">
+      <div><kbd>Left drag</kbd> brush · <kbd>Right drag</kbd> cool · <kbd>Shift+click</kbd> add/remove persistent source (right = cold sink)</div>
+      <div><kbd>C</kbd> hold: cool · <kbd>H</kbd> hold: heat · <kbd>M</kbd> hold: paint material</div>
+      <div><kbd>S</kbd> toggle hot source at cursor · <kbd>Shift+S</kbd> cold sink</div>
+      <div><kbd>1</kbd>–<kbd>8</kbd> pick material · <kbd>[</kbd> <kbd>]</kbd> brush size</div>
+      <div><kbd>Space</kbd> pause · <kbd>R</kbd> reset temps · <kbd>X</kbd> quench · <kbd>B</kbd> cycle boundary</div>
+      <div><kbd>V</kbd> material overlay · <kbd>P</kbd> pixelated · <kbd>Del</kbd> clear sources</div>
+    </div>
+  </aside>
+</div>
+
+<script>
+/* =====================================================================
+   Materials: alpha = thermal diffusivity in grid units (cells² / time).
+   Copper is the reference (α = 1). Fluxes between cells use the harmonic
+   mean of the two cells' diffusivities, so a thin insulator layer really
+   blocks heat instead of being averaged away.
+   ===================================================================== */
+const MATERIALS = [
+  {name:'Copper',    alpha:1.0,    color:[232,142,58]},
+  {name:'Aluminum',  alpha:0.85,   color:[200,204,212]},
+  {name:'Steel',     alpha:0.15,   color:[120,132,150]},
+  {name:'Brick',     alpha:0.02,   color:[181,82,58]},
+  {name:'Glass',     alpha:0.012,  color:[138,208,230]},
+  {name:'Wood',      alpha:0.004,  color:[155,106,60]},
+  {name:'Insulator', alpha:0.0005, color:[240,230,140]},
+  {name:'Custom',    alpha:0.3,    color:[200,120,220]},
+];
+const CUSTOM = 7;
+
+// Colormap stops: [t, r, g, b]
+const STOPS = [
+  [0.00,   6,  10,  46],
+  [0.14,  18,  56, 205],
+  [0.30,   0, 186, 228],
+  [0.46,  40, 212,  92],
+  [0.62, 246, 226,  38],
+  [0.80, 238,  68,  22],
+  [0.92, 255, 160, 120],
+  [1.00, 255, 250, 236],
+];
+
+// Parameters (bound to the UI)
+const P = {
+  speed: 1.0,        // simulated time units per frame
+  kMul: 1.0,         // global conductivity multiplier
+  ambient: 0.2,
+  loss: 0.003,       // Newton cooling toward ambient
+  conv: 0.0,         // buoyancy strength
+  bc: 0,             // 0 insulated, 1 fixed, 2 periodic
+  borderT: 0.0,
+  brushMode: 'heat',
+  brushSize: 5,      // % of grid width
+  brushStrength: 0.08,
+  material: 0,
+  showMat: false,
+  pixelated: false,
+  paused: false,
+  maxSub: 24,        // cap on substeps per frame to keep interaction smooth
+};
+
+// Grid state
+let W = 192, H = 192, N = W*H;
+let T, T2, mat, aCell;        // temperature, scratch, material index, per-cell α
+let maxA = 1, alphaDirty = true;
+let sources = [];             // {u, v, r, temp} in normalized coords
+let img, LUT, cnv;
+let simTime = 0, lastSub = 0, lastDt = 0, capped = false, meanT = 0;
+
+/* ---------------------------- Setup ------------------------------- */
+function setup(){
+  const holder = document.getElementById('canvas-holder');
+  const s = fitSize();
+  cnv = createCanvas(s, s);
+  cnv.parent(holder);
+  cnv.elt.addEventListener('contextmenu', e => e.preventDefault());
+  buildLUT();
+  initGrid(192);
+  demoScene();
+  bindUI();
+}
+
+function fitSize(){
+  const h = document.getElementById('canvas-holder');
+  return Math.max(200, Math.min(h.clientWidth, h.clientHeight) - 24);
+}
+function windowResized(){ const s = fitSize(); resizeCanvas(s, s); }
+
+function buildLUT(){
+  LUT = new Uint8Array(768);
+  for (let i = 0; i < 256; i++){
+    const t = i/255;
+    let k = 0;
+    while (k < STOPS.length-2 && t > STOPS[k+1][0]) k++;
+    const a = STOPS[k], b = STOPS[k+1];
+    const f = Math.min(1, Math.max(0, (t-a[0])/(b[0]-a[0])));
+    LUT[i*3]   = a[1] + (b[1]-a[1])*f;
+    LUT[i*3+1] = a[2] + (b[2]-a[2])*f;
+    LUT[i*3+2] = a[3] + (b[3]-a[3])*f;
+  }
+  document.getElementById('legend').style.background =
+    'linear-gradient(to right,' + STOPS.map(s => `rgb(${s[1]},${s[2]},${s[3]}) ${s[0]*100}%`).join(',') + ')';
+}
+
+// (Re)allocate the grid; resample the old field if one exists.
+function initGrid(n){
+  const oT = T, oM = mat, oW = W, oH = H;
+  W = H = n; N = W*H;
+  T = new Float32Array(N); T2 = new Float32Array(N);
+  mat = new Uint8Array(N); aCell = new Float32Array(N);
+  if (oT){
+    for (let y = 0; y < H; y++){
+      const oy = Math.floor(y*oH/H);
+      for (let x = 0; x < W; x++){
+        const ox = Math.floor(x*oW/W), oi = oy*oW+ox, i = y*W+x;
+        T[i] = oT[oi]; mat[i] = oM[oi];
+      }
+    }
+  } else {
+    T.fill(P.ambient);
+  }
+  img = createImage(W, H);
+  img.loadPixels();
+  rebuildAlpha();
+}
+
+function rebuildAlpha(){
+  let m = 0;
+  for (let i = 0; i < N; i++){
+    const a = MATERIALS[mat[i]].alpha * P.kMul;
+    aCell[i] = a; if (a > m) m = a;
+  }
+  maxA = Math.max(m, 1e-6);
+  alphaDirty = false;
+}
+
+/* --------------------------- Scenes ------------------------------- */
+function rectMat(u0, v0, u1, v1, m){
+  const x0 = Math.floor(u0*W), x1 = Math.ceil(u1*W), y0 = Math.floor(v0*H), y1 = Math.ceil(v1*H);
+  for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) mat[y*W+x] = m;
+}
+function circleMat(u, v, r, m){
+  const cx = u*W, cy = v*H, rr = r*W;
+  const x0 = Math.max(0, Math.floor(cx-rr)), x1 = Math.min(W-1, Math.ceil(cx+rr));
+  const y0 = Math.max(0, Math.floor(cy-rr)), y1 = Math.min(H-1, Math.ceil(cy+rr));
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++){
+    const dx = x+0.5-cx, dy = y+0.5-cy;
+    if (dx*dx+dy*dy <= rr*rr) mat[y*W+x] = m;
+  }
+}
+function demoScene(){
+  mat.fill(0);                               // copper slab
+  rectMat(0.485, 0.00, 0.515, 0.40, 4);      // glass wall with a gap
+  rectMat(0.485, 0.60, 0.515, 1.00, 4);
+  rectMat(0.62, 0.08, 0.92, 0.34, 5);        // wood block
+  circleMat(0.77, 0.74, 0.12, 2);            // steel disk
+  rectMat(0.08, 0.80, 0.40, 0.84, 6);        // thin insulator strip
+  rectMat(0.10, 0.10, 0.30, 0.30, 1);        // aluminum patch
+  T.fill(P.ambient);
+  sources = [{u:0.25, v:0.5, r:0.035, temp:1.0}];
+  simTime = 0;
+  rebuildAlpha();
+}
+
+/* ------------------------ Time stepping --------------------------- */
+// One explicit FTCS step of ∂T/∂t = ∇·(α∇T) − loss·(T−Tamb) − v·∇T
+function stepSim(dt){
+  const Wn = W, Hn = H, Tc = T, Tn = T2, A = aCell;
+  const bc = P.bc, Tb = P.borderT, amb = P.ambient, loss = P.loss, conv = P.conv;
+  const lastRow = (Hn-1)*Wn;
+  for (let y = 0; y < Hn; y++){
+    const row = y*Wn;
+    const rowUp = y > 0      ? row-Wn : (bc === 2 ? lastRow : -1);
+    const rowDn = y < Hn-1   ? row+Wn : (bc === 2 ? 0       : -1);
+    for (let x = 0; x < Wn; x++){
+      const i = row+x, t = Tc[i], a = A[i];
+      let s = 0, j, aj;
+
+      // left
+      j = x > 0 ? i-1 : (bc === 2 ? row+Wn-1 : -1);
+      if (j >= 0){ aj = A[j]; s += (2*a*aj/(a+aj+1e-9))*(Tc[j]-t); } else if (bc === 1) s += a*(Tb-t);
+      // right
+      j = x < Wn-1 ? i+1 : (bc === 2 ? row : -1);
+      if (j >= 0){ aj = A[j]; s += (2*a*aj/(a+aj+1e-9))*(Tc[j]-t); } else if (bc === 1) s += a*(Tb-t);
+      // up
+      j = rowUp >= 0 ? rowUp+x : -1;
+      if (j >= 0){ aj = A[j]; s += (2*a*aj/(a+aj+1e-9))*(Tc[j]-t); } else if (bc === 1) s += a*(Tb-t);
+      // down
+      j = rowDn >= 0 ? rowDn+x : -1;
+      if (j >= 0){ aj = A[j]; s += (2*a*aj/(a+aj+1e-9))*(Tc[j]-t); } else if (bc === 1) s += a*(Tb-t);
+
+      let nt = t + dt*s - dt*loss*(t-amb);
+
+      // Buoyancy-driven advection (upwind): hot rises, cold sinks.
+      if (conv > 0){
+        const v = -conv*(t-amb);            // +y is down on screen
+        if (v < 0){                          // moving up: upstream is below
+          const jd = rowDn >= 0 ? rowDn+x : -1;
+          const tb = jd >= 0 ? Tc[jd] : t;
+          nt -= dt*v*(tb-t);
+        } else {                             // moving down: upstream is above
+          const ju = rowUp >= 0 ? rowUp+x : -1;
+          const ta = ju >= 0 ? Tc[ju] : t;
+          nt -= dt*v*(t-ta);
+        }
+      }
+      Tn[i] = nt;
+    }
+  }
+  for (const sr of sources) stampSource(Tn, sr);
+  T = Tn; T2 = Tc;
+}
+
+function stampSource(arr, sr){
+  const cx = sr.u*W, cy = sr.v*H, rr = sr.r*W;
+  const x0 = Math.max(0, Math.floor(cx-rr)), x1 = Math.min(W-1, Math.ceil(cx+rr));
+  const y0 = Math.max(0, Math.floor(cy-rr)), y1 = Math.min(H-1, Math.ceil(cy+rr));
+  const r2 = rr*rr;
+  for (let y = y0; y <= y1; y++){
+    const dy = y+0.5-cy;
+    for (let x = x0; x <= x1; x++){
+      const dx = x+0.5-cx;
+      if (dx*dx+dy*dy <= r2) arr[y*W+x] = sr.temp;
+    }
+  }
+}
+
+// Advance by P.speed time units, split into stable substeps.
+function advance(){
+  if (alphaDirty) rebuildAlpha();
+  let dtMax = 0.24/maxA;                                 // diffusion: dt ≤ h²/(4α)
+  if (P.conv > 0) dtMax = Math.min(dtMax, 0.9/P.conv);   // advection CFL
+  if (P.loss > 0) dtMax = Math.min(dtMax, 0.9/P.loss);
+  let sub = Math.ceil(P.speed/dtMax);
+  capped = sub > P.maxSub;
+  if (capped) sub = P.maxSub;
+  const dt = capped ? dtMax : P.speed/sub;
+  for (let k = 0; k < sub; k++) stepSim(dt);
+  simTime += dt*sub; lastSub = sub; lastDt = dt;
+}
+
+/* --------------------------- Brushes ------------------------------ */
+function applyBrush(mode){
+  const cx = mouseX/width*W, cy = mouseY/height*H, rr = P.brushSize/100*W;
+  const x0 = Math.max(0, Math.floor(cx-rr)), x1 = Math.min(W-1, Math.ceil(cx+rr));
+  const y0 = Math.max(0, Math.floor(cy-rr)), y1 = Math.min(H-1, Math.ceil(cy+rr));
+  const r2 = rr*rr, str = P.brushStrength;
+  for (let y = y0; y <= y1; y++){
+    const dy = y+0.5-cy;
+    for (let x = x0; x <= x1; x++){
+      const dx = x+0.5-cx, d2 = dx*dx+dy*dy;
+      if (d2 > r2) continue;
+      const i = y*W+x;
+      if (mode === 'material'){
+        if (mat[i] !== P.material){ mat[i] = P.material; alphaDirty = true; }
+      } else {
+        const f = 1 - d2/r2;
+        if (mode === 'heat') T[i] = Math.min(1, T[i] + str*f);
+        else                 T[i] = Math.max(0, T[i] - str*f);
+      }
+    }
+  }
+}
+
+function toggleSourceAt(u, v, temp){
+  const idx = sources.findIndex(s => {
+    const dx = (s.u-u)*W, dy = (s.v-v)*H; return dx*dx+dy*dy <= (s.r*W)*(s.r*W);
+  });
+  if (idx >= 0) sources.splice(idx, 1);
+  else sources.push({u, v, r: Math.max(0.012, P.brushSize/100*0.6), temp});
+}
+
+/* --------------------------- Rendering ---------------------------- */
+function render(){
+  const px = img.pixels, lut = LUT, showMat = P.showMat, Tc = T, M = mat;
+  let sum = 0;
+  for (let i = 0, p = 0; i < N; i++, p += 4){
+    const t = Tc[i]; sum += t;
+    let ci = t <= 0 ? 0 : (t >= 1 ? 255 : (t*255)|0); ci *= 3;
+    let r = lut[ci], g = lut[ci+1], b = lut[ci+2];
+    if (showMat){ const c = MATERIALS[M[i]].color; r = r*0.6+c[0]*0.4; g = g*0.6+c[1]*0.4; b = b*0.6+c[2]*0.4; }
+    px[p] = r; px[p+1] = g; px[p+2] = b; px[p+3] = 255;
+  }
+  meanT = sum/N;
+  img.updatePixels();
+}
+
+function draw(){
+  const inside = mouseX >= 0 && mouseX < width && mouseY >= 0 && mouseY < height;
+
+  // Interaction
+  if (inside && mouseIsPressed && !keyIsDown(SHIFT)){
+    let mode = P.brushMode;
+    if (keyIsDown(67)) mode = 'cool';            // C
+    else if (keyIsDown(72)) mode = 'heat';       // H
+    else if (keyIsDown(77)) mode = 'material';   // M
+    if (mouseButton === RIGHT) mode = 'cool';
+    applyBrush(mode);
+  }
+
+  if (!P.paused) advance();
+
+  // Field
+  render();
+  drawingContext.imageSmoothingEnabled = !P.pixelated;
+  image(img, 0, 0, width, height);
+
+  // Persistent sources
+  const sx = width/W, sy = height/H;
+  noFill(); strokeWeight(1.5);
+  for (const s of sources){
+    stroke(s.temp > 0.5 ? color(255,255,255,200) : color(120,200,255,220));
+    ellipse(s.u*width, s.v*height, 2*s.r*W*sx, 2*s.r*W*sy);
+  }
+
+  // Brush cursor + readout
+  if (inside){
+    const gx = Math.min(W-1, Math.floor(mouseX/width*W)), gy = Math.min(H-1, Math.floor(mouseY/height*H));
+    const i = gy*W+gx, m = MATERIALS[mat[i]];
+    noFill(); stroke(255, 150); strokeWeight(1);
+    ellipse(mouseX, mouseY, 2*P.brushSize/100*width);
+    const txt = `T = ${T[i].toFixed(3)}   ${m.name} (α = ${(m.alpha*P.kMul).toPrecision(2)})`;
+    textSize(12); noStroke();
+    fill(0, 0, 0, 150); rect(8, 8, textWidth(txt)+14, 22, 4);
+    fill(255); textAlign(LEFT, CENTER); text(txt, 15, 19);
+  }
+
+  if (frameCount % 15 === 0) updateStats();
+}
+
+function updateStats(){
+  const el = document.getElementById('stats');
+  el.innerHTML =
+    `fps ${frameRate().toFixed(0).padStart(3)}  grid ${W}×${H}  t = ${simTime.toFixed(0)}\n` +
+    `substeps ${lastSub}  dt ${lastDt.toFixed(4)}  α_max ${maxA.toPrecision(2)}\n` +
+    `mean T ${meanT.toFixed(3)}  sources ${sources.length}` +
+    (capped ? `\n<span class="warn">speed capped at ${P.maxSub} substeps (effective ${(lastDt*lastSub).toFixed(2)}/frame) — lower speed, conductivity or resolution</span>` : '');
+}
+
+/* ------------------------- Mouse & keys --------------------------- */
+function mousePressed(){
+  const inside = mouseX >= 0 && mouseX < width && mouseY >= 0 && mouseY < height;
+  if (!inside) return;
+  if (keyIsDown(SHIFT)){
+    toggleSourceAt(mouseX/width, mouseY/height, mouseButton === RIGHT ? 0 : 1);
+  }
+  return false;
+}
+
+function keyPressed(){
+  const tag = document.activeElement && document.activeElement.tagName;
+  if (tag === 'SELECT') return;                 // let the dropdown handle typing
+  const inside = mouseX >= 0 && mouseX < width && mouseY >= 0 && mouseY < height;
+  const k = key;
+  if (k === ' '){ setPaused(!P.paused); return false; }
+  if (k === 'r' || k === 'R'){ T.fill(P.ambient); simTime = 0; return false; }
+  if (k === 'x' || k === 'X'){ T.fill(0); return false; }
+  if (k === 'v' || k === 'V'){ setCheck('showMat', !P.showMat); return false; }
+  if (k === 'p' || k === 'P'){ setCheck('pixelated', !P.pixelated); return false; }
+  if (k === 'b' || k === 'B'){ setSelect('bc', String((P.bc+1)%3)); return false; }
+  if (k === '['){ setRange('brushSize', Math.max(1, P.brushSize-1)); return false; }
+  if (k === ']'){ setRange('brushSize', Math.min(30, P.brushSize+1)); return false; }
+  if (k === 's' && inside){ toggleSourceAt(mouseX/width, mouseY/height, 1); return false; }
+  if (k === 'S' && inside){ toggleSourceAt(mouseX/width, mouseY/height, 0); return false; }
+  if (keyCode === DELETE || keyCode === BACKSPACE){ sources = []; return false; }
+  if (k >= '1' && k <= '8'){
+    setSelect('material', String(parseInt(k)-1));
+    setSelect('brushMode', 'material');
+    return false;
+  }
+}
+
+/* ----------------------------- UI --------------------------------- */
+const $ = id => document.getElementById(id);
+
+function bindRange(id, key, fmt, cb){
+  const el = $(id), out = $(id+'-val');
+  const upd = () => { P[key] = parseFloat(el.value); out.textContent = fmt ? fmt(P[key]) : P[key]; if (cb) cb(); };
+  el.value = P[key]; el.addEventListener('input', upd); upd();
+}
+function setRange(id, v){ const el = $(id); el.value = v; el.dispatchEvent(new Event('input')); }
+function setSelect(id, v){ const el = $(id); el.value = v; el.dispatchEvent(new Event('change')); }
+function setCheck(id, v){ const el = $(id); el.checked = v; el.dispatchEvent(new Event('change')); }
+function setPaused(v){ P.paused = v; $('btnPause').textContent = v ? 'Resume' : 'Pause'; $('btnPause').classList.toggle('on', v); }
+
+function bindUI(){
+  const f2 = v => v.toFixed(2), f4 = v => v.toFixed(4);
+  bindRange('speed', 'speed', f2);
+  bindRange('kmul', 'kMul', f2, () => { alphaDirty = true; });
+  bindRange('ambient', 'ambient', f2);
+  bindRange('loss', 'loss', f4);
+  bindRange('conv', 'conv', f2);
+  bindRange('borderT', 'borderT', f2);
+  bindRange('brushSize', 'brushSize', v => v.toFixed(1)+'%');
+  bindRange('brushStrength', 'brushStrength', f2);
+
+  // Custom material α on a log scale: 1e-4 … 1
+  const ca = $('customAlpha');
+  const caUpd = () => {
+    const a = Math.pow(10, -4 + 4*parseFloat(ca.value));
+    MATERIALS[CUSTOM].alpha = a;
+    $('customAlpha-val').textContent = a.toPrecision(2);
+    alphaDirty = true;
+    const opt = $('material').options[CUSTOM]; if (opt) opt.textContent = `Custom (α=${a.toPrecision(2)})`;
+  };
+  ca.value = (Math.log10(MATERIALS[CUSTOM].alpha)+4)/4;
+  ca.addEventListener('input', caUpd); caUpd();
+
+  const msel = $('material');
+  MATERIALS.forEach((m, i) => {
+    const o = document.createElement('option');
+    o.value = i; o.textContent = `${m.name} (α=${m.alpha})`; msel.appendChild(o);
+  });
+  msel.value = P.material;
+  msel.addEventListener('change', () => { P.material = parseInt(msel.value); });
+
+  $('res').addEventListener('change', e => { initGrid(parseInt(e.target.value)); });
+  $('bc').value = P.bc;
+  $('bc').addEventListener('change', e => { P.bc = parseInt(e.target.value); });
+  $('brushMode').value = P.brushMode;
+  $('brushMode').addEventListener('change', e => { P.brushMode = e.target.value; });
+  $('showMat').checked = P.showMat;
+  $('showMat').addEventListener('change', e => { P.showMat = e.target.checked; });
+  $('pixelated').checked = P.pixelated;
+  $('pixelated').addEventListener('change', e => { P.pixelated = e.target.checked; });
+
+  $('btnFill').addEventListener('click', () => { mat.fill(P.material); alphaDirty = true; });
+  $('btnDemo').addEventListener('click', demoScene);
+  $('btnPause').addEventListener('click', () => setPaused(!P.paused));
+  $('btnReset').addEventListener('click', () => { T.fill(P.ambient); simTime = 0; });
+  $('btnQuench').addEventListener('click', () => { T.fill(0); });
+  $('btnSources').addEventListener('click', () => { sources = []; });
+
+  // Keep keyboard shortcuts working after clicking a button/slider
+  document.querySelectorAll('button, input[type=range], input[type=checkbox]').forEach(el => {
+    el.addEventListener('mouseup', () => el.blur());
+  });
+}
+</script>
+</body>
+</html>

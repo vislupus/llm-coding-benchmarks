@@ -1,0 +1,3010 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>SOLARIS BASTION: THE ECLIPSE SIEGE — 3D Fantasy Survival RTS</title>
+<style>
+  :root {
+    --bg-dark: rgba(14, 18, 28, 0.88);
+    --bg-panel: rgba(20, 26, 40, 0.92);
+    --border-gold: rgba(235, 190, 95, 0.45);
+    --gold-bright: #ffd166;
+    --gold-warm: #f4a261;
+    --cyan-arcana: #4cc9f0;
+    --green-ally: #2ec4b6;
+    --crimson-enemy: #ef476f;
+    --violet-rift: #b5179e;
+    --text-light: #f8f9fa;
+    --text-muted: #a9b4c2;
+  }
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #090c14;
+    font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+    color: var(--text-light);
+  }
+
+  #game-canvas-container {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+  }
+
+  /* 2D Overlay for Selection Box, Health Bars & Floating Damage Numbers */
+  #overlay-canvas {
+    position: fixed;
+    inset: 0;
+    z-index: 2;
+    pointer-events: none;
+  }
+
+  /* Main HUD Layout */
+  #hud {
+    position: fixed;
+    inset: 0;
+    z-index: 3;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 12px 16px;
+  }
+
+  .panel {
+    background: var(--bg-panel);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid var(--border-gold);
+    border-radius: 12px;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    pointer-events: auto;
+  }
+
+  /* Top Bar: Resources, Day/Night Clock & Wave Threat */
+  .top-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .resource-strip {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 8px 16px;
+  }
+
+  .res-pill {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 14px;
+    font-weight: 700;
+    padding-right: 12px;
+    border-right: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  .res-pill:last-child {
+    border-right: none;
+    padding-right: 0;
+  }
+
+  .res-icon {
+    font-size: 17px;
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
+  }
+  .res-val {
+    color: #fff;
+    min-width: 36px;
+  }
+  .res-rate {
+    font-size: 11px;
+    color: var(--green-ally);
+    font-weight: 600;
+  }
+
+  /* Center Day/Night & Wave Banner */
+  .clock-banner {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 8px 20px;
+  }
+
+  .phase-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 800;
+    font-size: 14px;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+  }
+
+  .phase-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--gold-bright);
+    box-shadow: 0 0 10px var(--gold-bright);
+  }
+  .phase-dot.night {
+    background: var(--crimson-enemy);
+    box-shadow: 0 0 12px var(--crimson-enemy);
+  }
+
+  .wave-progress-wrap {
+    width: 140px;
+    height: 8px;
+    background: rgba(0, 0, 0, 0.5);
+    border-radius: 4px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+  }
+  #wave-timer-bar {
+    width: 30%;
+    height: 100%;
+    background: linear-gradient(90deg, #ffd166, #f4a261);
+    transition: width 0.25s linear;
+  }
+
+  .call-wave-btn {
+    background: linear-gradient(135deg, #ef476f, #b5179e);
+    border: 1px solid #ff8fa3;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 5px 10px;
+    border-radius: 7px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .call-wave-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 0 12px rgba(239, 71, 111, 0.6);
+  }
+  .call-wave-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+
+  /* Top Right Controls */
+  .sys-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+  }
+
+  .sys-btn {
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: var(--text-light);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 11px;
+    border-radius: 7px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .sys-btn:hover {
+    background: rgba(255, 209, 102, 0.2);
+    border-color: var(--gold-bright);
+  }
+  .sys-btn.active {
+    background: var(--gold-bright);
+    color: #111;
+    border-color: #fff;
+  }
+
+  /* Center Alert Banner */
+  #alert-toast {
+    align-self: center;
+    margin-top: 8px;
+    margin-bottom: auto;
+    padding: 8px 22px;
+    border-radius: 24px;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    background: rgba(16, 20, 32, 0.92);
+    border: 1px solid var(--gold-bright);
+    color: var(--gold-bright);
+    box-shadow: 0 6px 20px rgba(0,0,0,0.6);
+    opacity: 0;
+    transform: translateY(-8px);
+    transition: all 0.25s ease;
+    pointer-events: none;
+  }
+  #alert-toast.show {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  /* Bottom HUD Area: Minimap + Command Deck + Selection Inspector */
+  .bottom-hud {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 12px;
+  }
+
+  /* Minimap Panel */
+  .minimap-panel {
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 196px;
+    flex-shrink: 0;
+  }
+
+  .minimap-header {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--gold-bright);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+  }
+
+  #minimap-canvas {
+    width: 174px;
+    height: 174px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 209, 102, 0.35);
+    background: #0a0e17;
+    cursor: crosshair;
+  }
+
+  .quick-select-row {
+    display: flex;
+    gap: 4px;
+  }
+  .q-btn {
+    flex: 1;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 5px 4px;
+    border-radius: 5px;
+    cursor: pointer;
+    text-align: center;
+  }
+  .q-btn:hover {
+    background: rgba(255, 209, 102, 0.25);
+    border-color: var(--gold-bright);
+  }
+
+  /* Center Command & Build Deck */
+  .command-deck {
+    flex: 1;
+    max-width: 780px;
+    padding: 10px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .deck-tabs {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding-bottom: 6px;
+  }
+
+  .tab-group {
+    display: flex;
+    gap: 6px;
+  }
+
+  .tab-btn {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 700;
+    padding: 5px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .tab-btn.active {
+    background: linear-gradient(135deg, #ffd166, #e09f3e);
+    color: #111;
+    border-color: #fff;
+  }
+
+  .formation-group {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .form-lbl {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-right: 4px;
+  }
+
+  .card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    gap: 8px;
+  }
+
+  .cmd-card {
+    background: rgba(10, 14, 24, 0.78);
+    border: 1px solid rgba(255, 209, 102, 0.25);
+    border-radius: 8px;
+    padding: 7px 8px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 4px;
+    transition: all 0.15s ease;
+    position: relative;
+  }
+  .cmd-card:hover:not(.disabled) {
+    background: rgba(255, 209, 102, 0.16);
+    border-color: var(--gold-bright);
+    transform: translateY(-2px);
+  }
+  .cmd-card.active-build {
+    background: rgba(46, 196, 182, 0.25);
+    border-color: var(--green-ally);
+    box-shadow: 0 0 14px rgba(46, 196, 182, 0.45);
+  }
+  .cmd-card.disabled {
+    opacity: 0.42;
+    cursor: not-allowed;
+  }
+
+  .card-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .card-icon {
+    font-size: 18px;
+  }
+  .card-hotkey {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--gold-bright);
+    background: rgba(255, 209, 102, 0.14);
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+  .card-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .card-desc {
+    font-size: 10px;
+    color: var(--text-muted);
+    line-height: 1.25;
+  }
+  .card-cost {
+    display: flex;
+    gap: 6px;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--gold-bright);
+    margin-top: 2px;
+  }
+
+  /* Right Panel: Selection & Hero Inspector */
+  .inspector-panel {
+    width: 265px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .insp-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .insp-avatar {
+    width: 38px;
+    height: 38px;
+    border-radius: 9px;
+    background: rgba(255, 209, 102, 0.15);
+    border: 1px solid var(--gold-bright);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 21px;
+  }
+  .insp-title {
+    font-size: 14px;
+    font-weight: 800;
+    color: var(--gold-bright);
+  }
+  .insp-sub {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  .hp-bar-wrap {
+    width: 100%;
+    height: 9px;
+    background: rgba(0, 0, 0, 0.55);
+    border-radius: 5px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+  }
+  #insp-hp-fill {
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, #2ec4b6, #80ed99);
+    transition: width 0.2s ease;
+  }
+
+  .insp-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 5px;
+    font-size: 11px;
+    color: #dbe4ee;
+    background: rgba(0, 0, 0, 0.28);
+    padding: 7px 9px;
+    border-radius: 7px;
+  }
+
+  .hero-skills {
+    display: flex;
+    gap: 6px;
+  }
+  .skill-btn {
+    flex: 1;
+    background: linear-gradient(135deg, rgba(255, 209, 102, 0.2), rgba(244, 162, 97, 0.15));
+    border: 1px solid var(--gold-bright);
+    color: #fff;
+    padding: 6px 8px;
+    border-radius: 7px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    text-align: center;
+  }
+  .skill-btn:hover:not(:disabled) {
+    background: var(--gold-bright);
+    color: #111;
+  }
+  .skill-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  /* Modals: Title Screen & Victory/Defeat */
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    background: radial-gradient(circle at center, rgba(16, 22, 38, 0.84) 0%, rgba(5, 8, 14, 0.95) 100%);
+    backdrop-filter: blur(8px);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+  }
+
+  .modal-box {
+    max-width: 640px;
+    width: 100%;
+    padding: 28px 32px;
+    text-align: center;
+    border: 1px solid var(--gold-bright);
+  }
+
+  .game-logo-badge {
+    display: inline-block;
+    padding: 4px 14px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 2px;
+    color: var(--gold-bright);
+    background: rgba(255, 209, 102, 0.14);
+    border: 1px solid rgba(255, 209, 102, 0.4);
+    margin-bottom: 10px;
+  }
+
+  .modal-heading {
+    font-size: 30px;
+    font-weight: 900;
+    letter-spacing: 1.5px;
+    background: linear-gradient(135deg, #ffffff, #ffd166, #f4a261);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 10px;
+  }
+
+  .modal-lore {
+    font-size: 13px;
+    line-height: 1.6;
+    color: #cbd5e1;
+    margin-bottom: 18px;
+    text-align: left;
+    background: rgba(0, 0, 0, 0.35);
+    padding: 14px 16px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .diff-row {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+
+  .start-btn {
+    background: linear-gradient(135deg, #ffd166, #e07a5f);
+    border: 2px solid #fff;
+    color: #111;
+    font-size: 16px;
+    font-weight: 900;
+    letter-spacing: 1.5px;
+    padding: 12px 34px;
+    border-radius: 10px;
+    cursor: pointer;
+    box-shadow: 0 0 25px rgba(255, 209, 102, 0.45);
+    transition: all 0.2s ease;
+    text-transform: uppercase;
+  }
+  .start-btn:hover {
+    transform: translateY(-2px) scale(1.02);
+    box-shadow: 0 0 35px rgba(255, 209, 102, 0.75);
+  }
+
+  @media (max-width: 960px) {
+    .inspector-panel { display: none; }
+    .minimap-panel { width: 150px; }
+    #minimap-canvas { width: 130px; height: 130px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="game-canvas-container"></div>
+<canvas id="overlay-canvas"></canvas>
+
+<!-- HUD -->
+<div id="hud">
+  <div class="top-bar">
+    <!-- Economy & Population Strip -->
+    <div class="panel resource-strip">
+      <div class="res-pill" title="Sun-Gold (Mined &amp; Taxed)">
+        <span class="res-icon">☀️</span>
+        <span class="res-val" id="res-gold">300</span>
+        <span class="res-rate" id="rate-gold">+5/s</span>
+      </div>
+      <div class="res-pill" title="Heartwood Timber (Harvested from Groves)">
+        <span class="res-icon">🌲</span>
+        <span class="res-val" id="res-wood">240</span>
+        <span class="res-rate" id="rate-wood">+4/s</span>
+      </div>
+      <div class="res-pill" title="Lumen Arcana Shards (Mined from Crystal Veins)">
+        <span class="res-icon">💎</span>
+        <span class="res-val" id="res-arcana">100</span>
+        <span class="res-rate" id="rate-arcana">+2/s</span>
+      </div>
+      <div class="res-pill" title="Population / Max Supply (Build Homesteads to expand)">
+        <span class="res-icon">🛡️</span>
+        <span class="res-val" id="res-pop">6 / 16</span>
+      </div>
+    </div>
+
+    <!-- Day/Night & Siege Wave Tracker -->
+    <div class="panel clock-banner">
+      <div class="phase-indicator">
+        <div class="phase-dot" id="phase-dot"></div>
+        <span id="phase-label">DAY 1 // DAWN PREP</span>
+      </div>
+      <div class="wave-progress-wrap" title="Time until next Eclipse Night Siege">
+        <div id="wave-timer-bar"></div>
+      </div>
+      <span style="font-size:12px;color:var(--text-muted);font-weight:700;" id="rifts-remaining">Rifts: 3/3</span>
+      <button class="call-wave-btn" id="btn-call-wave" title="Summon the next Night Wave immediately for +80 Bonus Gold!">
+        ⚔️ Call Wave (+80☀️)
+      </button>
+    </div>
+
+    <!-- System Controls -->
+    <div class="panel sys-controls">
+      <button class="sys-btn active" id="btn-speed-1x">1x</button>
+      <button class="sys-btn" id="btn-speed-2x">2x</button>
+      <button class="sys-btn" id="btn-audio" title="Toggle Synth Soundtrack &amp; Battle SFX">🔊</button>
+      <button class="sys-btn" id="btn-cam-reset" title="Center Camera on Solar Sanctum [SPACE]">🏰 Center</button>
+    </div>
+  </div>
+
+  <!-- Center Alert Banner -->
+  <div id="alert-toast">⚔️ ECLIPSE WAVE APPROACHING FROM THE NORTH-WEST RIFT!</div>
+
+  <!-- Bottom HUD -->
+  <div class="bottom-hud">
+    <!-- Left: Interactive Minimap & Army Quick-Select -->
+    <div class="panel minimap-panel">
+      <div class="minimap-header">
+        <span>Tactical Radar</span>
+        <span id="minimap-threat" style="color:var(--crimson-enemy)">NW</span>
+      </div>
+      <canvas id="minimap-canvas" width="174" height="174"></canvas>
+      <div class="quick-select-row">
+        <button class="q-btn" id="q-all-army" title="Select All Combat Units [1]">[1] Army</button>
+        <button class="q-btn" id="q-hero" title="Select Hero Paladin Aurelius [2]">[2] Hero</button>
+        <button class="q-btn" id="q-workers" title="Select All Workers [3]">[3] Work</button>
+      </div>
+    </div>
+
+    <!-- Center: Build, Recruit & Research Command Deck -->
+    <div class="panel command-deck">
+      <div class="deck-tabs">
+        <div class="tab-group">
+          <button class="tab-btn active" data-tab="build">🏗️ Build Structures</button>
+          <button class="tab-btn" data-tab="recruit">⚔️ Recruit Army</button>
+          <button class="tab-btn" data-tab="research">📜 Royal Forge &amp; Sanctuary</button>
+        </div>
+        <div class="formation-group">
+          <span class="form-lbl">Formation:</span>
+          <button class="sys-btn active" data-form="line" title="Phalanx Line Formation">══ Line</button>
+          <button class="sys-btn" data-form="wedge" title="Assault Wedge Formation">▲ Wedge</button>
+          <button class="sys-btn" data-form="circle" title="Defensive Ring Formation">◯ Ring</button>
+        </div>
+      </div>
+
+      <!-- Dynamic Cards Container -->
+      <div class="card-grid" id="deck-cards"></div>
+    </div>
+
+    <!-- Right: Selection & Hero Abilities Inspector -->
+    <div class="panel inspector-panel">
+      <div class="insp-header">
+        <div class="insp-avatar" id="insp-icon">👑</div>
+        <div>
+          <div class="insp-title" id="insp-title">Paladin Aurelius</div>
+          <div class="insp-sub" id="insp-sub">Sunforge Hero Commander</div>
+        </div>
+      </div>
+      <div class="hp-bar-wrap">
+        <div id="insp-hp-fill"></div>
+      </div>
+      <div class="insp-stats" id="insp-stats">
+        <span>HP: 650 / 650</span>
+        <span>ATK: 38 Cleave</span>
+        <span>ARMOR: Heavy</span>
+        <span>STATUS: Ready</span>
+      </div>
+      <div class="hero-skills">
+        <button class="skill-btn" id="btn-skill-nova" title="[Q] Call down a blinding pillar of Solar Fire Around Aurelius">
+          ☀️ [Q] Solar Nova
+        </button>
+        <button class="skill-btn" id="btn-skill-aegis" title="[W] Heal &amp; Overclock Attack Speed of all nearby friendly units">
+          🛡️ [W] Dawn Aegis
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Start / Title Screen Modal -->
+<div class="modal-backdrop" id="start-modal">
+  <div class="panel modal-box">
+    <div class="game-logo-badge">ORIGINAL 3D FANTASY SURVIVAL RTS</div>
+    <div class="modal-heading">SOLARIS BASTION: THE ECLIPSE SIEGE</div>
+    <div class="modal-lore">
+      <strong>Command the Sunforge Dominion:</strong> Across the miniature emerald plateaus of <em>Solaria</em>, three corrupt <strong>Umbral Rifts</strong> have torn open in the outer wilds.<br><br>
+      • <strong>Gather &amp; Expand:</strong> Dispatch autonomous Workers to harvest Heartwood Groves, Sun-Gold Veins, and glowing Lumen Shards. Construct Homesteads, Quarries, Walls, and Sunbeam Obelisks.<br>
+      • <strong>Command Armies &amp; Hero Aurelius:</strong> Left-click or drag-box to select squads; Right-click to march in formation or focus-fire enemies. Unleash <strong>[Q] Solar Nova</strong> and <strong>[W] Dawn Aegis</strong> in battle.<br>
+      • <strong>Two Paths to Victory:</strong> Survive all <strong>5 Escalating Eclipse Night Sieges</strong> OR march out to destroy all <strong>3 Outer Umbral Rift Strongholds</strong>!
+    </div>
+    <div class="diff-row" id="diff-row">
+      <button class="sys-btn" data-diff="0.75">🛡️ Warden (Relaxed)</button>
+      <button class="sys-btn active" data-diff="1.0">⚔️ Sovereign (Standard)</button>
+      <button class="sys-btn" data-diff="1.35">🩸 Blood Eclipse (Brutal)</button>
+    </div>
+    <button class="start-btn" id="btn-start-game">⚡ Ignite the Solar Sanctum</button>
+  </div>
+</div>
+
+<!-- Victory / Defeat Modal -->
+<div class="modal-backdrop" id="end-modal" style="display:none;">
+  <div class="panel modal-box">
+    <div class="game-logo-badge" id="end-badge">CAMPAIGN COMPLETE</div>
+    <div class="modal-heading" id="end-title">SOLARIS VICTORIOUS!</div>
+    <div class="modal-lore" id="end-summary" style="text-align:center;"></div>
+    <button class="start-btn" id="btn-restart-game">🔄 Forge New Kingdom</button>
+  </div>
+</div>
+
+<!-- Three.js CDN -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+<script>
+(() => {
+  'use strict';
+
+  // ============================================================================
+  // 1. PROCEDURAL FANTASY AUDIO ENGINE (Web Audio API Orchestral Synth & SFX)
+  // ============================================================================
+  class FantasyAudioEngine {
+    constructor() {
+      this.ctx = null;
+      this.enabled = true;
+      this.isNight = false;
+    }
+
+    init() {
+      if (!this.ctx) {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (AudioCtx) this.ctx = new AudioCtx();
+      }
+      if (this.ctx && this.ctx.state === 'suspended') {
+        this.ctx.resume();
+      }
+    }
+
+    toggle() {
+      this.enabled = !this.enabled;
+      return this.enabled;
+    }
+
+    playTone(freq, type = 'triangle', duration = 0.14, gainVal = 0.12, endFreq = null) {
+      if (!this.enabled) return;
+      this.init();
+      if (!this.ctx) return;
+
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, now);
+      if (endFreq) {
+        osc.frequency.exponentialRampToValueAtTime(endFreq, now + duration);
+      }
+      gain.gain.setValueAtTime(gainVal, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(now);
+      osc.stop(now + duration + 0.02);
+    }
+
+    playBuild() {
+      this.playTone(260, 'triangle', 0.12, 0.16, 520);
+      setTimeout(() => this.playTone(520, 'sine', 0.18, 0.14, 780), 70);
+    }
+
+    playRecruit() {
+      this.playTone(440, 'triangle', 0.1, 0.14, 660);
+      setTimeout(() => this.playTone(660, 'triangle', 0.16, 0.14, 880), 80);
+    }
+
+    playSwordClash() {
+      this.playTone(950 + Math.random() * 350, 'sawtooth', 0.055, 0.06, 280);
+    }
+
+    playBowTwang() {
+      this.playTone(320 + Math.random() * 80, 'triangle', 0.07, 0.06, 140);
+    }
+
+    playMagicBlast() {
+      this.playTone(540, 'sine', 0.22, 0.12, 110);
+    }
+
+    playHeroNova() {
+      [220, 440, 659.25, 880].forEach((f, i) => {
+        setTimeout(() => this.playTone(f, 'sawtooth', 0.45, 0.11, f * 0.5), i * 45);
+      });
+    }
+
+    playHornAlert() {
+      this.playTone(146.83, 'sawtooth', 0.75, 0.16, 130.81);
+      setTimeout(() => this.playTone(220.0, 'sawtooth', 0.85, 0.14, 196.0), 180);
+    }
+  }
+
+  const audio = new FantasyAudioEngine();
+
+  // ============================================================================
+  // 2. THREE.JS DIORAMA SCENE, CAMERA, LIGHTING & STYLIZED TERRAIN
+  // ============================================================================
+  const container = document.getElementById('game-canvas-container');
+  const overlayCanvas = document.getElementById('overlay-canvas');
+  const oCtx = overlayCanvas.getContext('2d');
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x111927);
+  scene.fog = new THREE.FogExp2(0x111927, 0.0055);
+
+  const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 1, 320);
+  const cameraTarget = new THREE.Vector3(0, 0, 0);
+  let camDistance = 58;
+  let camYaw = 0; // Orbit angle around cameraTarget
+  let camPitch = 0.82; // Tilt angle
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.1;
+  container.appendChild(renderer.domElement);
+
+  function resizeCanvases() {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    overlayCanvas.width = window.innerWidth;
+    overlayCanvas.height = window.innerHeight;
+  }
+  resizeCanvases();
+  window.addEventListener('resize', resizeCanvases);
+
+  // Dynamic Day/Night Lighting Setup
+  const hemiLight = new THREE.HemisphereLight(0xfff4d6, 0x263859, 0.78);
+  scene.add(hemiLight);
+
+  const sunLight = new THREE.DirectionalLight(0xffeed4, 1.25);
+  sunLight.position.set(45, 72, 38);
+  sunLight.castShadow = true;
+  sunLight.shadow.mapSize.width = 2048;
+  sunLight.shadow.mapSize.height = 2048;
+  sunLight.shadow.camera.near = 10;
+  sunLight.shadow.camera.far = 200;
+  const sBound = 75;
+  sunLight.shadow.camera.left = -sBound;
+  sunLight.shadow.camera.right = sBound;
+  sunLight.shadow.camera.top = sBound;
+  sunLight.shadow.camera.bottom = -sBound;
+  sunLight.shadow.bias = -0.0005;
+  scene.add(sunLight);
+
+  // Sanctum Warm Beacon PointLight (intensifies during Eclipse Night)
+  const sanctumLight = new THREE.PointLight(0xffb703, 1.5, 42);
+  sanctumLight.position.set(0, 7, 0);
+  scene.add(sanctumLight);
+
+  // Stylized Miniature Diorama Terrain & Fog of War Overlay Texture
+  const MAP_SIZE = 160;
+  const HALF_MAP = MAP_SIZE / 2;
+  const FOW_RES = 128;
+  const fowCanvas = document.createElement('canvas');
+  fowCanvas.width = FOW_RES;
+  fowCanvas.height = FOW_RES;
+  const fowCtx = fowCanvas.getContext('2d');
+  const fowTexture = new THREE.CanvasTexture(fowCanvas);
+  fowTexture.minFilter = THREE.LinearFilter;
+  fowTexture.magFilter = THREE.LinearFilter;
+
+  // Generate hand-painted style meadow & stone road ground texture
+  function createDioramaGroundTexture() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1024;
+    canvas.height = 1024;
+    const ctx = canvas.getContext('2d');
+
+    // Lush emerald-olive meadow base
+    const grad = ctx.createRadialGradient(512, 512, 60, 512, 512, 700);
+    grad.addColorStop(0, '#4f772d');
+    grad.addColorStop(0.55, '#386641');
+    grad.addColorStop(0.85, '#2b463c');
+    grad.addColorStop(1, '#1d263b');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 1024, 1024);
+
+    // Stylized grass blades & stone flagstones
+    for (let i = 0; i < 4000; i++) {
+      const x = Math.random() * 1024;
+      const y = Math.random() * 1024;
+      ctx.fillStyle = i % 2 === 0 ? 'rgba(144, 169, 85, 0.14)' : 'rgba(20, 36, 27, 0.15)';
+      ctx.fillRect(x, y, 3 + Math.random() * 5, 3 + Math.random() * 5);
+    }
+
+    // Royal cobblestone paths radiating from center Sanctum toward the 3 Rift avenues
+    ctx.strokeStyle = 'rgba(195, 179, 148, 0.42)';
+    ctx.lineWidth = 26;
+    ctx.lineCap = 'round';
+    [[180, 180], [844, 180], [844, 844], [180, 780]].forEach(([tx, ty]) => {
+      ctx.beginPath();
+      ctx.moveTo(512, 512);
+      ctx.lineTo(tx, ty);
+      ctx.stroke();
+    });
+
+    // Central Sunforge limestone plaza circle
+    ctx.fillStyle = 'rgba(222, 206, 176, 0.55)';
+    ctx.beginPath();
+    ctx.arc(512, 512, 92, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 209, 102, 0.7)';
+    ctx.lineWidth = 4;
+    ctx.stroke();
+
+    // Corrupt purple blight patches around the 3 enemy Rift corners
+    [[165, 165], [859, 165], [859, 859]].forEach(([rx, ry]) => {
+      const rGrad = ctx.createRadialGradient(rx, ry, 10, rx, ry, 125);
+      rGrad.addColorStop(0, 'rgba(90, 24, 154, 0.85)');
+      rGrad.addColorStop(0.6, 'rgba(60, 9, 108, 0.45)');
+      rGrad.addColorStop(1, 'rgba(60, 9, 108, 0)');
+      ctx.fillStyle = rGrad;
+      ctx.beginPath();
+      ctx.arc(rx, ry, 125, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    return tex;
+  }
+
+  const groundGeo = new THREE.PlaneGeometry(MAP_SIZE, MAP_SIZE, 1, 1);
+  groundGeo.rotateX(-Math.PI / 2);
+  const groundMat = new THREE.MeshStandardMaterial({
+    map: createDioramaGroundTexture(),
+    roughness: 0.88,
+    metalness: 0.04
+  });
+  const groundMesh = new THREE.Mesh(groundGeo, groundMat);
+  groundMesh.receiveShadow = true;
+  scene.add(groundMesh);
+
+  // Decorative Diorama Pedestal Base under the map
+  const pedestalGeo = new THREE.BoxGeometry(MAP_SIZE + 2, 6, MAP_SIZE + 2);
+  const pedestalMat = new THREE.MeshStandardMaterial({ color: 0x1b2432, roughness: 0.8 });
+  const pedestalMesh = new THREE.Mesh(pedestalGeo, pedestalMat);
+  pedestalMesh.position.y = -3.05;
+  scene.add(pedestalMesh);
+
+  // Fog of War Veil Plane slightly above ground
+  const fowGeo = new THREE.PlaneGeometry(MAP_SIZE, MAP_SIZE);
+  fowGeo.rotateX(-Math.PI / 2);
+  const fowMat = new THREE.MeshBasicMaterial({
+    map: fowTexture,
+    transparent: true,
+    depthWrite: false
+  });
+  const fowMesh = new THREE.Mesh(fowGeo, fowMat);
+  fowMesh.position.y = 0.25;
+  scene.add(fowMesh);
+
+  // Decorative Low-Poly Cliff Bluffs around map edges
+  const rockMat = new THREE.MeshStandardMaterial({ color: 0x4a5568, roughness: 0.85, flatShading: true });
+  const rockGeo = new THREE.DodecahedronGeometry(1, 0);
+  for (let i = 0; i < 44; i++) {
+    const angle = (i / 44) * Math.PI * 2;
+    const rad = HALF_MAP - 4 + (Math.random() - 0.5) * 4;
+    const rock = new THREE.Mesh(rockGeo, rockMat);
+    const sx = 2.5 + Math.random() * 3.5;
+    const sy = 2.0 + Math.random() * 4.5;
+    rock.scale.set(sx, sy, sx);
+    rock.position.set(Math.cos(angle) * rad, sy * 0.4, Math.sin(angle) * rad);
+    rock.rotation.y = Math.random() * Math.PI;
+    rock.castShadow = true;
+    rock.receiveShadow = true;
+    scene.add(rock);
+  }
+
+  // ============================================================================
+  // 3. PROCEDURAL 3D MINIATURE ASSET BUILDERS (Buildings, Units, Nodes, FX)
+  // ============================================================================
+  const sharedMaterials = {
+    stoneLight: new THREE.MeshStandardMaterial({ color: 0xe2d9c8, roughness: 0.7 }),
+    stoneDark: new THREE.MeshStandardMaterial({ color: 0x6c757d, roughness: 0.75 }),
+    royalBlue: new THREE.MeshStandardMaterial({ color: 0x1d4ed8, roughness: 0.45 }),
+    royalGold: new THREE.MeshStandardMaterial({ color: 0xffb703, roughness: 0.28, metalness: 0.55 }),
+    sunCrystal: new THREE.MeshStandardMaterial({ color: 0xffd166, emissive: 0xf4a261, emissiveIntensity: 0.75, roughness: 0.2 }),
+    arcanaCrystal: new THREE.MeshStandardMaterial({ color: 0x4cc9f0, emissive: 0x0096c7, emissiveIntensity: 0.8, roughness: 0.15 }),
+    woodBrown: new THREE.MeshStandardMaterial({ color: 0x7f4f24, roughness: 0.8 }),
+    pineGreen: new THREE.MeshStandardMaterial({ color: 0x2d6a4f, roughness: 0.75, flatShading: true }),
+    pineLight: new THREE.MeshStandardMaterial({ color: 0x40916c, roughness: 0.75, flatShading: true }),
+    steel: new THREE.MeshStandardMaterial({ color: 0xcbd5e1, roughness: 0.35, metalness: 0.65 }),
+    skin: new THREE.MeshStandardMaterial({ color: 0xf3d5b5, roughness: 0.6 }),
+    riftObsidian: new THREE.MeshStandardMaterial({ color: 0x1e102b, roughness: 0.5, flatShading: true }),
+    riftGlow: new THREE.MeshStandardMaterial({ color: 0xf72585, emissive: 0xb5179e, emissiveIntensity: 0.9, roughness: 0.2 }),
+    enemyArmor: new THREE.MeshStandardMaterial({ color: 0x3c096c, roughness: 0.5 })
+  };
+
+  // Build 3D Mesh Group for any Structure Type
+  function createBuildingMesh(type, tier = 1) {
+    const group = new THREE.Group();
+
+    if (type === 'sanctum') {
+      // Tiered Castle Keep + Floating Sun Crystal
+      const base = new THREE.Mesh(new THREE.BoxGeometry(5.6, 2.8, 5.6), sharedMaterials.stoneLight);
+      base.position.y = 1.4;
+      base.castShadow = true; base.receiveShadow = true;
+      group.add(base);
+
+      const upper = new THREE.Mesh(new THREE.BoxGeometry(3.8, 2.6, 3.8), sharedMaterials.stoneLight);
+      upper.position.y = 3.8;
+      upper.castShadow = true;
+      group.add(upper);
+
+      const roof = new THREE.Mesh(new THREE.ConeGeometry(3.3, 2.5, 4), sharedMaterials.royalBlue);
+      roof.position.y = 6.3;
+      roof.rotation.y = Math.PI / 4;
+      roof.castShadow = true;
+      group.add(roof);
+
+      // 4 Corner Turrets
+      [[-2.4, -2.4], [2.4, -2.4], [-2.4, 2.4], [2.4, 2.4]].forEach(([cx, cz]) => {
+        const t = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.85, 4.2, 8), sharedMaterials.stoneLight);
+        t.position.set(cx, 2.1, cz);
+        t.castShadow = true;
+        group.add(t);
+        const cap = new THREE.Mesh(new THREE.ConeGeometry(0.95, 1.3, 8), sharedMaterials.royalGold);
+        cap.position.set(cx, 4.8, cz);
+        group.add(cap);
+      });
+
+      // Levitating Solar Orb
+      const orb = new THREE.Mesh(new THREE.OctahedronGeometry(0.85, 0), sharedMaterials.sunCrystal);
+      orb.position.y = 8.4;
+      orb.name = 'floatingOrb';
+      group.add(orb);
+
+    } else if (type === 'homestead') {
+      const body = new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.6, 2.2), sharedMaterials.stoneLight);
+      body.position.y = 0.8;
+      body.castShadow = true; body.receiveShadow = true;
+      group.add(body);
+      const roof = new THREE.Mesh(new THREE.ConeGeometry(2.1, 1.5, 4), sharedMaterials.royalBlue);
+      roof.position.y = 2.35;
+      roof.rotation.y = Math.PI / 4;
+      roof.castShadow = true;
+      group.add(roof);
+
+    } else if (type === 'lumber') {
+      const hut = new THREE.Mesh(new THREE.BoxGeometry(2.8, 1.5, 2.4), sharedMaterials.woodBrown);
+      hut.position.y = 0.75;
+      hut.castShadow = true;
+      group.add(hut);
+      const roof = new THREE.Mesh(new THREE.ConeGeometry(2.2, 1.2, 4), sharedMaterials.pineGreen);
+      roof.position.y = 2.1;
+      roof.rotation.y = Math.PI / 4;
+      group.add(roof);
+      // Stacked logs
+      for (let i = 0; i < 3; i++) {
+        const log = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 1.6, 6), sharedMaterials.woodBrown);
+        log.rotation.z = Math.PI / 2;
+        log.position.set(0, 0.3 + i * 0.25, 1.45);
+        group.add(log);
+      }
+
+    } else if (type === 'quarry') {
+      const base = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 2.0, 1.6, 6), sharedMaterials.stoneDark);
+      base.position.y = 0.8;
+      base.castShadow = true;
+      group.add(base);
+      const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(0.9, 0), sharedMaterials.arcanaCrystal);
+      crystal.position.set(0, 2.2, 0);
+      crystal.name = 'floatingOrb';
+      group.add(crystal);
+
+    } else if (type === 'barracks') {
+      const hall = new THREE.Mesh(new THREE.BoxGeometry(3.8, 2.2, 3.2), sharedMaterials.stoneLight);
+      hall.position.y = 1.1;
+      hall.castShadow = true; hall.receiveShadow = true;
+      group.add(hall);
+      const roof = new THREE.Mesh(new THREE.ConeGeometry(3.0, 1.7, 4), sharedMaterials.royalBlue);
+      roof.position.y = 3.05;
+      roof.rotation.y = Math.PI / 4;
+      group.add(roof);
+      const banner = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.6, 0.15), sharedMaterials.royalGold);
+      banner.position.set(0, 1.4, 1.65);
+      group.add(banner);
+
+    } else if (type === 'conclave') {
+      const spire = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.7, 3.6, 8), sharedMaterials.stoneLight);
+      spire.position.y = 1.8;
+      spire.castShadow = true;
+      group.add(spire);
+      const dome = new THREE.Mesh(new THREE.ConeGeometry(1.6, 2.0, 8), sharedMaterials.royalBlue);
+      dome.position.y = 4.5;
+      group.add(dome);
+      const shard = new THREE.Mesh(new THREE.OctahedronGeometry(0.7, 0), sharedMaterials.arcanaCrystal);
+      shard.position.y = 6.1;
+      shard.name = 'floatingOrb';
+      group.add(shard);
+
+    } else if (type === 'tower') {
+      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 1.25, 3.8, 8), sharedMaterials.stoneLight);
+      shaft.position.y = 1.9;
+      shaft.castShadow = true;
+      group.add(shaft);
+      const crown = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.8, 2.2), sharedMaterials.stoneDark);
+      crown.position.y = 4.0;
+      group.add(crown);
+      const gem = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.65, 0),
+        tier > 1 ? sharedMaterials.arcanaCrystal : sharedMaterials.sunCrystal
+      );
+      gem.position.y = 5.1;
+      gem.name = 'floatingOrb';
+      group.add(gem);
+
+    } else if (type === 'wall') {
+      const block = new THREE.Mesh(new THREE.BoxGeometry(2.5, 2.2, 1.2), sharedMaterials.stoneDark);
+      block.position.y = 1.1;
+      block.castShadow = true; block.receiveShadow = true;
+      group.add(block);
+      const trim = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.35, 1.35), sharedMaterials.stoneLight);
+      trim.position.y = 2.25;
+      group.add(trim);
+
+    } else if (type === 'rift_spire') {
+      // Enemy Umbral Rift Stronghold
+      const obelisk = new THREE.Mesh(new THREE.ConeGeometry(2.6, 7.5, 6), sharedMaterials.riftObsidian);
+      obelisk.position.y = 3.75;
+      obelisk.castShadow = true;
+      group.add(obelisk);
+      const core = new THREE.Mesh(new THREE.OctahedronGeometry(1.3, 0), sharedMaterials.riftGlow);
+      core.position.y = 5.2;
+      core.name = 'floatingOrb';
+      group.add(core);
+      for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI * 2;
+        const fang = new THREE.Mesh(new THREE.ConeGeometry(0.8, 3.2, 5), sharedMaterials.riftObsidian);
+        fang.position.set(Math.cos(a) * 3.2, 1.6, Math.sin(a) * 3.2);
+        fang.rotation.z = (Math.cos(a)) * -0.25;
+        group.add(fang);
+      }
+    }
+
+    return group;
+  }
+
+  // Build Stylized Miniature Unit Mesh
+  function createUnitMesh(unitType, isEnemy = false) {
+    const group = new THREE.Group();
+    const scale = unitType === 'hero' ? 1.45 : (unitType === 'behemoth' ? 1.85 : 1.0);
+
+    // Selection Ring under unit
+    const ringGeo = new THREE.RingGeometry(0.55 * scale, 0.72 * scale, 24);
+    ringGeo.rotateX(-Math.PI / 2);
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: isEnemy ? 0xef476f : (unitType === 'hero' ? 0xffd166 : 0x2ec4b6),
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.0
+    });
+    const ring = new THREE.Mesh(ringGeo, ringMat);
+    ring.position.y = 0.06;
+    ring.name = 'selectionRing';
+    group.add(ring);
+
+    // Body Torso
+    const bodyMat = isEnemy
+      ? (unitType === 'behemoth' ? sharedMaterials.riftObsidian : sharedMaterials.enemyArmor)
+      : (unitType === 'hero' ? sharedMaterials.royalGold : (unitType === 'worker' ? sharedMaterials.woodBrown : sharedMaterials.royalBlue));
+
+    const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.32 * scale, 0.4 * scale, 0.95 * scale, 8), bodyMat);
+    torso.position.y = 0.55 * scale;
+    torso.castShadow = true;
+    group.add(torso);
+
+    // Head
+    const headMat = isEnemy ? sharedMaterials.riftGlow : sharedMaterials.skin;
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.26 * scale, 10, 10), headMat);
+    head.position.y = 1.22 * scale;
+    head.castShadow = true;
+    group.add(head);
+
+    // Class-specific Headgear & Weapons
+    const weaponPivot = new THREE.Group();
+    weaponPivot.position.set(0.38 * scale, 0.72 * scale, 0.15 * scale);
+    weaponPivot.name = 'weaponPivot';
+    group.add(weaponPivot);
+
+    if (unitType === 'hero') {
+      const crest = new THREE.Mesh(new THREE.ConeGeometry(0.32, 0.65, 6), sharedMaterials.sunCrystal);
+      crest.position.y = 2.05;
+      group.add(crest);
+      const halberd = new THREE.Mesh(new THREE.BoxGeometry(0.14, 2.2, 0.35), sharedMaterials.sunCrystal);
+      halberd.position.y = 0.5;
+      weaponPivot.add(halberd);
+      const shield = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.95, 0.75), sharedMaterials.royalGold);
+      shield.position.set(-0.55, 0.85, 0.2);
+      group.add(shield);
+
+    } else if (unitType === 'sentinel' || unitType === 'halberdier') {
+      const helm = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.25, 8), sharedMaterials.steel);
+      helm.position.y = 1.38;
+      group.add(helm);
+      const blade = new THREE.Mesh(
+        new THREE.BoxGeometry(0.1, unitType === 'halberdier' ? 1.65 : 1.15, 0.22),
+        sharedMaterials.steel
+      );
+      blade.position.y = 0.4;
+      weaponPivot.add(blade);
+      if (unitType === 'sentinel') {
+        const shield = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.68, 0.52), sharedMaterials.royalGold);
+        shield.position.set(-0.38, 0.62, 0.15);
+        group.add(shield);
+      }
+
+    } else if (unitType === 'archer') {
+      const hood = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.45, 8), sharedMaterials.pineGreen);
+      hood.position.y = 1.45;
+      group.add(hood);
+      const bow = new THREE.Mesh(new THREE.TorusGeometry(0.38, 0.05, 6, 12, Math.PI), sharedMaterials.woodBrown);
+      bow.rotation.y = Math.PI / 2;
+      weaponPivot.add(bow);
+
+    } else if (unitType === 'mage') {
+      const hat = new THREE.Mesh(new THREE.ConeGeometry(0.34, 0.65, 8), sharedMaterials.royalBlue);
+      hat.position.y = 1.55;
+      group.add(hat);
+      const staff = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.45, 6), sharedMaterials.royalGold);
+      staff.position.y = 0.3;
+      const orb = new THREE.Mesh(new THREE.OctahedronGeometry(0.22, 0), sharedMaterials.arcanaCrystal);
+      orb.position.y = 1.05;
+      staff.add(orb);
+      weaponPivot.add(staff);
+
+    } else if (unitType === 'worker') {
+      const pick = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.75, 0.25), sharedMaterials.steel);
+      pick.position.y = 0.2;
+      weaponPivot.add(pick);
+      // Carry bundle indicator (visible when returning resources)
+      const bundle = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.35, 0.42), sharedMaterials.royalGold);
+      bundle.position.set(0, 0.75, -0.35);
+      bundle.visible = false;
+      bundle.name = 'carryBundle';
+      group.add(bundle);
+
+    } else if (isEnemy) {
+      const horn = new THREE.Mesh(new THREE.ConeGeometry(0.22 * scale, 0.55 * scale, 5), sharedMaterials.riftGlow);
+      horn.position.y = 1.5 * scale;
+      group.add(horn);
+      const claw = new THREE.Mesh(new THREE.BoxGeometry(0.14 * scale, 1.1 * scale, 0.28 * scale), sharedMaterials.riftGlow);
+      claw.position.y = 0.3 * scale;
+      weaponPivot.add(claw);
+    }
+
+    return group;
+  }
+
+  // ============================================================================
+  // 4. GAME CONFIGURATION: BUILDINGS, UNITS, RESEARCH & RESOURCE NODES
+  // ============================================================================
+  const BUILDING_DEFS = {
+    homestead: {
+      name: 'Sun-Homestead', icon: '🏠', hotkey: 'Q',
+      cost: { gold: 70, wood: 60, arcana: 0 },
+      hp: 420, radius: 1.7, sight: 16, popBonus: 8,
+      desc: '+8 Max Supply & +3 Gold/sec tax'
+    },
+    lumber: {
+      name: 'Forester Mill', icon: '🪚', hotkey: 'W',
+      cost: { gold: 65, wood: 50, arcana: 0 },
+      hp: 450, radius: 1.8, sight: 16, popBonus: 0,
+      desc: 'Spawns 1 Worker & +4 Timber/sec'
+    },
+    quarry: {
+      name: 'Arcana Quarry', icon: '⛏️', hotkey: 'E',
+      cost: { gold: 90, wood: 75, arcana: 0 },
+      hp: 500, radius: 1.8, sight: 16, popBonus: 0,
+      desc: 'Spawns 1 Worker, +4 Gold & +3 Arcana/s'
+    },
+    barracks: {
+      name: 'Vanguard Barracks', icon: '🛡️', hotkey: 'R',
+      cost: { gold: 120, wood: 100, arcana: 0 },
+      hp: 750, radius: 2.3, sight: 18, popBonus: 0,
+      desc: 'Unlocks Sentinels, Archers & Halberdiers'
+    },
+    conclave: {
+      name: 'Arcane Conclave', icon: '🔮', hotkey: 'T',
+      cost: { gold: 140, wood: 90, arcana: 50 },
+      hp: 680, radius: 2.1, sight: 20, popBonus: 0,
+      desc: 'Unlocks Pyreweaver Mages & Dawn Priests'
+    },
+    tower: {
+      name: 'Sunbeam Watchtower', icon: '🗼', hotkey: 'Y',
+      cost: { gold: 85, wood: 65, arcana: 15 },
+      hp: 620, radius: 1.5, sight: 24, popBonus: 0,
+      desc: 'Fires searing Solar Bolts at enemies'
+    },
+    wall: {
+      name: 'Bulwark Stone Wall', icon: '🧱', hotkey: 'U',
+      cost: { gold: 25, wood: 25, arcana: 0 },
+      hp: 1150, radius: 1.35, sight: 10, popBonus: 0,
+      desc: 'Heavy stone barrier to fortify choke points'
+    }
+  };
+
+  const UNIT_DEFS = {
+    worker: {
+      name: 'Sunforge Artisan', icon: '🔨', hotkey: '1',
+      cost: { gold: 50, wood: 0, arcana: 0 }, pop: 1,
+      hp: 110, dmg: 7, range: 1.8, speed: 5.8, atkRate: 1.1, sight: 14,
+      desc: 'Gathers Timber, Gold & Arcana automatically'
+    },
+    sentinel: {
+      name: 'Sunblade Sentinel', icon: '⚔️', hotkey: '2',
+      cost: { gold: 65, wood: 20, arcana: 0 }, pop: 1, req: 'barracks',
+      hp: 240, dmg: 20, range: 2.1, speed: 5.5, atkRate: 0.95, sight: 16,
+      desc: 'Shielded frontline infantry with high armor'
+    },
+    archer: {
+      name: 'Solaris Longbow', icon: '🏹', hotkey: '3',
+      cost: { gold: 70, wood: 45, arcana: 0 }, pop: 1, req: 'barracks',
+      hp: 135, dmg: 18, range: 13.5, speed: 6.0, atkRate: 0.85, sight: 20,
+      desc: 'Long-range piercing marksman'
+    },
+    halberdier: {
+      name: 'Dawn Halberdier', icon: '🔱', hotkey: '4',
+      cost: { gold: 95, wood: 40, arcana: 15 }, pop: 2, req: 'barracks',
+      hp: 320, dmg: 32, range: 2.5, speed: 5.2, atkRate: 1.05, sight: 16, cleave: true,
+      desc: 'Heavy polearm warrior with AoE cleave'
+    },
+    mage: {
+      name: 'Pyreweaver Mage', icon: '🔥', hotkey: '5',
+      cost: { gold: 110, wood: 30, arcana: 45 }, pop: 2, req: 'conclave',
+      hp: 155, dmg: 36, range: 12.5, speed: 5.3, atkRate: 1.35, sight: 20, splash: 3.4,
+      desc: 'Hurls explosive Sunfire orbs & heals allies'
+    }
+  };
+
+  const RESEARCH_DEFS = {
+    sanctum_tier: {
+      name: 'Ascend Solar Sanctum', icon: '🏰', hotkey: 'Z',
+      cost: { gold: 220, wood: 180, arcana: 70 },
+      desc: 'Upgrades Sanctum (+800 HP, +6 Supply, Stronger Solar Beam)'
+    },
+    blades: {
+      name: 'Sun-Tempered Steel', icon: '🗡️', hotkey: 'X',
+      cost: { gold: 150, wood: 80, arcana: 50 },
+      desc: 'All Melee & Hero units gain +30% Attack Damage & +20% HP'
+    },
+    fletching: {
+      name: 'Fletching of Dawn', icon: '🎯', hotkey: 'C',
+      cost: { gold: 140, wood: 110, arcana: 45 },
+      desc: 'Archers, Mages & Towers gain +25% Range & Attack Speed'
+    },
+    masonry: {
+      name: 'Runic Masonry', icon: '🛡️', hotkey: 'V',
+      cost: { gold: 130, wood: 130, arcana: 40 },
+      desc: 'All Buildings & Walls gain +40% Max HP & passive self-repair'
+    }
+  };
+
+  // ============================================================================
+  // 5. LIVE WORLD STATE, ENTITIES, PARTICLES & FLOATING COMBAT TEXT
+  // ============================================================================
+  const gameState = {
+    running: false,
+    speedMult: 1,
+    difficulty: 1.0,
+    gold: 300,
+    wood: 240,
+    arcana: 100,
+    pop: 0,
+    maxPop: 16,
+    dayNumber: 1,
+    isNight: false,
+    phaseTimer: 0,
+    dayDuration: 52,   // 52 seconds of daylight build/assault prep
+    nightDuration: 38, // 38 seconds of intense Eclipse Siege
+    maxNights: 5,
+    formation: 'line',
+    activeTab: 'build',
+    buildMode: null,
+    sanctumTier: 1,
+    research: { blades: false, fletching: false, masonry: false },
+    heroCooldowns: { nova: 0, aegis: 0 },
+    nextThreatDir: 'NW'
+  };
+
+  let buildings = [];
+  let units = [];
+  let resourceNodes = [];
+  let projectiles = [];
+  let particles = [];
+  let floatingTexts = [];
+  let selectedEntities = [];
+  let heroUnit = null;
+  let sanctumBuilding = null;
+
+  // Build Placement Preview Hologram
+  const buildPreviewGroup = new THREE.Group();
+  const previewRingGeo = new THREE.RingGeometry(1.6, 2.0, 32);
+  previewRingGeo.rotateX(-Math.PI / 2);
+  const previewRingMat = new THREE.MeshBasicMaterial({ color: 0x2ec4b6, side: THREE.DoubleSide, transparent: true, opacity: 0.85 });
+  const previewRing = new THREE.Mesh(previewRingGeo, previewRingMat);
+  previewRing.position.y = 0.12;
+  buildPreviewGroup.add(previewRing);
+  buildPreviewGroup.visible = false;
+  scene.add(buildPreviewGroup);
+
+  // Move Waypoint Ring Effect
+  const waypointRing = new THREE.Mesh(
+    previewRingGeo.clone(),
+    new THREE.MeshBasicMaterial({ color: 0xffd166, side: THREE.DoubleSide, transparent: true, opacity: 0 })
+  );
+  waypointRing.position.y = 0.15;
+  scene.add(waypointRing);
+  let waypointAnim = 0;
+
+  function showToast(msg, borderColor = 'var(--gold-bright)') {
+    const el = document.getElementById('alert-toast');
+    el.textContent = msg;
+    el.style.borderColor = borderColor;
+    el.style.color = borderColor;
+    el.classList.add('show');
+    clearTimeout(el._timer);
+    el._timer = setTimeout(() => el.classList.remove('show'), 3600);
+  }
+
+  function addFloatingText(worldPos, text, color = '#ffd166', size = 14) {
+    floatingTexts.push({
+      pos: worldPos.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.6, 1.8, (Math.random() - 0.5) * 0.6)),
+      text,
+      color,
+      size,
+      life: 1.0
+    });
+  }
+
+  function spawnParticleBurst(pos, colorHex, count = 12, speed = 6) {
+    const geo = new THREE.BoxGeometry(0.28, 0.28, 0.28);
+    const mat = new THREE.MeshBasicMaterial({ color: colorHex });
+    for (let i = 0; i < count; i++) {
+      const m = new THREE.Mesh(geo, mat);
+      m.position.copy(pos);
+      const angle = Math.random() * Math.PI * 2;
+      const spd = (0.3 + Math.random() * 0.7) * speed;
+      particles.push({
+        mesh: m,
+        vel: new THREE.Vector3(Math.cos(angle) * spd, 2.5 + Math.random() * 4.5, Math.sin(angle) * spd),
+        life: 0.45 + Math.random() * 0.35
+      });
+      scene.add(m);
+    }
+  }
+
+  // Spawn a Resource Node (Pine Grove, Gold Vein, or Lumen Crystal)
+  function spawnResourceNode(type, x, z) {
+    const group = new THREE.Group();
+    group.position.set(x, 0, z);
+
+    if (type === 'wood') {
+      // Cluster of 3 stylized low-poly pine trees
+      for (let i = 0; i < 3; i++) {
+        const ox = (i - 1) * 0.65;
+        const oz = (i % 2 === 0 ? 0.35 : -0.35);
+        const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.24, 1.1, 6), sharedMaterials.woodBrown);
+        trunk.position.set(ox, 0.55, oz);
+        group.add(trunk);
+        const foliage = new THREE.Mesh(
+          new THREE.ConeGeometry(0.85, 2.2, 6),
+          i % 2 === 0 ? sharedMaterials.pineGreen : sharedMaterials.pineLight
+        );
+        foliage.position.set(ox, 1.85, oz);
+        foliage.castShadow = true;
+        group.add(foliage);
+      }
+    } else if (type === 'gold') {
+      const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(1.25, 0), sharedMaterials.stoneDark);
+      rock.position.y = 0.7;
+      rock.castShadow = true;
+      group.add(rock);
+      for (let i = 0; i < 3; i++) {
+        const nugget = new THREE.Mesh(new THREE.OctahedronGeometry(0.55, 0), sharedMaterials.sunCrystal);
+        nugget.position.set((i - 1) * 0.55, 1.2 + (i % 2) * 0.3, 0.3);
+        group.add(nugget);
+      }
+    } else if (type === 'arcana') {
+      for (let i = 0; i < 4; i++) {
+        const shard = new THREE.Mesh(new THREE.ConeGeometry(0.45, 2.1, 5), sharedMaterials.arcanaCrystal);
+        shard.position.set((i - 1.5) * 0.4, 1.0, (i % 2 - 0.5) * 0.4);
+        shard.rotation.z = (i - 1.5) * 0.22;
+        shard.castShadow = true;
+        group.add(shard);
+      }
+    }
+
+    scene.add(group);
+    resourceNodes.push({
+      type,
+      pos: new THREE.Vector3(x, 0, z),
+      mesh: group,
+      amount: 2500
+    });
+  }
+
+  // Spawn a Building (Player or Enemy Rift Stronghold)
+  function spawnBuilding(type, x, z, isEnemy = false) {
+    const def = BUILDING_DEFS[type] || {
+      name: isEnemy ? 'Umbral Rift Stronghold' : 'Solar Sanctum',
+      hp: isEnemy ? 2200 : 2400,
+      radius: isEnemy ? 3.2 : 3.4,
+      sight: isEnemy ? 18 : 28,
+      popBonus: isEnemy ? 0 : 16
+    };
+
+    const mesh = createBuildingMesh(type, 1);
+    mesh.position.set(x, 0, z);
+    scene.add(mesh);
+
+    const maxHp = Math.round(def.hp * (!isEnemy && gameState.research.masonry ? 1.4 : 1.0));
+    const bObj = {
+      id: Math.random().toString(36).slice(2),
+      isBuilding: true,
+      type,
+      name: def.name,
+      isEnemy,
+      pos: new THREE.Vector3(x, 0, z),
+      mesh,
+      hp: maxHp,
+      maxHp,
+      radius: def.radius,
+      sight: def.sight || 16,
+      atkCooldown: 0,
+      selected: false
+    };
+
+    buildings.push(bObj);
+
+    if (!isEnemy && def.popBonus) {
+      gameState.maxPop += def.popBonus;
+    }
+    return bObj;
+  }
+
+  // Spawn a Unit (Player Worker/Soldier/Hero or Enemy Horde Unit)
+  function spawnUnit(type, x, z, isEnemy = false) {
+    const def = UNIT_DEFS[type] || {
+      name: type === 'hero' ? 'High Paladin Aurelius' : (type === 'behemoth' ? 'Abyssal Siege Behemoth' : (type === 'spitter' ? 'Blight Spitter' : 'Umbral Thrall')),
+      hp: type === 'hero' ? 680 : (type === 'behemoth' ? 820 : (type === 'spitter' ? 115 : 135)),
+      dmg: type === 'hero' ? 42 : (type === 'behemoth' ? 52 : (type === 'spitter' ? 17 : 15)),
+      range: type === 'spitter' ? 11.0 : (type === 'behemoth' ? 2.8 : 2.1),
+      speed: type === 'behemoth' ? 3.6 : (type === 'hero' ? 6.4 : 5.4),
+      atkRate: type === 'behemoth' ? 1.45 : 1.0,
+      sight: 18,
+      pop: 0
+    };
+
+    const isMelee = def.range < 4.0;
+    const dmgBonus = (!isEnemy && isMelee && gameState.research.blades) ? 1.3 : 1.0;
+    const hpBonus = (!isEnemy && isMelee && gameState.research.blades) ? 1.2 : 1.0;
+    const rangeBonus = (!isEnemy && !isMelee && gameState.research.fletching) ? 1.25 : 1.0;
+
+    const maxHp = Math.round(def.hp * hpBonus * (isEnemy ? gameState.difficulty : 1.0));
+    const mesh = createUnitMesh(type, isEnemy);
+    mesh.position.set(x, 0, z);
+    scene.add(mesh);
+
+    const uObj = {
+      id: Math.random().toString(36).slice(2),
+      isUnit: true,
+      type,
+      name: def.name,
+      isEnemy,
+      pos: new THREE.Vector3(x, 0, z),
+      mesh,
+      hp: maxHp,
+      maxHp,
+      dmg: Math.round(def.dmg * dmgBonus * (isEnemy ? gameState.difficulty : 1.0)),
+      range: def.range * rangeBonus,
+      speed: def.speed,
+      atkRate: def.atkRate / (!isEnemy && !isMelee && gameState.research.fletching ? 1.25 : 1.0),
+      atkCooldown: 0,
+      sight: def.sight || 16,
+      pop: isEnemy ? 0 : (def.pop || 0),
+      cleave: !!def.cleave || type === 'hero',
+      splash: def.splash || 0,
+      selected: false,
+      state: 'idle', // 'idle', 'move', 'attack', 'gather', 'return'
+      targetPos: null,
+      targetEntity: null,
+      gatherNode: null,
+      carryType: null,
+      carryAmount: 0,
+      gatherTimer: 0,
+      buffTimer: 0,
+      animPhase: Math.random() * 6.28
+    };
+
+    units.push(uObj);
+    if (!isEnemy && uObj.pop > 0) {
+      gameState.pop += uObj.pop;
+    }
+    return uObj;
+  }
+
+  // ============================================================================
+  // 6. INITIALIZE KINGDOM MAP, RESOURCE CLUSTERS & 3 OUTER ENEMY RIFTS
+  // ============================================================================
+  function initKingdomWorld() {
+    // Clear existing entities
+    buildings.forEach(b => scene.remove(b.mesh));
+    units.forEach(u => scene.remove(u.mesh));
+    resourceNodes.forEach(r => scene.remove(r.mesh));
+    projectiles.forEach(p => scene.remove(p.mesh));
+    particles.forEach(p => scene.remove(p.mesh));
+
+    buildings = [];
+    units = [];
+    resourceNodes = [];
+    projectiles = [];
+    particles = [];
+    floatingTexts = [];
+    selectedEntities = [];
+
+    gameState.gold = 300;
+    gameState.wood = 240;
+    gameState.arcana = 100;
+    gameState.pop = 0;
+    gameState.maxPop = 0;
+    gameState.dayNumber = 1;
+    gameState.isNight = false;
+    gameState.phaseTimer = 0;
+    gameState.sanctumTier = 1;
+    gameState.research = { blades: false, fletching: false, masonry: false };
+    gameState.heroCooldowns = { nova: 0, aegis: 0 };
+
+    // 1. Spawn Player's Central Solar Sanctum & Starting Base
+    sanctumBuilding = spawnBuilding('sanctum', 0, 0, false);
+    spawnBuilding('tower', -11, -11, false);
+    spawnBuilding('tower', 11, -11, false);
+    spawnBuilding('homestead', -9, 9, false);
+
+    // 2. Spawn Resource Nodes around the Kingdom
+    // Nearby Pine Groves (Timber)
+    [[-16, 2], [-18, 6], [16, -2], [18, 4], [-6, -18], [8, 17], [-28, -22], [28, -20], [-25, 26]].forEach(([x, z]) => {
+      spawnResourceNode('wood', x, z);
+    });
+    // Sun-Gold Veins
+    [[-14, -15], [15, 13], [-32, 8], [32, -8], [0, -34]].forEach(([x, z]) => {
+      spawnResourceNode('gold', x, z);
+    });
+    // Lumen Arcana Shards
+    [[14, -14], [-14, 15], [0, 32], [-34, -10], [34, 12]].forEach(([x, z]) => {
+      spawnResourceNode('arcana', x, z);
+    });
+
+    // 3. Spawn Starting Force: High Paladin Aurelius, 3 Workers, 3 Sentinels, 2 Archers
+    heroUnit = spawnUnit('hero', 0, 7, false);
+    for (let i = 0; i < 3; i++) {
+      const w = spawnUnit('worker', -5 + i * 3, 5, false);
+      // Automatically assign initial workers to nearby wood/gold/arcana
+      w.gatherNode = resourceNodes[i * 4];
+      w.state = 'gather';
+    }
+    for (let i = 0; i < 3; i++) {
+      spawnUnit('sentinel', -4 + i * 4, -7, false);
+    }
+    spawnUnit('archer', -3, -9, false);
+    spawnUnit('archer', 3, -9, false);
+
+    // 4. Spawn 3 Outer Enemy Umbral Rift Strongholds & Garrison Guards
+    const riftLocations = [
+      { x: -52, z: -52, dir: 'NW' },
+      { x: 52,  z: -52, dir: 'NE' },
+      { x: 52,  z: 52,  dir: 'SE' }
+    ];
+    riftLocations.forEach(loc => {
+      const spire = spawnBuilding('rift_spire', loc.x, loc.z, true);
+      spire.riftDir = loc.dir;
+      // Garrison guards protecting the stronghold
+      for (let g = 0; g < 4; g++) {
+        const angle = (g / 4) * Math.PI * 2;
+        spawnUnit(g === 0 ? 'behemoth' : (g % 2 === 0 ? 'spitter' : 'thrall'), loc.x + Math.cos(angle) * 6, loc.z + Math.sin(angle) * 6, true);
+      }
+    });
+
+    selectEntities([heroUnit]);
+    cameraTarget.set(0, 0, 4);
+    renderDeckCards();
+    updateTopHUD();
+  }
+
+  // ============================================================================
+  // 7. FOG OF WAR, COMBAT AI, WORKERS & DAY/NIGHT WAVE ENGINE
+  // ============================================================================
+  function updateFogOfWar() {
+    fowCtx.fillStyle = 'rgba(6, 9, 16, 0.78)';
+    fowCtx.fillRect(0, 0, FOW_RES, FOW_RES);
+
+    fowCtx.globalCompositeOperation = 'destination-out';
+
+    const revealCircle = (wx, wz, radius) => {
+      const px = ((wx + HALF_MAP) / MAP_SIZE) * FOW_RES;
+      const py = ((wz + HALF_MAP) / MAP_SIZE) * FOW_RES;
+      const pr = (radius / MAP_SIZE) * FOW_RES;
+
+      const grad = fowCtx.createRadialGradient(px, py, pr * 0.35, px, py, pr);
+      grad.addColorStop(0, 'rgba(0,0,0,1)');
+      grad.addColorStop(1, 'rgba(0,0,0,0)');
+      fowCtx.fillStyle = grad;
+      fowCtx.beginPath();
+      fowCtx.arc(px, py, pr, 0, Math.PI * 2);
+      fowCtx.fill();
+    };
+
+    for (let i = 0; i < buildings.length; i++) {
+      const b = buildings[i];
+      if (!b.isEnemy) revealCircle(b.pos.x, b.pos.z, b.sight);
+    }
+    for (let i = 0; i < units.length; i++) {
+      const u = units[i];
+      if (!u.isEnemy) revealCircle(u.pos.x, u.pos.z, u.sight);
+    }
+
+    fowCtx.globalCompositeOperation = 'source-over';
+    fowTexture.needsUpdate = true;
+  }
+
+  function findNearestTarget(sourcePos, enemyFlag, maxRange = 999) {
+    let best = null;
+    let bestDist = maxRange;
+
+    for (let i = 0; i < units.length; i++) {
+      const u = units[i];
+      if (u.isEnemy !== enemyFlag || u.hp <= 0) continue;
+      const d = sourcePos.distanceTo(u.pos);
+      if (d < bestDist) {
+        bestDist = d;
+        best = u;
+      }
+    }
+    for (let i = 0; i < buildings.length; i++) {
+      const b = buildings[i];
+      if (b.isEnemy !== enemyFlag || b.hp <= 0) continue;
+      const d = sourcePos.distanceTo(b.pos) - b.radius;
+      if (d < bestDist) {
+        bestDist = d;
+        best = b;
+      }
+    }
+    return best;
+  }
+
+  function fireProjectile(fromPos, target, dmg, colorHex, splash = 0, isEnemy = false) {
+    const geo = new THREE.SphereGeometry(splash > 0 ? 0.36 : 0.2, 8, 8);
+    const mat = new THREE.MeshBasicMaterial({ color: colorHex });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.copy(fromPos).add(new THREE.Vector3(0, 1.6, 0));
+    scene.add(mesh);
+
+    projectiles.push({
+      mesh,
+      target,
+      targetPos: target.pos.clone(),
+      dmg,
+      colorHex,
+      splash,
+      isEnemy,
+      speed: splash > 0 ? 19 : 26
+    });
+  }
+
+  function applyDamage(target, dmg, attackerIsEnemy) {
+    if (!target || target.hp <= 0) return;
+    target.hp -= dmg;
+    addFloatingText(target.pos, `-${dmg}`, attackerIsEnemy ? '#ef476f' : '#ffd166', target.isBuilding ? 15 : 13);
+
+    if (target.hp <= 0) {
+      target.hp = 0;
+      spawnParticleBurst(target.pos, target.isEnemy ? 0xb5179e : 0xffb703, target.isBuilding ? 24 : 12, 7);
+
+      if (target.isEnemy) {
+        // Bounty reward for slaying enemies or destroying Rift Strongholds
+        const bounty = target.isBuilding ? 220 : (target.type === 'behemoth' ? 45 : 12);
+        gameState.gold += bounty;
+        addFloatingText(target.pos, `+${bounty}☀️`, '#ffd166', 16);
+        if (target.isBuilding && target.type === 'rift_spire') {
+          gameState.arcana += 60;
+          audio.playHornAlert();
+          showToast('🔥 UMBRAL RIFT STRONGHOLD PURGED! (+220 Gold, +60 Arcana)', 'var(--green-ally)');
+        }
+      }
+    }
+  }
+
+  // Spawn an Eclipse Siege Wave from remaining Umbral Rift Strongholds
+  function triggerEclipseWave(bonusGold = 0) {
+    if (bonusGold > 0) {
+      gameState.gold += bonusGold;
+      addFloatingText(sanctumBuilding ? sanctumBuilding.pos : new THREE.Vector3(), `+${bonusGold}☀️ DARING BONUS`, '#ffd166', 18);
+    }
+
+    gameState.isNight = true;
+    gameState.phaseTimer = 0;
+    audio.playHornAlert();
+
+    const activeRifts = buildings.filter(b => b.isEnemy && b.type === 'rift_spire' && b.hp > 0);
+    const spawnOrigins = activeRifts.length > 0
+      ? activeRifts.map(r => r.pos)
+      : [new THREE.Vector3(-56, 0, -56)];
+
+    const waveNum = gameState.dayNumber;
+    const countPerRift = Math.round((4 + waveNum * 3) * gameState.difficulty);
+
+    showToast(`🌑 ECLIPSE NIGHT ${waveNum}/${gameState.maxNights}: UMBRAL HORDE ATTACKING!`, 'var(--crimson-enemy)');
+
+    spawnOrigins.forEach(origin => {
+      for (let i = 0; i < countPerRift; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = 4 + Math.random() * 6;
+        const sx = origin.x + Math.cos(angle) * dist;
+        const sz = origin.z + Math.sin(angle) * dist;
+
+        let uType = 'thrall';
+        if (i === 0 && waveNum >= 2) uType = 'behemoth';
+        else if (i === 1 && waveNum >= 4) uType = 'behemoth';
+        else if (i % 3 === 0) uType = 'spitter';
+
+        const enemy = spawnUnit(uType, sx, sz, true);
+        enemy.state = 'attack';
+        enemy.targetPos = new THREE.Vector3(0, 0, 0); // March toward Solar Sanctum
+      }
+    });
+  }
+
+  // ============================================================================
+  // 8. HERO ABILITIES ([Q] SOLAR NOVA & [W] DAWN AEGIS)
+  // ============================================================================
+  function castSolarNova() {
+    if (!heroUnit || heroUnit.hp <= 0 || gameState.heroCooldowns.nova > 0) return;
+    gameState.heroCooldowns.nova = 14;
+    audio.playHeroNova();
+
+    spawnParticleBurst(heroUnit.pos, 0xffd166, 32, 11);
+    addFloatingText(heroUnit.pos, '☀️ SOLAR NOVA!', '#ffd166', 18);
+
+    const novaRadius = 9.5;
+    units.forEach(u => {
+      if (u.isEnemy && u.pos.distanceTo(heroUnit.pos) <= novaRadius) {
+        applyDamage(u, 95, false);
+      }
+    });
+    buildings.forEach(b => {
+      if (b.isEnemy && b.pos.distanceTo(heroUnit.pos) - b.radius <= novaRadius) {
+        applyDamage(b, 120, false);
+      }
+    });
+  }
+
+  function castDawnAegis() {
+    if (!heroUnit || heroUnit.hp <= 0 || gameState.heroCooldowns.aegis > 0) return;
+    gameState.heroCooldowns.aegis = 16;
+    audio.playBuild();
+
+    spawnParticleBurst(heroUnit.pos, 0x2ec4b6, 26, 8);
+    addFloatingText(heroUnit.pos, '🛡️ DAWN AEGIS!', '#2ec4b6', 18);
+
+    units.forEach(u => {
+      if (!u.isEnemy && u.pos.distanceTo(heroUnit.pos) <= 14) {
+        u.hp = Math.min(u.maxHp, u.hp + 90);
+        u.buffTimer = 8.0;
+        addFloatingText(u.pos, '+90 HP', '#2ec4b6', 13);
+      }
+    });
+  }
+
+  // ============================================================================
+  // 9. UI DECK RENDERING, SELECTION INSPECTOR & COMMAND CARDS
+  // ============================================================================
+  function selectEntities(list) {
+    selectedEntities.forEach(e => {
+      e.selected = false;
+      const ring = e.mesh.getObjectByName('selectionRing');
+      if (ring) ring.material.opacity = 0.0;
+    });
+
+    selectedEntities = list.filter(e => e && e.hp > 0);
+    selectedEntities.forEach(e => {
+      e.selected = true;
+      const ring = e.mesh.getObjectByName('selectionRing');
+      if (ring) ring.material.opacity = 0.92;
+    });
+
+    updateInspectorPanel();
+  }
+
+  function updateInspectorPanel() {
+    const primary = selectedEntities[0] || heroUnit || sanctumBuilding;
+    if (!primary) return;
+
+    const isMulti = selectedEntities.length > 1;
+    document.getElementById('insp-icon').textContent = isMulti ? '⚔️' : (primary.type === 'hero' ? '👑' : (primary.isBuilding ? '🏰' : '🛡️'));
+    document.getElementById('insp-title').textContent = isMulti ? `${selectedEntities.length} Sunforge Units` : primary.name;
+    document.getElementById('insp-sub').textContent = isMulti
+      ? `Formation: ${gameState.formation.toUpperCase()}`
+      : (primary.isBuilding ? 'Fortified Structure' : `State: ${(primary.state || 'Ready').toUpperCase()}`);
+
+    const hpPct = Math.max(0, Math.min(100, (primary.hp / primary.maxHp) * 100));
+    document.getElementById('insp-hp-fill').style.width = `${hpPct}%`;
+
+    const statsEl = document.getElementById('insp-stats');
+    if (primary.isUnit) {
+      statsEl.innerHTML = `
+        <span>HP: ${Math.round(primary.hp)}/${primary.maxHp}</span>
+        <span>ATK: ${primary.dmg}${primary.cleave ? ' AoE' : ''}</span>
+        <span>RNG: ${primary.range.toFixed(1)}m</span>
+        <span>SPD: ${primary.speed.toFixed(1)}</span>
+      `;
+    } else {
+      statsEl.innerHTML = `
+        <span>HP: ${Math.round(primary.hp)}/${primary.maxHp}</span>
+        <span>TIER: ${gameState.sanctumTier}</span>
+        <span>SIGHT: ${primary.sight}m</span>
+        <span>STATUS: Operational</span>
+      `;
+    }
+  }
+
+  function canAfford(cost) {
+    return gameState.gold >= (cost.gold || 0) &&
+           gameState.wood >= (cost.wood || 0) &&
+           gameState.arcana >= (cost.arcana || 0);
+  }
+
+  function spendResources(cost) {
+    gameState.gold -= (cost.gold || 0);
+    gameState.wood -= (cost.wood || 0);
+    gameState.arcana -= (cost.arcana || 0);
+  }
+
+  function hasBuilding(type) {
+    return buildings.some(b => !b.isEnemy && b.type === type && b.hp > 0);
+  }
+
+  function renderDeckCards() {
+    const containerEl = document.getElementById('deck-cards');
+    containerEl.innerHTML = '';
+
+    if (gameState.activeTab === 'build') {
+      Object.entries(BUILDING_DEFS).forEach(([key, def]) => {
+        const affordable = canAfford(def.cost);
+        const card = document.createElement('div');
+        card.className = `cmd-card ${!affordable ? 'disabled' : ''} ${gameState.buildMode === key ? 'active-build' : ''}`;
+        card.innerHTML = `
+          <div class="card-top">
+            <span class="card-icon">${def.icon}</span>
+            <span class="card-hotkey">[${def.hotkey}]</span>
+          </div>
+          <div class="card-title">${def.name}</div>
+          <div class="card-desc">${def.desc}</div>
+          <div class="card-cost">
+            ${def.cost.gold ? `<span>☀️${def.cost.gold}</span>` : ''}
+            ${def.cost.wood ? `<span>🌲${def.cost.wood}</span>` : ''}
+            ${def.cost.arcana ? `<span>💎${def.cost.arcana}</span>` : ''}
+          </div>
+        `;
+        card.onclick = () => {
+          if (!canAfford(def.cost)) {
+            showToast('⚠️ Insufficient Resources for Construction!', 'var(--crimson-enemy)');
+            return;
+          }
+          gameState.buildMode = (gameState.buildMode === key) ? null : key;
+          buildPreviewGroup.visible = !!gameState.buildMode;
+          renderDeckCards();
+        };
+        containerEl.appendChild(card);
+      });
+
+    } else if (gameState.activeTab === 'recruit') {
+      Object.entries(UNIT_DEFS).forEach(([key, def]) => {
+        const hasReq = !def.req || hasBuilding(def.req);
+        const hasPop = (gameState.pop + def.pop) <= gameState.maxPop;
+        const affordable = canAfford(def.cost) && hasReq && hasPop;
+
+        const card = document.createElement('div');
+        card.className = `cmd-card ${!affordable ? 'disabled' : ''}`;
+        card.innerHTML = `
+          <div class="card-top">
+            <span class="card-icon">${def.icon}</span>
+            <span class="card-hotkey">[${def.hotkey}]</span>
+          </div>
+          <div class="card-title">${def.name}</div>
+          <div class="card-desc">${!hasReq ? `Requires ${BUILDING_DEFS[def.req].name}` : def.desc}</div>
+          <div class="card-cost">
+            ${def.cost.gold ? `<span>☀️${def.cost.gold}</span>` : ''}
+            ${def.cost.wood ? `<span>🌲${def.cost.wood}</span>` : ''}
+            ${def.cost.arcana ? `<span>💎${def.cost.arcana}</span>` : ''}
+            <span>🛡️${def.pop}</span>
+          </div>
+        `;
+        card.onclick = () => {
+          if (!hasReq) {
+            showToast(`⚠️ Construct a ${BUILDING_DEFS[def.req].name} first!`, 'var(--crimson-enemy)');
+            return;
+          }
+          if ((gameState.pop + def.pop) > gameState.maxPop) {
+            showToast('⚠️ Max Supply Reached! Construct more Sun-Homesteads.', 'var(--crimson-enemy)');
+            return;
+          }
+          if (!canAfford(def.cost)) {
+            showToast('⚠️ Insufficient Resources to Recruit!', 'var(--crimson-enemy)');
+            return;
+          }
+          spendResources(def.cost);
+          const spawnOrigin = buildings.find(b => !b.isEnemy && b.type === (def.req || 'sanctum')) || sanctumBuilding;
+          const angle = Math.random() * Math.PI * 2;
+          const u = spawnUnit(key, spawnOrigin.pos.x + Math.cos(angle) * 4.2, spawnOrigin.pos.z + Math.sin(angle) * 4.2, false);
+          if (key === 'worker' && resourceNodes.length > 0) {
+            u.gatherNode = resourceNodes[Math.floor(Math.random() * resourceNodes.length)];
+            u.state = 'gather';
+          }
+          audio.playRecruit();
+          spawnParticleBurst(u.pos, 0x2ec4b6, 10, 5);
+          updateTopHUD();
+          renderDeckCards();
+        };
+        containerEl.appendChild(card);
+      });
+
+    } else if (gameState.activeTab === 'research') {
+      Object.entries(RESEARCH_DEFS).forEach(([key, def]) => {
+        const done = (key === 'sanctum_tier') ? (gameState.sanctumTier >= 3) : gameState.research[key];
+        const affordable = !done && canAfford(def.cost);
+
+        const card = document.createElement('div');
+        card.className = `cmd-card ${!affordable ? 'disabled' : ''}`;
+        card.innerHTML = `
+          <div class="card-top">
+            <span class="card-icon">${def.icon}</span>
+            <span class="card-hotkey">${done ? '✓ DONE' : `[${def.hotkey}]`}</span>
+          </div>
+          <div class="card-title">${def.name}</div>
+          <div class="card-desc">${def.desc}</div>
+          <div class="card-cost">
+            ${done ? '<span style="color:var(--green-ally)">RESEARCHED</span>' : `
+              <span>☀️${def.cost.gold}</span>
+              <span>🌲${def.cost.wood}</span>
+              <span>💎${def.cost.arcana}</span>
+            `}
+          </div>
+        `;
+        card.onclick = () => {
+          if (done || !canAfford(def.cost)) return;
+          spendResources(def.cost);
+          audio.playBuild();
+
+          if (key === 'sanctum_tier') {
+            gameState.sanctumTier++;
+            gameState.maxPop += 6;
+            if (sanctumBuilding) {
+              sanctumBuilding.maxHp += 800;
+              sanctumBuilding.hp += 800;
+              spawnParticleBurst(sanctumBuilding.pos, 0xffd166, 28, 9);
+            }
+            showToast(`🏰 SOLAR SANCTUM ASCENDED TO TIER ${gameState.sanctumTier}!`);
+          } else {
+            gameState.research[key] = true;
+            showToast(`📜 ROYAL RESEARCH COMPLETE: ${def.name.toUpperCase()}!`);
+          }
+          updateTopHUD();
+          renderDeckCards();
+        };
+        containerEl.appendChild(card);
+      });
+    }
+  }
+
+  function updateTopHUD() {
+    document.getElementById('res-gold').textContent = Math.floor(gameState.gold);
+    document.getElementById('res-wood').textContent = Math.floor(gameState.wood);
+    document.getElementById('res-arcana').textContent = Math.floor(gameState.arcana);
+    document.getElementById('res-pop').textContent = `${gameState.pop} / ${gameState.maxPop}`;
+
+    const homesteads = buildings.filter(b => !b.isEnemy && b.type === 'homestead').length;
+    const lumbers = buildings.filter(b => !b.isEnemy && b.type === 'lumber').length;
+    const quarries = buildings.filter(b => !b.isEnemy && b.type === 'quarry').length;
+
+    document.getElementById('rate-gold').textContent = `+${4 + homesteads * 3 + quarries * 4}/s`;
+    document.getElementById('rate-wood').textContent = `+${3 + lumbers * 4}/s`;
+    document.getElementById('rate-arcana').textContent = `+${1 + quarries * 3}/s`;
+
+    const activeRifts = buildings.filter(b => b.isEnemy && b.type === 'rift_spire' && b.hp > 0);
+    document.getElementById('rifts-remaining').textContent = `Rifts: ${activeRifts.length}/3`;
+    if (activeRifts.length > 0) {
+      document.getElementById('minimap-threat').textContent = activeRifts.map(r => r.riftDir).join('•');
+    }
+
+    const novaBtn = document.getElementById('btn-skill-nova');
+    const aegisBtn = document.getElementById('btn-skill-aegis');
+    novaBtn.disabled = gameState.heroCooldowns.nova > 0 || !heroUnit || heroUnit.hp <= 0;
+    novaBtn.textContent = gameState.heroCooldowns.nova > 0
+      ? `☀️ [Q] ${Math.ceil(gameState.heroCooldowns.nova)}s`
+      : '☀️ [Q] Solar Nova';
+
+    aegisBtn.disabled = gameState.heroCooldowns.aegis > 0 || !heroUnit || heroUnit.hp <= 0;
+    aegisBtn.textContent = gameState.heroCooldowns.aegis > 0
+      ? `🛡️ [W] ${Math.ceil(gameState.heroCooldowns.aegis)}s`
+      : '🛡️ [W] Dawn Aegis';
+  }
+
+  // ============================================================================
+  // 10. PLAYER INPUT: BOX SELECTION, FORMATIONS, BUILD PLACEMENT & MINIMAP
+  // ============================================================================
+  const raycaster = new THREE.Raycaster();
+  const mouseNDC = new THREE.Vector2();
+  let isDraggingBox = false;
+  let isOrbitDragging = false;
+  let dragStart = { x: 0, y: 0 };
+  let dragCurr = { x: 0, y: 0 };
+  const keysPressed = {};
+
+  function getGroundHit(clientX, clientY) {
+    mouseNDC.x = (clientX / window.innerWidth) * 2 - 1;
+    mouseNDC.y = -(clientY / window.innerHeight) * 2 + 1;
+    raycaster.setFromCamera(mouseNDC, camera);
+    const hits = raycaster.intersectObject(groundMesh);
+    return hits.length > 0 ? hits[0].point : null;
+  }
+
+  function isBuildLocationValid(pt, radius) {
+    if (!pt) return false;
+    if (Math.abs(pt.x) > HALF_MAP - 8 || Math.abs(pt.z) > HALF_MAP - 8) return false;
+    // Must be within sight of any friendly unit or building
+    const inTerritory = buildings.some(b => !b.isEnemy && b.pos.distanceTo(pt) <= b.sight + 2) ||
+                        units.some(u => !u.isEnemy && u.pos.distanceTo(pt) <= u.sight);
+    if (!inTerritory) return false;
+
+    // Cannot overlap existing buildings or resource nodes
+    for (let i = 0; i < buildings.length; i++) {
+      if (buildings[i].pos.distanceTo(pt) < buildings[i].radius + radius + 0.6) return false;
+    }
+    for (let i = 0; i < resourceNodes.length; i++) {
+      if (resourceNodes[i].pos.distanceTo(pt) < radius + 1.8) return false;
+    }
+    return true;
+  }
+
+  // Issue Formation Move or Attack Order to Selected Units
+  function issueRightClickCommand(clientX, clientY) {
+    const pt = getGroundHit(clientX, clientY);
+    if (!pt) return;
+
+    // Check if right-clicking an enemy unit/building or resource node
+    let clickedEnemy = null;
+    for (let i = 0; i < units.length; i++) {
+      if (units[i].isEnemy && units[i].pos.distanceTo(pt) < 2.4) {
+        clickedEnemy = units[i];
+        break;
+      }
+    }
+    if (!clickedEnemy) {
+      for (let i = 0; i < buildings.length; i++) {
+        if (buildings[i].isEnemy && buildings[i].pos.distanceTo(pt) < buildings[i].radius + 1.5) {
+          clickedEnemy = buildings[i];
+          break;
+        }
+      }
+    }
+
+    let clickedNode = null;
+    for (let i = 0; i < resourceNodes.length; i++) {
+      if (resourceNodes[i].pos.distanceTo(pt) < 2.6) {
+        clickedNode = resourceNodes[i];
+        break;
+      }
+    }
+
+    const movableUnits = selectedEntities.filter(e => e.isUnit && !e.isEnemy);
+    if (movableUnits.length === 0) return;
+
+    // Show 3D waypoint ring
+    waypointRing.position.set(pt.x, 0.16, pt.z);
+    waypointRing.material.color.setHex(clickedEnemy ? 0xef476f : 0xffd166);
+    waypointAnim = 1.0;
+
+    const count = movableUnits.length;
+    movableUnits.forEach((u, idx) => {
+      if (clickedNode && u.type === 'worker') {
+        u.gatherNode = clickedNode;
+        u.state = 'gather';
+        return;
+      }
+      if (clickedEnemy) {
+        u.targetEntity = clickedEnemy;
+        u.state = 'attack';
+        return;
+      }
+
+      // Compute Formation Offset (Line, Wedge, or Circle)
+      let ox = 0, oz = 0;
+      const spacing = 1.85;
+      if (count > 1) {
+        if (gameState.formation === 'line') {
+          const cols = Math.ceil(Math.sqrt(count * 2));
+          const col = idx % cols;
+          const row = Math.floor(idx / cols);
+          ox = (col - (cols - 1) / 2) * spacing;
+          oz = row * spacing;
+        } else if (gameState.formation === 'wedge') {
+          const row = Math.floor((-1 + Math.sqrt(1 + 8 * idx)) / 2);
+          const posInRow = idx - (row * (row + 1)) / 2;
+          ox = (posInRow - row / 2) * spacing;
+          oz = row * spacing;
+        } else if (gameState.formation === 'circle') {
+          const angle = (idx / count) * Math.PI * 2;
+          const rad = Math.max(2.0, count * 0.35);
+          ox = Math.cos(angle) * rad;
+          oz = Math.sin(angle) * rad;
+        }
+      }
+
+      u.targetPos = new THREE.Vector3(pt.x + ox, 0, pt.z + oz);
+      u.targetEntity = null;
+      u.state = 'move';
+    });
+  }
+
+  renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
+
+  renderer.domElement.addEventListener('pointerdown', (e) => {
+    if (!gameState.running) return;
+
+    if (e.button === 0) {
+      // If in Build Mode, attempt construction on Left-Click
+      if (gameState.buildMode) {
+        const pt = getGroundHit(e.clientX, e.clientY);
+        const def = BUILDING_DEFS[gameState.buildMode];
+        if (isBuildLocationValid(pt, def.radius) && canAfford(def.cost)) {
+          spendResources(def.cost);
+          const b = spawnBuilding(gameState.buildMode, pt.x, pt.z, false);
+          spawnParticleBurst(b.pos, 0xffd166, 18, 6);
+          audio.playBuild();
+
+          // Lumber and Quarry spawn a free dedicated Artisan Worker!
+          if (gameState.buildMode === 'lumber' || gameState.buildMode === 'quarry') {
+            const w = spawnUnit('worker', pt.x + 2.2, pt.z + 2.2, false);
+            const prefType = gameState.buildMode === 'lumber' ? 'wood' : 'gold';
+            const nearestNode = resourceNodes
+              .filter(n => n.type === prefType || n.type === 'arcana')
+              .sort((a, bNode) => a.pos.distanceTo(pt) - bNode.pos.distanceTo(pt))[0];
+            if (nearestNode) {
+              w.gatherNode = nearestNode;
+              w.state = 'gather';
+            }
+          }
+
+          // Hold Shift to keep building walls/towers; otherwise exit build mode
+          if (!keysPressed['ShiftLeft'] && !keysPressed['ShiftRight']) {
+            gameState.buildMode = null;
+            buildPreviewGroup.visible = false;
+          }
+          updateTopHUD();
+          renderDeckCards();
+        } else {
+          showToast('⚠️ Invalid Build Location or Insufficient Resources!', 'var(--crimson-enemy)');
+        }
+        return;
+      }
+
+      isDraggingBox = true;
+      dragStart = { x: e.clientX, y: e.clientY };
+      dragCurr = { x: e.clientX, y: e.clientY };
+
+    } else if (e.button === 2) {
+      if (gameState.buildMode) {
+        gameState.buildMode = null;
+        buildPreviewGroup.visible = false;
+        renderDeckCards();
+        return;
+      }
+      dragStart = { x: e.clientX, y: e.clientY };
+      isOrbitDragging = true;
+    }
+  });
+
+  window.addEventListener('pointermove', (e) => {
+    if (gameState.buildMode) {
+      const pt = getGroundHit(e.clientX, e.clientY);
+      if (pt) {
+        buildPreviewGroup.position.set(pt.x, 0, pt.z);
+        const def = BUILDING_DEFS[gameState.buildMode];
+        const valid = isBuildLocationValid(pt, def.radius);
+        previewRingMat.color.setHex(valid ? 0x2ec4b6 : 0xef476f);
+      }
+    }
+
+    if (isDraggingBox) {
+      dragCurr = { x: e.clientX, y: e.clientY };
+    } else if (isOrbitDragging) {
+      const dx = e.clientX - dragStart.x;
+      if (Math.abs(dx) > 6) {
+        camYaw -= dx * 0.005;
+        dragStart = { x: e.clientX, y: e.clientY };
+      }
+    }
+  });
+
+  window.addEventListener('pointerup', (e) => {
+    if (e.button === 0 && isDraggingBox) {
+      isDraggingBox = false;
+      const dist = Math.hypot(dragCurr.x - dragStart.x, dragCurr.y - dragStart.y);
+
+      if (dist > 10) {
+        // Screen-space Drag Box Selection
+        const minX = Math.min(dragStart.x, dragCurr.x);
+        const maxX = Math.max(dragStart.x, dragCurr.x);
+        const minY = Math.min(dragStart.y, dragCurr.y);
+        const maxY = Math.max(dragStart.y, dragCurr.y);
+
+        const boxed = units.filter(u => {
+          if (u.isEnemy || u.hp <= 0) return false;
+          const sp = worldToScreen(u.pos);
+          return sp.x >= minX && sp.x <= maxX && sp.y >= minY && sp.y <= maxY;
+        });
+        if (boxed.length > 0) selectEntities(boxed);
+      } else {
+        // Single Click Selection
+        const pt = getGroundHit(e.clientX, e.clientY);
+        if (pt) {
+          const clickedUnit = units.find(u => !u.isEnemy && u.pos.distanceTo(pt) < 2.0);
+          if (clickedUnit) {
+            selectEntities([clickedUnit]);
+          } else {
+            const clickedBuilding = buildings.find(b => !b.isEnemy && b.pos.distanceTo(pt) < b.radius + 0.8);
+            if (clickedBuilding) selectEntities([clickedBuilding]);
+          }
+        }
+      }
+    } else if (e.button === 2 && isOrbitDragging) {
+      isOrbitDragging = false;
+      const dist = Math.hypot(e.clientX - dragStart.x, e.clientY - dragStart.y);
+      if (dist < 8) {
+        issueRightClickCommand(e.clientX, e.clientY);
+      }
+    }
+  });
+
+  renderer.domElement.addEventListener('wheel', (e) => {
+    camDistance = Math.max(24, Math.min(98, camDistance + e.deltaY * 0.04));
+  });
+
+  // Keyboard Shortcuts
+  window.addEventListener('keydown', (e) => {
+    keysPressed[e.code] = true;
+    if (!gameState.running) return;
+
+    if (e.code === 'Space') {
+      const focus = heroUnit && heroUnit.hp > 0 ? heroUnit.pos : new THREE.Vector3(0, 0, 0);
+      cameraTarget.set(focus.x, 0, focus.z);
+    }
+    if (e.code === 'Escape') {
+      gameState.buildMode = null;
+      buildPreviewGroup.visible = false;
+      renderDeckCards();
+    }
+    if (e.code === 'KeyQ' && !gameState.buildMode) castSolarNova();
+    if (e.code === 'KeyW' && !gameState.buildMode && keysPressed['AltLeft']) castDawnAegis();
+    if (e.code === 'Digit1') selectEntities(units.filter(u => !u.isEnemy && u.type !== 'worker'));
+    if (e.code === 'Digit2' && heroUnit) selectEntities([heroUnit]);
+    if (e.code === 'Digit3') selectEntities(units.filter(u => !u.isEnemy && u.type === 'worker'));
+  });
+
+  window.addEventListener('keyup', (e) => {
+    keysPressed[e.code] = false;
+  });
+
+  // Minimap Click-to-Pan Camera
+  const minimapCanvas = document.getElementById('minimap-canvas');
+  const mCtx = minimapCanvas.getContext('2d');
+  minimapCanvas.addEventListener('pointerdown', (e) => {
+    const rect = minimapCanvas.getBoundingClientRect();
+    const nx = (e.clientX - rect.left) / rect.width;
+    const ny = (e.clientY - rect.top) / rect.height;
+    cameraTarget.x = (nx - 0.5) * MAP_SIZE;
+    cameraTarget.z = (ny - 0.5) * MAP_SIZE;
+  });
+
+  // UI Button Event Listeners
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      gameState.activeTab = btn.getAttribute('data-tab');
+      gameState.buildMode = null;
+      buildPreviewGroup.visible = false;
+      renderDeckCards();
+    });
+  });
+
+  document.querySelectorAll('[data-form]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('[data-form]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      gameState.formation = btn.getAttribute('data-form');
+      updateInspectorPanel();
+    });
+  });
+
+  document.getElementById('q-all-army').onclick = () => selectEntities(units.filter(u => !u.isEnemy && u.type !== 'worker'));
+  document.getElementById('q-hero').onclick = () => { if (heroUnit) selectEntities([heroUnit]); };
+  document.getElementById('q-workers').onclick = () => selectEntities(units.filter(u => !u.isEnemy && u.type === 'worker'));
+
+  document.getElementById('btn-skill-nova').onclick = castSolarNova;
+  document.getElementById('btn-skill-aegis').onclick = castDawnAegis;
+
+  document.getElementById('btn-call-wave').onclick = () => {
+    if (!gameState.isNight && gameState.running) {
+      triggerEclipseWave(80);
+    }
+  };
+
+  document.getElementById('btn-speed-1x').onclick = (e) => {
+    gameState.speedMult = 1;
+    e.currentTarget.classList.add('active');
+    document.getElementById('btn-speed-2x').classList.remove('active');
+  };
+  document.getElementById('btn-speed-2x').onclick = (e) => {
+    gameState.speedMult = 2;
+    e.currentTarget.classList.add('active');
+    document.getElementById('btn-speed-1x').classList.remove('active');
+  };
+  document.getElementById('btn-audio').onclick = (e) => {
+    const on = audio.toggle();
+    e.currentTarget.textContent = on ? '🔊' : '🔇';
+  };
+  document.getElementById('btn-cam-reset').onclick = () => {
+    cameraTarget.set(0, 0, 0);
+  };
+
+  // Difficulty & Start Modal
+  document.querySelectorAll('#diff-row .sys-btn').forEach(btn => {
+    btn.onclick = () => {
+      document.querySelectorAll('#diff-row .sys-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      gameState.difficulty = parseFloat(btn.getAttribute('data-diff'));
+    };
+  });
+
+  document.getElementById('btn-start-game').onclick = () => {
+    document.getElementById('start-modal').style.display = 'none';
+    audio.init();
+    audio.playHornAlert();
+    initKingdomWorld();
+    gameState.running = true;
+    showToast('☀️ PROTECT THE SOLAR SANCTUM & PURGE THE 3 UMBRAL RIFTS!');
+  };
+
+  document.getElementById('btn-restart-game').onclick = () => {
+    document.getElementById('end-modal').style.display = 'none';
+    initKingdomWorld();
+    gameState.running = true;
+  };
+
+  // ============================================================================
+  // 11. 2D OVERLAY RENDERER (Health Bars, Selection Box, Floating Numbers, Minimap)
+  // ============================================================================
+  function worldToScreen(pos, yOffset = 0) {
+    const v = pos.clone();
+    v.y += yOffset;
+    v.project(camera);
+    return {
+      x: (v.x * 0.5 + 0.5) * window.innerWidth,
+      y: (-v.y * 0.5 + 0.5) * window.innerHeight,
+      z: v.z
+    };
+  }
+
+  function render2DOverlayAndMinimap() {
+    oCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+
+    // 1. Draw Drag Selection Box
+    if (isDraggingBox) {
+      const x = Math.min(dragStart.x, dragCurr.x);
+      const y = Math.min(dragStart.y, dragCurr.y);
+      const w = Math.abs(dragCurr.x - dragStart.x);
+      const h = Math.abs(dragCurr.y - dragStart.y);
+      oCtx.fillStyle = 'rgba(46, 196, 182, 0.16)';
+      oCtx.fillRect(x, y, w, h);
+      oCtx.strokeStyle = '#ffd166';
+      oCtx.lineWidth = 1.8;
+      oCtx.strokeRect(x, y, w, h);
+    }
+
+    // 2. Draw Health Bars above damaged or selected Buildings & Units
+    const drawBar = (entity, yOff, width, height) => {
+      if (entity.hp >= entity.maxHp && !entity.selected && entity.type !== 'hero' && entity.type !== 'rift_spire') return;
+      const sp = worldToScreen(entity.pos, yOff);
+      if (sp.z > 1) return;
+
+      const x = sp.x - width / 2;
+      const y = sp.y;
+      oCtx.fillStyle = 'rgba(8, 12, 20, 0.85)';
+      oCtx.fillRect(x - 1, y - 1, width + 2, height + 2);
+
+      const pct = Math.max(0, entity.hp / entity.maxHp);
+      oCtx.fillStyle = entity.isEnemy ? '#ef476f' : (entity.type === 'hero' ? '#ffd166' : '#2ec4b6');
+      oCtx.fillRect(x, y, width * pct, height);
+    };
+
+    buildings.forEach(b => drawBar(b, b.type === 'sanctum' ? 9.2 : 5.5, 48, 5));
+    units.forEach(u => drawBar(u, u.type === 'hero' ? 3.2 : 2.3, 28, 4));
+
+    // 3. Draw Floating Combat Numbers
+    oCtx.textAlign = 'center';
+    for (let i = floatingTexts.length - 1; i >= 0; i--) {
+      const ft = floatingTexts[i];
+      const sp = worldToScreen(ft.pos);
+      if (sp.z < 1) {
+        oCtx.font = `bold ${ft.size}px "Segoe UI", sans-serif`;
+        oCtx.globalAlpha = Math.min(1, ft.life * 1.4);
+        oCtx.fillStyle = '#000';
+        oCtx.fillText(ft.text, sp.x + 1, sp.y + 1);
+        oCtx.fillStyle = ft.color;
+        oCtx.fillText(ft.text, sp.x, sp.y);
+        oCtx.globalAlpha = 1.0;
+      }
+    }
+
+    // 4. Render Tactical Radar Minimap
+    const mw = minimapCanvas.width;
+    const mh = minimapCanvas.height;
+    mCtx.fillStyle = '#0b101b';
+    mCtx.fillRect(0, 0, mw, mh);
+
+    const toMini = (wx, wz) => ({
+      x: ((wx + HALF_MAP) / MAP_SIZE) * mw,
+      y: ((wz + HALF_MAP) / MAP_SIZE) * mh
+    });
+
+    // Resource nodes
+    resourceNodes.forEach(r => {
+      const p = toMini(r.pos.x, r.pos.z);
+      mCtx.fillStyle = r.type === 'wood' ? '#2d6a4f' : (r.type === 'gold' ? '#ffd166' : '#4cc9f0');
+      mCtx.fillRect(p.x - 2, p.y - 2, 4, 4);
+    });
+
+    // Buildings
+    buildings.forEach(b => {
+      const p = toMini(b.pos.x, b.pos.z);
+      mCtx.fillStyle = b.isEnemy ? '#b5179e' : '#3b82f6';
+      const sz = b.type === 'sanctum' || b.type === 'rift_spire' ? 7 : 5;
+      mCtx.fillRect(p.x - sz / 2, p.y - sz / 2, sz, sz);
+    });
+
+    // Units
+    units.forEach(u => {
+      const p = toMini(u.pos.x, u.pos.z);
+      mCtx.fillStyle = u.isEnemy ? '#ef476f' : (u.type === 'hero' ? '#ffd166' : '#2ec4b6');
+      mCtx.fillRect(p.x - 1.5, p.y - 1.5, 3, 3);
+    });
+
+    // Camera viewport box
+    const cp = toMini(cameraTarget.x, cameraTarget.z);
+    mCtx.strokeStyle = 'rgba(255, 255, 255, 0.65)';
+    mCtx.lineWidth = 1.2;
+    mCtx.strokeRect(cp.x - 16, cp.y - 12, 32, 24);
+  }
+
+  // ============================================================================
+  // 12. MAIN SIMULATION & RENDER LOOP
+  // ============================================================================
+  const clock = new THREE.Clock();
+  let economyAccumulator = 0;
+  let fowAccumulator = 0;
+
+  function checkVictoryDefeat() {
+    if (!gameState.running) return;
+
+    if (!sanctumBuilding || sanctumBuilding.hp <= 0) {
+      gameState.running = false;
+      document.getElementById('end-badge').textContent = 'THE SANCTUM HAS FALLEN';
+      document.getElementById('end-title').textContent = 'ECLIPSE DEFEAT';
+      document.getElementById('end-summary').innerHTML =
+        `The Umbral Horde overwhelmed the Solar Sanctum on <strong>Day ${gameState.dayNumber}</strong>.<br><br>Fortify choke points with Bulwark Stone Walls and Sunbeam Watchtowers to endure the siege!`;
+      document.getElementById('end-modal').style.display = 'flex';
+      return;
+    }
+
+    const remainingRifts = buildings.filter(b => b.isEnemy && b.type === 'rift_spire' && b.hp > 0).length;
+    if (remainingRifts === 0) {
+      gameState.running = false;
+      document.getElementById('end-badge').textContent = 'CONQUEST VICTORY';
+      document.getElementById('end-title').textContent = 'ALL UMBRAL RIFTS PURGED!';
+      document.getElementById('end-summary').innerHTML =
+        `High Paladin Aurelius and the Sunforge Vanguard shattered all 3 Outer Umbral Rift Strongholds on <strong>Day ${gameState.dayNumber}</strong>!<br><br>Solaria shines in eternal golden light.`;
+      document.getElementById('end-modal').style.display = 'flex';
+    }
+  }
+
+  function animate() {
+    requestAnimationFrame(animate);
+
+    const rawDt = Math.min(clock.getDelta(), 0.1);
+    const dt = gameState.running ? rawDt * gameState.speedMult : 0;
+    const elapsed = clock.getElapsedTime();
+
+    // 1. Camera Panning & Orbit Positioning
+    const panSpeed = 34 * rawDt;
+    const forwardX = -Math.sin(camYaw);
+    const forwardZ = -Math.cos(camYaw);
+    const rightX = Math.cos(camYaw);
+    const rightZ = -Math.sin(camYaw);
+
+    if (keysPressed['KeyW'] || keysPressed['ArrowUp']) {
+      cameraTarget.x += forwardX * panSpeed;
+      cameraTarget.z += forwardZ * panSpeed;
+    }
+    if (keysPressed['KeyS'] || keysPressed['ArrowDown']) {
+      cameraTarget.x -= forwardX * panSpeed;
+      cameraTarget.z -= forwardZ * panSpeed;
+    }
+    if (keysPressed['KeyD'] || keysPressed['ArrowRight']) {
+      cameraTarget.x += rightX * panSpeed;
+      cameraTarget.z += rightZ * panSpeed;
+    }
+    if (keysPressed['KeyA'] || keysPressed['ArrowLeft']) {
+      cameraTarget.x -= rightX * panSpeed;
+      cameraTarget.z -= rightZ * panSpeed;
+    }
+    cameraTarget.x = Math.max(-HALF_MAP + 12, Math.min(HALF_MAP - 12, cameraTarget.x));
+    cameraTarget.z = Math.max(-HALF_MAP + 12, Math.min(HALF_MAP - 12, cameraTarget.z));
+
+    camera.position.set(
+      cameraTarget.x + Math.sin(camYaw) * Math.cos(camPitch) * camDistance,
+      Math.sin(camPitch) * camDistance,
+      cameraTarget.z + Math.cos(camYaw) * Math.cos(camPitch) * camDistance
+    );
+    camera.lookAt(cameraTarget);
+
+    if (gameState.running && dt > 0) {
+      // 2. Day / Night Progression & Eclipse Siege Waves
+      gameState.phaseTimer += dt;
+      const phaseDuration = gameState.isNight ? gameState.nightDuration : gameState.dayDuration;
+      const pct = Math.min(100, (gameState.phaseTimer / phaseDuration) * 100);
+      document.getElementById('wave-timer-bar').style.width = `${pct}%`;
+      document.getElementById('btn-call-wave').disabled = gameState.isNight;
+
+      const phaseDot = document.getElementById('phase-dot');
+      const phaseLbl = document.getElementById('phase-label');
+      if (gameState.isNight) {
+        phaseDot.classList.add('night');
+        phaseLbl.textContent = `NIGHT ${gameState.dayNumber}/${gameState.maxNights} // ECLIPSE SIEGE`;
+      } else {
+        phaseDot.classList.remove('night');
+        phaseLbl.textContent = `DAY ${gameState.dayNumber}/${gameState.maxNights} // DAWN PREP`;
+      }
+
+      if (gameState.phaseTimer >= phaseDuration) {
+        if (!gameState.isNight) {
+          triggerEclipseWave(0);
+        } else {
+          // Dawn breaks!
+          gameState.isNight = false;
+          gameState.phaseTimer = 0;
+          if (gameState.dayNumber >= gameState.maxNights) {
+            // Survived all 5 Eclipse Nights -> Survival Victory!
+            gameState.running = false;
+            document.getElementById('end-badge').textContent = 'SURVIVAL VICTORY';
+            document.getElementById('end-title').textContent = 'THE DAWN BREAKS ETERNAL!';
+            document.getElementById('end-summary').innerHTML =
+              `Your Solar Bastion withstood all <strong>${gameState.maxNights} Eclipse Night Sieges</strong>!`;
+            document.getElementById('end-modal').style.display = 'flex';
+          } else {
+            gameState.dayNumber++;
+            gameState.gold += 100;
+            showToast(`☀️ DAWN OF DAY ${gameState.dayNumber}: SURVIVAL BONUS +100 GOLD!`);
+          }
+        }
+      }
+
+      // Smooth Day/Night Lighting Interpolation
+      const targetSunColor = new THREE.Color(gameState.isNight ? 0x4361ee : 0xffeed4);
+      const targetFogColor = new THREE.Color(gameState.isNight ? 0x090b16 : 0x111927);
+      sunLight.color.lerp(targetSunColor, dt * 1.5);
+      sunLight.intensity += ((gameState.isNight ? 0.45 : 1.25) - sunLight.intensity) * dt * 1.5;
+      sanctumLight.intensity += ((gameState.isNight ? 2.6 : 1.2) - sanctumLight.intensity) * dt * 2.0;
+      scene.fog.color.lerp(targetFogColor, dt * 1.5);
+      scene.background.lerp(targetFogColor, dt * 1.5);
+
+      // 3. Passive Economy Tick & Cooldowns
+      if (gameState.heroCooldowns.nova > 0) gameState.heroCooldowns.nova = Math.max(0, gameState.heroCooldowns.nova - dt);
+      if (gameState.heroCooldowns.aegis > 0) gameState.heroCooldowns.aegis = Math.max(0, gameState.heroCooldowns.aegis - dt);
+
+      economyAccumulator += dt;
+      if (economyAccumulator >= 1.0) {
+        economyAccumulator -= 1.0;
+        const homesteads = buildings.filter(b => !b.isEnemy && b.type === 'homestead').length;
+        const lumbers = buildings.filter(b => !b.isEnemy && b.type === 'lumber').length;
+        const quarries = buildings.filter(b => !b.isEnemy && b.type === 'quarry').length;
+
+        gameState.gold += 4 + homesteads * 3 + quarries * 4;
+        gameState.wood += 3 + lumbers * 4;
+        gameState.arcana += 1 + quarries * 3;
+
+        // Runic Masonry passive building repair
+        if (gameState.research.masonry) {
+          buildings.forEach(b => {
+            if (!b.isEnemy && b.hp < b.maxHp) b.hp = Math.min(b.maxHp, b.hp + 15);
+          });
+        }
+
+        // Respawn Hero Aurelius at Sanctum if fallen
+        if (heroUnit && heroUnit.hp <= 0 && sanctumBuilding) {
+          heroUnit = spawnUnit('hero', sanctumBuilding.pos.x, sanctumBuilding.pos.z + 5, false);
+          showToast('👑 HIGH PALADIN AURELIUS HAS RISEN AT THE SOLAR SANCTUM!');
+        }
+
+        updateTopHUD();
+        renderDeckCards();
+      }
+
+      // 4. Update Buildings (Turret Attacks & Floating Crystal Rotation)
+      for (let i = buildings.length - 1; i >= 0; i--) {
+        const b = buildings[i];
+        if (b.hp <= 0) {
+          scene.remove(b.mesh);
+          buildings.splice(i, 1);
+          continue;
+        }
+        const orb = b.mesh.getObjectByName('floatingOrb');
+        if (orb) {
+          orb.rotation.y += dt * 1.8;
+          orb.position.y += Math.sin(elapsed * 3.0 + i) * 0.005;
+        }
+
+        // Defensive attacks for Sanctum & Watchtowers
+        if (!b.isEnemy && (b.type === 'tower' || b.type === 'sanctum')) {
+          b.atkCooldown -= dt;
+          if (b.atkCooldown <= 0) {
+            const range = (b.type === 'sanctum' ? 20 : 18) * (gameState.research.fletching ? 1.25 : 1.0);
+            const target = findNearestTarget(b.pos, true, range);
+            if (target) {
+              const dmg = b.type === 'sanctum' ? (28 + gameState.sanctumTier * 12) : 24;
+              fireProjectile(b.pos.clone().add(new THREE.Vector3(0, 3.2, 0)), target, dmg, 0xffd166, 0, false);
+              b.atkCooldown = b.type === 'sanctum' ? 0.9 : 0.75;
+            }
+          }
+        }
+      }
+
+      // 5. Update Units (Workers, Combat AI, Movement & Separation)
+      for (let i = units.length - 1; i >= 0; i--) {
+        const u = units[i];
+        if (u.hp <= 0) {
+          if (!u.isEnemy && u.pop > 0) gameState.pop = Math.max(0, gameState.pop - u.pop);
+          scene.remove(u.mesh);
+          units.splice(i, 1);
+          continue;
+        }
+
+        if (u.buffTimer > 0) u.buffTimer -= dt;
+        const speedMult = u.buffTimer > 0 ? 1.35 : 1.0;
+        u.atkCooldown = Math.max(0, u.atkCooldown - dt * speedMult);
+
+        const weaponPivot = u.mesh.getObjectByName('weaponPivot');
+
+        // WORKER AUTONOMOUS GATHERING STATE MACHINE
+        if (u.type === 'worker' && (u.state === 'gather' || u.state === 'return' || u.state === 'idle')) {
+          if (!u.gatherNode && resourceNodes.length > 0) {
+            u.gatherNode = resourceNodes[i % resourceNodes.length];
+            u.state = 'gather';
+          }
+          const bundle = u.mesh.getObjectByName('carryBundle');
+          if (u.state === 'gather' && u.gatherNode) {
+            if (bundle) bundle.visible = false;
+            const d = u.pos.distanceTo(u.gatherNode.pos);
+            if (d > 2.1) {
+              const dir = u.gatherNode.pos.clone().sub(u.pos).normalize();
+              u.pos.addScaledVector(dir, u.speed * dt);
+              u.mesh.rotation.y = Math.atan2(dir.x, dir.z);
+            } else {
+              u.gatherTimer += dt;
+              if (weaponPivot) weaponPivot.rotation.x = Math.sin(elapsed * 12) * 0.65;
+              if (u.gatherTimer >= 2.2) {
+                u.gatherTimer = 0;
+                u.carryType = u.gatherNode.type;
+                u.carryAmount = 12;
+                u.state = 'return';
+              }
+            }
+          } else if (u.state === 'return' && sanctumBuilding) {
+            if (bundle) bundle.visible = true;
+            const d = u.pos.distanceTo(sanctumBuilding.pos);
+            if (d > 4.2) {
+              const dir = sanctumBuilding.pos.clone().sub(u.pos).normalize();
+              u.pos.addScaledVector(dir, u.speed * dt);
+              u.mesh.rotation.y = Math.atan2(dir.x, dir.z);
+            } else {
+              if (u.carryType === 'gold') gameState.gold += u.carryAmount;
+              else if (u.carryType === 'wood') gameState.wood += u.carryAmount;
+              else if (u.carryType === 'arcana') gameState.arcana += u.carryAmount;
+
+              const icon = u.carryType === 'gold' ? '☀️' : (u.carryType === 'wood' ? '🌲' : '💎');
+              addFloatingText(u.pos, `+${u.carryAmount}${icon}`, '#2ec4b6', 12);
+              u.state = 'gather';
+              updateTopHUD();
+            }
+          }
+        } else {
+          // COMBAT & MOVEMENT LOGIC
+          if (u.state === 'move' && u.targetPos) {
+            const d = u.pos.distanceTo(u.targetPos);
+            if (d > 0.6) {
+              const dir = u.targetPos.clone().sub(u.pos).normalize();
+              u.pos.addScaledVector(dir, u.speed * speedMult * dt);
+              u.mesh.rotation.y = Math.atan2(dir.x, dir.z);
+            } else {
+              u.state = 'idle';
+              u.targetPos = null;
+            }
+          } else {
+            // Auto-acquire nearest target within aggro radius
+            if (!u.targetEntity || u.targetEntity.hp <= 0) {
+              const aggroRange = u.isEnemy ? 120 : 18;
+              u.targetEntity = findNearestTarget(u.pos, !u.isEnemy, aggroRange);
+            }
+
+            if (u.targetEntity && u.targetEntity.hp > 0) {
+              const targetRad = u.targetEntity.radius || 0.7;
+              const dist = u.pos.distanceTo(u.targetEntity.pos) - targetRad;
+
+              if (dist <= u.range) {
+                // In range -> Attack!
+                const lookDir = u.targetEntity.pos.clone().sub(u.pos);
+                u.mesh.rotation.y = Math.atan2(lookDir.x, lookDir.z);
+
+                if (u.atkCooldown <= 0) {
+                  u.atkCooldown = u.atkRate;
+                  if (weaponPivot) weaponPivot.rotation.x = 0.85;
+
+                  if (u.range > 4.0) {
+                    // Ranged / Mage projectile
+                    const pColor = u.isEnemy ? 0xb5179e : (u.type === 'mage' ? 0x4cc9f0 : 0xffd166);
+                    fireProjectile(u.pos, u.targetEntity, u.dmg, pColor, u.splash, u.isEnemy);
+                    if (u.type === 'mage') audio.playMagicBlast();
+                    else audio.playBowTwang();
+                  } else {
+                    // Melee strike (with optional AoE cleave)
+                    applyDamage(u.targetEntity, u.dmg, u.isEnemy);
+                    if (u.cleave) {
+                      units.forEach(other => {
+                        if (other !== u.targetEntity && other.isEnemy !== u.isEnemy && other.pos.distanceTo(u.targetEntity.pos) < 2.6) {
+                          applyDamage(other, Math.round(u.dmg * 0.6), u.isEnemy);
+                        }
+                      });
+                    }
+                    if (Math.random() < 0.35) audio.playSwordClash();
+                  }
+                }
+              } else {
+                // Chase target
+                const dir = u.targetEntity.pos.clone().sub(u.pos).normalize();
+                u.pos.addScaledVector(dir, u.speed * speedMult * dt);
+                u.mesh.rotation.y = Math.atan2(dir.x, dir.z);
+              }
+            }
+          }
+        }
+
+        // Smooth weapon swing recovery & walking bob
+        if (weaponPivot) {
+          weaponPivot.rotation.x += (0 - weaponPivot.rotation.x) * dt * 8;
+        }
+
+        // Unit-to-Unit & Building Soft Separation (Flocking)
+        for (let j = i - 1; j >= 0; j--) {
+          const other = units[j];
+          const dx = u.pos.x - other.pos.x;
+          const dz = u.pos.z - other.pos.z;
+          const dSq = dx * dx + dz * dz;
+          if (dSq < 1.3 && dSq > 0.0001) {
+            const d = Math.sqrt(dSq);
+            const push = (1.15 - d) * 0.5;
+            u.pos.x += (dx / d) * push;
+            u.pos.z += (dz / d) * push;
+            other.pos.x -= (dx / d) * push;
+            other.pos.z -= (dz / d) * push;
+          }
+        }
+
+        u.mesh.position.copy(u.pos);
+      }
+
+      // 6. Update Projectiles
+      for (let i = projectiles.length - 1; i >= 0; i--) {
+        const p = projectiles[i];
+        const dest = (p.target && p.target.hp > 0) ? p.target.pos.clone().add(new THREE.Vector3(0, 1.0, 0)) : p.targetPos;
+        const dir = dest.clone().sub(p.mesh.position);
+        const dist = dir.length();
+
+        if (dist <= p.speed * dt + 0.5) {
+          if (p.splash > 0) {
+            spawnParticleBurst(dest, p.colorHex, 14, 6);
+            units.forEach(u => {
+              if (u.isEnemy !== p.isEnemy && u.pos.distanceTo(dest) <= p.splash) {
+                applyDamage(u, p.dmg, p.isEnemy);
+              }
+            });
+          } else if (p.target && p.target.hp > 0) {
+            applyDamage(p.target, p.dmg, p.isEnemy);
+          }
+          scene.remove(p.mesh);
+          projectiles.splice(i, 1);
+        } else {
+          dir.normalize();
+          p.mesh.position.addScaledVector(dir, p.speed * dt);
+        }
+      }
+
+      // 7. Update Particles & Floating Combat Numbers
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const pt = particles[i];
+        pt.life -= dt;
+        pt.vel.y -= 14 * dt;
+        pt.mesh.position.addScaledVector(pt.vel, dt);
+        pt.mesh.scale.multiplyScalar(0.95);
+        if (pt.life <= 0) {
+          scene.remove(pt.mesh);
+          particles.splice(i, 1);
+        }
+      }
+
+      for (let i = floatingTexts.length - 1; i >= 0; i--) {
+        const ft = floatingTexts[i];
+        ft.life -= dt * 0.85;
+        ft.pos.y += dt * 2.2;
+        if (ft.life <= 0) floatingTexts.splice(i, 1);
+      }
+
+      if (waypointAnim > 0) {
+        waypointAnim = Math.max(0, waypointAnim - dt * 1.8);
+        waypointRing.material.opacity = waypointAnim;
+        waypointRing.scale.setScalar(0.5 + (1 - waypointAnim) * 0.8);
+      }
+
+      // 8. Refresh Fog of War & Inspector periodically
+      fowAccumulator += rawDt;
+      if (fowAccumulator >= 0.2) {
+        fowAccumulator = 0;
+        updateFogOfWar();
+        updateInspectorPanel();
+        checkVictoryDefeat();
+      }
+    }
+
+    renderer.render(scene, camera);
+    render2DOverlayAndMinimap();
+  }
+
+  // Boot initial preview diorama behind the title screen
+  initKingdomWorld();
+  updateFogOfWar();
+  animate();
+})();
+</script>
+</body>
+</html>

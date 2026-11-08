@@ -1,0 +1,984 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Equal Earth — Interactive Coordinate Lab</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+<script src="https://cdn.jsdelivr.net/npm/@svgdotjs/svg.js@3.2.0/dist/svg.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
+
+<style>
+  :root{
+    --bg0:#060b11;
+    --panel:rgba(10,18,27,.84);
+    --line:rgba(122,168,205,.16);
+    --text:#d9e8f5;
+    --muted:#7d97ac;
+    --dim:#4c6275;
+    --amber:#ffb54d;
+    --teal:#4fd8e0;
+    --mono:'IBM Plex Mono',ui-monospace,monospace;
+    --disp:'Space Grotesk',system-ui,sans-serif;
+  }
+  html,body{height:100%;}
+  body{
+    margin:0; background:var(--bg0); color:var(--text);
+    font-family:var(--disp); overflow:hidden;
+    -webkit-user-select:none; user-select:none;
+  }
+
+  /* ---------- ambient background ---------- */
+  #bgfx{position:fixed; inset:0; z-index:0; pointer-events:none;}
+  #bgfx .grid{position:absolute; inset:0;
+    background-image:radial-gradient(rgba(126,177,214,.055) 1px, transparent 1.35px);
+    background-size:26px 26px;}
+  .glow{position:absolute; width:62vmax; height:62vmax; border-radius:50%; filter:blur(70px);}
+  .g1{left:-16vmax; top:-22vmax; background:radial-gradient(circle, rgba(24,68,104,.55), transparent 65%);
+      animation:drift1 46s ease-in-out infinite alternate;}
+  .g2{right:-20vmax; bottom:-24vmax; background:radial-gradient(circle, rgba(16,86,84,.42), transparent 65%);
+      animation:drift2 58s ease-in-out infinite alternate;}
+  @keyframes drift1{to{transform:translate(9vmax,7vmax);}}
+  @keyframes drift2{to{transform:translate(-8vmax,-6vmax);}}
+  #bgfx .vig{position:absolute; inset:0;
+    background:radial-gradient(ellipse at 50% 42%, transparent 52%, rgba(2,6,10,.6) 100%);}
+
+  /* ---------- stage ---------- */
+  #stage{position:fixed; inset:0; z-index:1; cursor:crosshair; touch-action:none;}
+  #stage:active{cursor:grabbing;}
+  #stage svg{display:block;}
+
+  /* ---------- svg map styling ---------- */
+  #ocean{stroke:rgba(150,200,235,.34); stroke-width:1.1; vector-effect:non-scaling-stroke;}
+  #sphereLine{stroke:rgba(150,200,235,.16); stroke-width:1; vector-effect:non-scaling-stroke;}
+  #landGlow{fill:#2c5f85; opacity:.35; filter:blur(6px);}
+  #countries{opacity:0; transition:opacity 1s ease .1s;}
+  #countries.ready{opacity:1;}
+  .country{fill:#1f4258; stroke:#0a1826; stroke-width:.6; vector-effect:non-scaling-stroke; fill-rule:evenodd; transition:fill .18s ease;}
+  .country:hover{fill:#2d5c7b;}
+  .grat-minor{fill:none; stroke:rgba(126,177,214,.12); stroke-width:.6; vector-effect:non-scaling-stroke;}
+  .grat-major{fill:none; stroke:rgba(126,177,214,.28); stroke-width:.8; vector-effect:non-scaling-stroke;}
+  #cross line{stroke:rgba(95,214,224,.30); stroke-width:1; stroke-dasharray:3 6;}
+  #cross{opacity:0; transition:opacity .25s;}
+  #cross.on{opacity:1;}
+  #curDot{fill:var(--teal); opacity:.75;}
+
+  .mk{cursor:pointer;}
+  .mk-inner{transform-box:fill-box; transform-origin:center; animation:mkDrop .55s cubic-bezier(.18,1.5,.4,1);}
+  @keyframes mkDrop{from{transform:scale(0); opacity:0;} to{transform:scale(1); opacity:1;}}
+  .mk-ping{transform-box:fill-box; transform-origin:center; animation:mkPing 1.15s ease-out forwards; pointer-events:none;}
+  @keyframes mkPing{from{transform:scale(.3); opacity:.95;} to{transform:scale(3.6); opacity:0;}}
+  .mk-ring{transform-box:fill-box; transform-origin:center; transition:transform .2s ease;}
+  .mk:hover .mk-ring{transform:scale(1.4);}
+  .mk text{stroke:#08131d; stroke-width:3px; paint-order:stroke; stroke-linejoin:round;
+    font-family:var(--mono); pointer-events:none;}
+
+  /* ---------- ui overlay ---------- */
+  #ui{position:fixed; inset:0; z-index:2; pointer-events:none;}
+  #ui .card, #ui .panel, #ui .zoomctl{pointer-events:auto;}
+
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:10px;
+    backdrop-filter:blur(12px) saturate(1.15); -webkit-backdrop-filter:blur(12px) saturate(1.15);
+    box-shadow:0 14px 44px rgba(1,5,10,.5);}
+
+  .ui-in{opacity:0; animation:uiIn .7s cubic-bezier(.2,.8,.3,1) forwards; animation-delay:var(--d,0s);}
+  @keyframes uiIn{from{opacity:0; transform:translateY(10px);} to{opacity:1; transform:none;}}
+
+  /* header */
+  #hdr{position:absolute; left:20px; top:20px; padding:15px 18px 13px;}
+  #hdr .overline{font:600 9.5px var(--mono); letter-spacing:.24em; color:var(--muted); margin-bottom:7px;}
+  #hdr h1{margin:0; font-size:clamp(24px,3vw,33px); font-weight:700; letter-spacing:-.02em; line-height:1;}
+  #hdr h1 span{color:var(--amber);}
+  #hdr .sub{margin-top:7px; font:500 11.5px var(--mono); color:#a9c3d8; letter-spacing:.03em;}
+  #hdr .sub em{color:var(--teal); font-style:normal;}
+  #hdr .attrs{margin-top:5px; font:400 9.5px var(--mono); color:var(--dim); letter-spacing:.05em;}
+  #hdr .rule{width:44px; height:2px; background:linear-gradient(90deg,var(--amber),transparent); margin-top:10px; border-radius:2px;}
+
+  /* hud */
+  #hud{position:absolute; right:20px; top:20px; display:flex; flex-direction:column; gap:10px; width:252px;}
+  .hud-card{padding:12px 14px 11px;}
+  .hud-head{display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;}
+  .hud-title{font:600 9.5px var(--mono); letter-spacing:.26em; color:var(--muted);}
+  .status{display:flex; gap:6px; align-items:center; font:600 8.5px var(--mono); letter-spacing:.16em; color:var(--teal);}
+  .status i{width:6px; height:6px; border-radius:50%; background:currentColor; box-shadow:0 0 8px currentColor; animation:blink 2.4s infinite;}
+  .status.out{color:#5c7186;}
+  .status.out i{box-shadow:none; animation:none;}
+  @keyframes blink{0%,100%{opacity:1;} 50%{opacity:.35;}}
+  .read{font:500 16.5px var(--mono); letter-spacing:.03em; line-height:1.4;}
+  .read.amber-t{color:var(--amber);}
+  .read-dms{font:400 9.5px var(--mono); color:var(--muted); margin-top:4px; letter-spacing:.04em; line-height:1.5;}
+  .hover-geo{font:500 9px var(--mono); color:var(--teal); letter-spacing:.18em; min-height:13px; margin-top:7px;
+    opacity:0; transition:opacity .2s;}
+  .hover-geo.show{opacity:1;}
+
+  /* panel */
+  #panel{position:absolute; left:20px; bottom:20px; width:352px; max-width:calc(100vw - 40px);}
+  .panel-head{display:flex; justify-content:space-between; align-items:center; padding:13px 16px 0;}
+  .panel-head h2{margin:0; font:700 12.5px var(--disp); letter-spacing:.1em; text-transform:uppercase;}
+  .panel-head small{display:block; font:400 9.5px var(--mono); color:var(--muted); letter-spacing:.04em; margin-top:3px; text-transform:none;}
+  #panelToggle{background:none; border:1px solid var(--line); color:var(--muted); width:26px; height:26px;
+    border-radius:7px; cursor:pointer; font-size:12px; line-height:1; transition:.2s;}
+  #panelToggle:hover{color:var(--amber); border-color:rgba(255,181,77,.5);}
+  #panel.collapsed #panelToggle{transform:rotate(180deg);}
+  .panel-body{padding:12px 16px 14px; max-height:430px; overflow:hidden; transition:max-height .35s ease, opacity .3s ease, padding .35s ease;}
+  #panel.collapsed .panel-body{max-height:0; opacity:0; padding-top:0; padding-bottom:0;}
+
+  .plot-row{display:grid; grid-template-columns:.9fr 1.15fr 1fr 72px; gap:8px; align-items:end;}
+  .plot-row label{display:flex; flex-direction:column; gap:5px; font:600 8.5px var(--mono); letter-spacing:.2em; color:var(--muted);}
+  .plot-row input{background:#0a141f; border:1px solid rgba(122,168,205,.22); border-radius:7px; color:var(--text);
+    font:500 12.5px var(--mono); padding:8px 9px; outline:none; width:100%; transition:border-color .15s, box-shadow .15s;}
+  .plot-row input:focus{border-color:rgba(255,181,77,.65); box-shadow:0 0 0 3px rgba(255,181,77,.12);}
+  .plot-row input::placeholder{color:#3d5568;}
+  input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;}
+  .btn-plot{background:var(--amber); color:#14202c; border:none; border-radius:7px; font:700 11.5px var(--disp);
+    letter-spacing:.08em; padding:9px 0; cursor:pointer; transition:transform .15s, filter .15s;
+    box-shadow:0 6px 18px rgba(255,181,77,.25);}
+  .btn-plot:hover{filter:brightness(1.12); transform:translateY(-1px);}
+  .btn-plot:active{transform:translateY(0);}
+
+  .chips{display:flex; flex-wrap:wrap; gap:6px; margin:11px 0 4px;}
+  .chip{border:1px solid rgba(122,168,205,.24); color:#a9c3d8; border-radius:999px; font:500 10px var(--mono);
+    padding:4px 11px; cursor:pointer; background:transparent; transition:.15s; letter-spacing:.02em;}
+  .chip:hover{border-color:var(--amber); color:var(--amber); background:rgba(255,181,77,.08); transform:translateY(-1px);}
+
+  .list-head{display:flex; justify-content:space-between; align-items:baseline; margin-top:12px;
+    font:600 9px var(--mono); letter-spacing:.24em; color:var(--muted);}
+  .list-head b{color:var(--amber); letter-spacing:.1em;}
+  .list-head .hint{letter-spacing:.08em; color:var(--dim); font-weight:400;}
+  .mk-list{max-height:148px; overflow-y:auto; margin-top:6px; display:flex; flex-direction:column; gap:3px;}
+  .mk-list::-webkit-scrollbar{width:7px;}
+  .mk-list::-webkit-scrollbar-thumb{background:rgba(122,168,205,.2); border-radius:4px;}
+  .mk-row{display:flex; align-items:center; gap:10px; padding:6px 8px; border-radius:7px; cursor:pointer;
+    border:1px solid transparent; transition:.15s;}
+  .mk-row:hover{background:rgba(122,168,205,.07); border-color:rgba(122,168,205,.16); transform:translateX(3px);}
+  .mk-dot{width:9px; height:9px; border-radius:50%; flex:none; box-shadow:0 0 7px rgba(255,255,255,.12);}
+  .mk-info{flex:1; min-width:0; display:flex; flex-direction:column;}
+  .mk-info b{font:600 11.5px var(--disp); letter-spacing:.02em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .mk-info small{font:400 9px var(--mono); color:var(--muted); letter-spacing:.03em;}
+  .mk-x{opacity:0; background:none; border:none; color:var(--muted); font-size:15px; cursor:pointer; padding:1px 7px; line-height:1; transition:.15s;}
+  .mk-row:hover .mk-x{opacity:1;}
+  .mk-x:hover{color:#ff8484;}
+  .mk-empty{font:400 10px var(--mono); color:var(--dim); padding:7px 4px; letter-spacing:.03em;}
+  .foot{font:400 9px var(--mono); color:var(--dim); margin-top:11px; letter-spacing:.06em; line-height:1.7;}
+
+  /* zoom controls */
+  #zoomctl{position:absolute; right:20px; bottom:20px; display:flex; flex-direction:column; gap:8px; align-items:center;}
+  #zoomctl button{width:40px; height:40px; border-radius:9px; background:var(--panel); border:1px solid var(--line);
+    color:#cfe3f2; font:500 19px var(--mono); cursor:pointer; backdrop-filter:blur(10px); transition:.15s;
+    box-shadow:0 10px 26px rgba(1,5,10,.45);}
+  #zoomctl button:hover{border-color:rgba(79,216,224,.6); color:var(--teal); transform:translateY(-2px);}
+  #zoomctl button:active{transform:translateY(0);}
+  .z-pct{font:500 9.5px var(--mono); color:var(--muted); letter-spacing:.18em;}
+
+  /* formula strip */
+  #formula{position:absolute; left:50%; bottom:13px; transform:translateX(-50%); text-align:center;
+    font:400 9.5px var(--mono); color:#5d7791; letter-spacing:.02em; line-height:1.8; pointer-events:none;
+    max-width:94vw; white-space:nowrap;}
+  #formula b{color:#8fb2cc; font-weight:600;}
+  #formula .f2{color:#40546a;}
+  #formula .sep{color:#2c3f52; padding:0 10px;}
+  @media (max-width:1120px){#formula{display:none;}}
+
+  /* loader */
+  #loader{position:fixed; inset:0; z-index:50; background:rgba(5,10,16,.74); backdrop-filter:blur(6px);
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:20px;
+    transition:opacity .45s ease;}
+  #loader.hide{opacity:0; pointer-events:none;}
+  .spinner{width:46px; height:46px; border-radius:50%; border:2px solid rgba(122,168,205,.18);
+    border-top-color:var(--amber); animation:spin .85s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .l-t{font:500 10.5px var(--mono); letter-spacing:.32em; color:var(--muted);}
+
+  /* toast */
+  #toast{position:fixed; top:18px; left:50%; transform:translate(-50%,-8px); z-index:60;
+    background:var(--panel); border:1px solid rgba(255,181,77,.4); border-radius:9px; padding:10px 18px;
+    font:500 11px var(--mono); color:#ffd9a1; letter-spacing:.03em; opacity:0; pointer-events:none;
+    transition:.3s; backdrop-filter:blur(10px);}
+  #toast.show{opacity:1; transform:translate(-50%,0);}
+
+  .shake{animation:shake .4s;}
+  @keyframes shake{0%,100%{transform:translateX(0);} 25%{transform:translateX(-5px);} 50%{transform:translateX(5px);} 75%{transform:translateX(-3px);}}
+
+  @media (max-width:760px){
+    #hdr{left:12px; top:12px; padding:12px 14px 11px;}
+    #hud{right:12px; top:12px; width:196px;}
+    .read{font-size:13.5px;}
+    .read-dms{display:none;}
+    #panel{left:12px; bottom:12px; width:calc(100vw - 84px);}
+    #zoomctl{right:14px; bottom:14px;}
+    #zoomctl button{width:36px; height:36px;}
+    .z-pct{display:none;}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation-duration:.001s !important; transition-duration:.001s !important;}
+  }
+</style>
+</head>
+<body>
+
+<div id="bgfx" aria-hidden="true">
+  <div class="grid"></div>
+  <div class="glow g1"></div>
+  <div class="glow g2"></div>
+  <div class="vig"></div>
+</div>
+
+<div id="stage"></div>
+
+<div id="ui">
+
+  <header id="hdr" class="card ui-in" style="--d:.05s">
+    <div class="overline">SVG.JS &nbsp;·&nbsp; VECTOR WORLD &nbsp;·&nbsp; EPSG:8857</div>
+    <h1>Equal <span>Earth</span></h1>
+    <div class="sub">pseudocylindrical equal-area &nbsp;<em>λ, φ ⇄ x, y</em>&nbsp; coordinate lab</div>
+    <div class="attrs">Šavrič · Patterson · Jenny — <em>Equal Earth</em>, IJGIS 33(3), 2018</div>
+    <div class="rule"></div>
+  </header>
+
+  <div id="hud" class="ui-in" style="--d:.18s">
+    <div class="card hud-card">
+      <div class="hud-head">
+        <span class="hud-title">CURSOR</span>
+        <span class="status out" id="curStatus"><i></i><b id="curStatusName">—</b></span>
+      </div>
+      <div class="read" id="curLat">········</div>
+      <div class="read" id="curLng">········</div>
+      <div class="read-dms" id="curDms">move over the map — inverse projection, live</div>
+      <div class="hover-geo" id="hoverGeo"></div>
+    </div>
+    <div class="card hud-card">
+      <div class="hud-head">
+        <span class="hud-title">LAST CLICK</span>
+        <span class="status out" id="clkStatus"><i></i><b id="clkStatusName">—</b></span>
+      </div>
+      <div class="read amber-t" id="clkLat">——————</div>
+      <div class="read amber-t" id="clkLng">——————</div>
+      <div class="read-dms" id="clkDms">click anywhere on the map → lat / λ</div>
+    </div>
+  </div>
+
+  <section id="panel" class="card panel ui-in" style="--d:.3s">
+    <div class="panel-head">
+      <h2>Forward projection<small>lat / λ → projected x, y → screen</small></h2>
+      <button id="panelToggle" title="Collapse panel">⌄</button>
+    </div>
+    <div class="panel-body" id="panelBody">
+      <form id="plotForm" class="plot-row" autocomplete="off">
+        <label>LAT<input id="inLat" type="number" step="any" min="-90" max="90" placeholder="51.5074" required></label>
+        <label>LONG<input id="inLng" type="number" step="any" min="-180" max="180" placeholder="-0.1278" required></label>
+        <label>LABEL<input id="inName" type="text" maxlength="22" placeholder="place…"></label>
+        <button type="submit" class="btn-plot">PLOT&nbsp;✛</button>
+      </form>
+      <div class="chips" id="chips"></div>
+      <div class="list-head"><span>MARKERS <b id="mkCount">0</b></span><span class="hint">row → fly &nbsp;·&nbsp; × → remove</span></div>
+      <div id="mkList" class="mk-list"></div>
+      <div class="foot">wheel = zoom · drag = pan · click = read lat/λ · dbl-click = zoom in · pinch on touch<br>zoom &amp; pan are exact similarity transforms — projection stays true at any scale</div>
+    </div>
+  </section>
+
+  <div id="zoomctl" class="ui-in" style="--d:.42s">
+    <button id="zin" title="Zoom in (+)">+</button>
+    <button id="zout" title="Zoom out (−)">−</button>
+    <button id="zreset" title="Reset view (0)">⟲</button>
+    <div class="z-pct" id="zPct">100%</div>
+  </div>
+
+  <div id="formula" class="ui-in" style="--d:.6s">
+    <div><b>θ</b> = asin( M·sin φ )<span class="sep">|</span>x = λ·cos θ ⁄ ( M·(A₁ + 3A₂θ² + θ⁶(7A₃ + 9A₄θ²)) )<span class="sep">|</span>y = θ·( A₁ + A₂θ² + θ⁶(A₃ + Aθ²) )</div>
+    <div class="f2">M = √3⁄2 = 0.86602540 &nbsp;·&nbsp; A₁ 1.340264 · A₂ −0.081106 · A₃ 0.000893 · A₄ 0.003796 &nbsp;·&nbsp; aspect 2.05458 : 1</div>
+  </div>
+
+</div>
+
+<div id="loader">
+  <div class="spinner"></div>
+  <div class="l-t">ACQUIRING 1:110M COASTLINES — NATURAL EARTH</div>
+</div>
+<div id="toast"></div>
+
+<script>
+(() => {
+'use strict';
+
+/* =====================================================================
+   1 · helpers
+===================================================================== */
+const $ = (s) => document.querySelector(s);
+const stageEl = $('#stage');
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+const esc = (s) => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+function fmtLat(lat){
+  const v = Math.abs(lat).toFixed(4).padStart(7,'0');
+  return v + '° ' + (lat < 0 ? 'S' : 'N');
+}
+function fmtLng(lng){
+  const v = Math.abs(lng).toFixed(4).padStart(8,'0');
+  return v + '° ' + (lng < 0 ? 'W' : 'E');
+}
+function dms(v, isLat){
+  const h = isLat ? (v < 0 ? 'S' : 'N') : (v < 0 ? 'W' : 'E');
+  v = Math.abs(v);
+  let d = Math.floor(v), mf = (v - d) * 60, m = Math.floor(mf), s = (mf - m) * 60;
+  if (s >= 59.95){ s = 0; m++; if (m >= 60){ m = 0; d++; } }
+  return String(d).padStart(isLat ? 2 : 3, '0') + '° ' +
+         String(m).padStart(2,'0') + '′ ' +
+         s.toFixed(1).padStart(4,'0') + '″ ' + h;
+}
+function toast(msg){
+  const t = $('#toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._h);
+  t._h = setTimeout(() => t.classList.remove('show'), 6000);
+}
+
+/* =====================================================================
+   2 · Equal Earth projection  (Šavrič, Patterson & Jenny, 2018)
+      x = λ·cos θ / ( M·(A₁ + 3A₂θ² + θ⁶(7A₃ + 9A₄θ²)) )
+y = θ·( A₁ + A₂θ² + θ⁶(A₃ + A₄θ²) )
+      sin θ = M·sin φ ,  M = √3/2
+===================================================================== */
+const D2R = Math.PI / 180, R2D = 180 / Math.PI;
+const M  = Math.sqrt(3) / 2;
+const A1 = 1.340264, A2 = -0.081106, A3 = 0.000893, A4 = 0.003796;
+
+function eeForward(lngDeg, latDeg){          // degrees → raw projected units (unit sphere)
+  const lam = lngDeg * D2R, phi = latDeg * D2R;
+  const l  = Math.asin(M * Math.sin(phi));
+  const l2 = l * l, l6 = l2 * l2 * l2;
+  const x = lam * Math.cos(l) / (M * (A1 + 3*A2*l2 + l6*(7*A3 + 9*A4*l2)));
+  const y = l * (A1 + A2*l2 + l6*(A3 + A4*l2));
+  return [x, y];
+}
+function eeInverse(x, y){                    // raw projected units → degrees [lng, lat]
+  let l = y;                                  // Newton, d3-geo reference scheme
+  for (let i = 0; i < 28; i++){
+    const l2 = l*l, l6 = l2*l2*l2;
+    const fy  = l * (A1 + A2*l2 + l6*(A3 + A4*l2)) - y;
+    const fpy = A1 + 3*A2*l2 + l6*(7*A3 + 9*A4*l2);
+    const d = fy / fpy;
+    l -= d;
+    if (!isFinite(l) || Math.abs(l) > 2.5) l = clamp(y, -1.35, 1.35);
+    if (Math.abs(d) < 1e-13) break;
+  }
+  const l2 = l*l, l6 = l2*l2*l2;
+  const P  = A1 + 3*A2*l2 + l6*(7*A3 + 9*A4*l2);
+  const lam = M * x * P / Math.cos(l);
+  const phi = Math.asin(clamp(Math.sin(l) / M, -1, 1));
+  return [lam * R2D, phi * R2D];
+}
+
+/* analytic extremes of the domain (sphere outline) */
+let XMAX = 0;
+for (let lat = -90; lat <= 90; lat += 0.5) XMAX = Math.max(XMAX, Math.abs(eeForward(180, lat)[0]));
+const YMAX = eeForward(0, 90)[1];
+
+/* =====================================================================
+   3 · state & base/screen transforms
+      base coords: geo → projection → ×baseScale, centred on (0,0)
+      screen      = k · base + t      (exact similarity transform)
+===================================================================== */
+let W = 0, H = 0, baseScale = 1, firstFit = true;
+const view = { k: 1, tx: 0, ty: 0 };
+const KMIN = 0.75, KMAX = 64;
+
+function projectBase(lng, lat){ const r = eeForward(lng, lat); return [r[0] * baseScale, -r[1] * baseScale]; }
+function screenToBase(sx, sy){ return [(sx - view.tx) / view.k, (sy - view.ty) / view.k]; }
+function baseToScreen(bx, by){ return [view.k * bx + view.tx, view.k * by + view.ty]; }
+
+function geoOfScreen(sx, sy){
+  const [bx, by] = screenToBase(sx, sy);
+  const x = bx / baseScale, y = -by / baseScale;
+  if (Math.abs(y) > YMAX + 1e-9) return null;
+  const [lng, lat] = eeInverse(x, y);
+  if (!isFinite(lng) || !isFinite(lat)) return null;
+  if (Math.abs(lng) > 180 + 1e-6 || Math.abs(lat) > 90 + 1e-6) return null;
+  return { lat: clamp(lat, -90, 90), lng: clamp(lng, -180, 180) };
+}
+
+/* =====================================================================
+   4 · SVG scaffolding (SVG.js)
+===================================================================== */
+const drawing = SVG().addTo(stageEl);
+const defs = drawing.defs();
+
+const grad = defs.gradient('radial', (add) => {
+  add.stop({ offset: '0%',   color: '#173c58' });
+  add.stop({ offset: '55%',  color: '#112c42' });
+  add.stop({ offset: '100%', color: '#0b1d2e' });
+});
+grad.attr({ cx: 0.5, cy: 0.40, r: 0.85 });
+
+const mapLayer   = drawing.group().id('mapLayer');
+const ocean      = mapLayer.path('').fill('url(#' + grad.id() + ')').id('ocean');
+const clipped    = mapLayer.group().id('clipped');
+const clip       = defs.clip();
+const clipPathEl = clip.path('');
+clipped.attr('clip-path', 'url(#' + clip.id() + ')');
+
+const landGlow = clipped.path('').id('landGlow');
+const gratMinor = clipped.path('');
+gratMinor.node.classList.add('grat-minor');
+const gratMajor = clipped.path('');
+gratMajor.node.classList.add('grat-major');
+const countriesGroup = clipped.group().id('countries');
+const sphereLine = mapLayer.path('').fill('none').id('sphereLine');
+
+const overlay = drawing.group().id('overlay');
+const crossG  = overlay.group().id('cross');
+const chH = crossG.line(-60, 0, W + 60, 0);
+const chV = crossG.line(0, -60, 0, H + 60);
+const curDot = crossG.circle(2.5).id('curDot');
+const fx = overlay.group();
+const markersGroup = overlay.group().id('markersG');
+
+/* =====================================================================
+   5 · geometry builders (base coordinates)
+===================================================================== */
+function sphereD(){
+  const N = 360;
+  let d = '';
+  for (let i = 0; i <= N; i++){
+    const p = projectBase(180, 90 - 180 * i / N);
+    d += (i ? 'L' : 'M') + p[0].toFixed(2) + ' ' + p[1].toFixed(2);
+  }
+  for (let i = 0; i <= N; i++){
+    const p = projectBase(-180, -90 + 180 * i / N);
+    d += 'L' + p[0].toFixed(2) + ' ' + p[1].toFixed(2);
+  }
+  return d + 'Z';
+}
+function gratDs(){
+  let minor = '', major = '';
+  for (let lng = -165; lng <= 165; lng += 15){
+    let d = '';
+    for (let lat = -90; lat <= 90; lat += 3){
+      const p = projectBase(lng, lat);
+      d += (d ? 'L' : 'M') + p[0].toFixed(2) + ' ' + p[1].toFixed(2);
+    }
+    if (lng === 0) major += d; else minor += d;
+  }
+  for (let lat = -75; lat <= 75; lat += 15){
+    let d = '';
+    for (let lng = -180; lng <= 180; lng += 3){
+      const p = projectBase(lng, lat);
+      d += (d ? 'L' : 'M') + p[0].toFixed(2) + ' ' + p[1].toFixed(2);
+    }
+    if (lat === 0) major += d; else minor += d;
+  }
+  return [minor, major];
+}
+
+/* antimeridian-safe rings: unwrap to a continuous longitude, then draw
+   every 360° copy that intersects the frame (sphere clip trims the rest) */
+function ringUnwrap(ring){
+  let n = ring.length;
+  if (n > 2 && ring[n-1][0] === ring[0][0] && ring[n-1][1] === ring[0][1]) n--;
+  if (n < 3) return null;
+  const L = new Array(n), lats = new Array(n);
+  L[0] = ring[0][0]; lats[0] = ring[0][1];
+  for (let j = 1; j < n; j++){
+    let d = ring[j][0] - ring[j-1][0];
+    if (d > 180) d -= 360; else if (d < -180) d += 360;
+    L[j] = L[j-1] + d; lats[j] = ring[j][1];
+  }
+  let minL = L[0], maxL = L[0];
+  for (let j = 1; j < n; j++){ if (L[j] < minL) minL = L[j]; if (L[j] > maxL) maxL = L[j]; }
+  return { L, lats, sMin: Math.ceil((minL - 180 - 1e-9) / 360), sMax: Math.floor((maxL + 180 + 1e-9) / 360) };
+}
+function ringLD(rd){
+  let d = '';
+  for (let s = rd.sMin; s <= rd.sMax; s++){
+    for (let j = 0; j < rd.L.length; j++){
+      const p = projectBase(rd.L[j] - 360 * s, rd.lats[j]);
+      d += (j ? 'L' : 'M') + p[0].toFixed(2) + ' ' + p[1].toFixed(2);
+    }
+    d += 'Z';
+  }
+  return d;
+}
+const ringsD = (rings) => rings.map(ringLD).join('');
+function geomRings(geom){
+  const polys = geom.type === 'Polygon' ? [geom.coordinates]
+              : geom.type === 'MultiPolygon' ? geom.coordinates : [];
+  const out = [];
+  for (const poly of polys) for (const ring of poly){
+    const ru = ringUnwrap(ring);
+    if (ru) out.push(ru);
+  }
+  return out;
+}
+
+let countryItems = [], landRings = [];
+
+function buildGeometry(){
+  const sd = sphereD();
+  ocean.node.setAttribute('d', sd);
+  sphereLine.node.setAttribute('d', sd);
+  clipPathEl.node.setAttribute('d', sd);
+  const g = gratDs();
+  gratMinor.node.setAttribute('d', g[0]);
+  gratMajor.node.setAttribute('d', g[1]);
+  chH.node.setAttribute('x2', W + 60);
+  chV.node.setAttribute('y2', H + 60);
+  if (landRings.length) landGlow.node.setAttribute('d', ringsD(landRings));
+  for (const it of countryItems) it.el.setAttribute('d', ringsD(it.rings));
+}
+
+function computeScale(w, h){
+  return Math.min((w * 0.90) / (2 * XMAX), (h * 0.84) / (2 * YMAX));
+}
+function fit(){
+  const w = stageEl.clientWidth, h = stageEl.clientHeight;
+  if (!w || !h) return;
+  const newScale = computeScale(w, h);
+  if (firstFit){
+    W = w; H = h; drawing.size(w, h);
+    baseScale = newScale;
+    view.k = 1; view.tx = W / 2; view.ty = H / 2;
+    firstFit = false;
+  } else if (w !== W || h !== H){
+    const ratio = newScale / baseScale;
+    const c = screenToBase(W / 2, H / 2);            // geo point at centre (old base units)
+    W = w; H = h; drawing.size(w, h);
+    baseScale = newScale;
+    view.tx = W / 2 - view.k * c[0] * ratio;         // keep geographic centre fixed
+    view.ty = H / 2 - view.k * c[1] * ratio;
+  } else return;
+  buildGeometry();
+  applyView();
+}
+
+/* =====================================================================
+   6 · world data (Natural Earth 1:110m via world-atlas TopoJSON)
+===================================================================== */
+function buildWorld(topo){
+  countriesGroup.node.innerHTML = '';
+  countryItems = [];
+  if (topo.objects.land){
+    const lf = topojson.feature(topo, topo.objects.land);
+    const g = lf.geometry || (lf.type === 'FeatureCollection' && lf.features[0] ? lf.features[0].geometry : null);
+    landRings = g ? geomRings(g) : [];
+  }
+  if (topo.objects.countries){
+    const fc = topojson.feature(topo, topo.objects.countries);
+    const NS = 'http://www.w3.org/2000/svg';
+    for (const f of fc.features){
+      if (!f.geometry) continue;
+      const rings = geomRings(f.geometry);
+      if (!rings.length) continue;
+      const p = document.createElementNS(NS, 'path');
+      p.setAttribute('d', ringsD(rings));
+      p.classList.add('country');
+      p.dataset.name = ((f.properties || {}).name) || 'Territory';
+      countriesGroup.node.appendChild(p);
+      countryItems.push({ el: p, rings });
+    }
+  }
+  buildGeometry();
+  requestAnimationFrame(() => countriesGroup.node.classList.add('ready'));
+}
+
+async function loadWorld(){
+  try{
+    const t0 = performance.now();
+    const res = await fetch('https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/countries-110m.json');
+    if (!res.ok) throw new Error('http ' + res.status);
+    const topo = await res.json();
+    buildWorld(topo);
+    const ms = Math.round(performance.now() - t0);
+    const loader = $('#loader');
+    loader.classList.add('hide');
+    setTimeout(() => loader.remove(), 600);
+    console.info('coastlines projected & rendered in ' + ms + ' ms (' + countryItems.length + ' countries)');
+    setTimeout(() => addMarker( 51.5074,  -0.1278, 'London',   { silent: true }), 420);
+    setTimeout(() => addMarker( 35.6762, 139.6503, 'Tokyo',    { silent: true }), 720);
+    setTimeout(() => addMarker(-33.8688, 151.2093, 'Sydney',   { silent: true }), 1020);
+  } catch(err){
+    console.error(err);
+    const loader = $('#loader');
+    loader.classList.add('hide');
+    setTimeout(() => loader.remove(), 600);
+    toast('OFFLINE — coastlines unavailable · projection & coordinate lab still live');
+  }
+}
+
+/* =====================================================================
+   7 · view: apply, clamp, zoom, animate
+===================================================================== */
+let animId = 0;
+function applyView(){
+  mapLayer.node.setAttribute('transform', 'translate(' + view.tx + ' ' + view.ty + ') scale(' + view.k + ')');
+  updateMarkers();
+  $('#zPct').textContent = Math.round(view.k * 100) + '%';
+}
+function clampView(){
+  const bhw = XMAX * baseScale * view.k, bhh = YMAX * baseScale * view.k, mgn = 90;
+  view.tx = clamp(view.tx, mgn - bhw, W - mgn + bhw);
+  view.ty = clamp(view.ty, mgn - bhh, H - mgn + bhh);
+}
+function targetAtZoom(sx, sy, k2){
+  const f2 = k2 / view.k;
+  return { k: k2, tx: sx - f2 * (sx - view.tx), ty: sy - f2 * (sy - view.ty) };
+}
+function zoomAt(sx, sy, f, animate){
+  const k2 = clamp(view.k * f, KMIN, KMAX);
+  const t2 = targetAtZoom(sx, sy, k2);
+  if (animate) animateView(t2, 380);
+  else { view.k = t2.k; view.tx = t2.tx; view.ty = t2.ty; clampView(); applyView(); }
+}
+function animateView(target, ms){
+  cancelAnimationFrame(animId);
+  const from = { k: view.k, tx: view.tx, ty: view.ty }, t0 = performance.now();
+  const step = (t) => {
+    const p = Math.min(1, (t - t0) / ms), e = 1 - Math.pow(1 - p, 3);
+    view.k  = from.k  + (target.k  - from.k)  * e;
+    view.tx = from.tx + (target.tx - from.tx) * e;
+    view.ty = from.ty + (target.ty - from.ty) * e;
+    applyView();
+    if (p < 1) animId = requestAnimationFrame(step); else animId = 0;
+  };
+  animId = requestAnimationFrame(step);
+}
+function flyToGeo(lng, lat){
+  const b = projectBase(lng, lat);
+  const k2 = Math.max(view.k, 3.5);
+  animateView({ k: k2, tx: W / 2 - k2 * b[0], ty: H / 2 - k2 * b[1] }, 520);
+}
+
+/* =====================================================================
+   8 · markers (forward projection)
+===================================================================== */
+const PALETTE = ['#ffb54d', '#4fd8e0', '#9dd6ff', '#f2a0c4'];
+const markers = [];
+let mSeq = 0;
+
+function markerScreen(m){ const b = projectBase(m.lng, m.lat); return baseToScreen(b[0], b[1]); }
+function isOnScreen(m){
+  const s = markerScreen(m);
+  return s[0] > 50 && s[0] < W - 50 && s[1] > 60 && s[1] < H - 50;
+}
+function addMarker(lat, lng, name, opts = {}){
+  lat = clamp(Math.round(lat * 1e6) / 1e6, -90, 90);
+  lng = clamp(Math.round(lng * 1e6) / 1e6, -180, 180);
+  const m = {
+    id: ++mSeq, lat, lng,
+    name: (name || ('POINT ' + mSeq)).toUpperCase(),
+    color: PALETTE[(mSeq - 1) % PALETTE.length]
+  };
+  const g = markersGroup.group();
+  g.node.classList.add('mk');
+  const inner = g.group();
+  inner.node.classList.add('mk-inner');
+  const pingC = inner.circle(9);
+  pingC.node.classList.add('mk-ping');
+  pingC.fill('none').stroke({ width: 1.5, color: m.color, opacity: .9 });
+  const ringC = inner.circle(5.5);
+  ringC.node.classList.add('mk-ring');
+  ringC.fill('#0b1622').fillOpacity(.85).stroke({ width: 1.4, color: m.color });
+  inner.circle(2.2).fill(m.color);
+  m.t1 = inner.text(m.name)
+    .font({ family: 'IBM Plex Mono, monospace', size: 10, weight: 600 })
+    .fill(m.color).attr({ x: 13, y: 3 });
+  m.t2 = inner.text(fmtLat(lat) + '  ' + fmtLng(lng))
+    .font({ family: 'IBM Plex Mono, monospace', size: 8.5 })
+    .fill('#8fa9bd').attr({ x: 13, y: 14 });
+  m.g = g;
+  markers.push(m);
+  updateMarkerList();
+  updateMarkers();
+  const s = markerScreen(m);
+  if (!opts.silent) ping(s[0], s[1], m.color);
+  if (!opts.noFly && !isOnScreen(m)) flyToGeo(m.lng, m.lat);
+  return m;
+}
+function removeMarker(id){
+  const i = markers.findIndex(m => m.id === id);
+  if (i < 0) return;
+  markers[i].g.remove();
+  markers.splice(i, 1);
+  updateMarkerList();
+}
+function updateMarkers(){
+  for (const m of markers){
+    const [bx, by] = projectBase(m.lng, m.lat);
+    const sx = view.k * bx + view.tx, sy = view.k * by + view.ty;
+    m.g.attr('transform', 'translate(' + sx.toFixed(2) + ' ' + sy.toFixed(2) + ')');
+    const flip = sx > W - 195, dx = flip ? -13 : 13, anc = flip ? 'end' : 'start';
+    m.t1.attr('x', dx); m.t2.attr('x', dx);
+    m.t1.node.setAttribute('text-anchor', anc);
+    m.t2.node.setAttribute('text-anchor', anc);
+  }
+}
+function updateMarkerList(){
+  $('#mkCount').textContent = markers.length;
+  const list = $('#mkList');
+  list.innerHTML = markers.length
+    ? markers.map(m =>
+        '<div class="mk-row" data-id="' + m.id + '">' +
+          '<span class="mk-dot" style="background:' + m.color + '"></span>' +
+          '<span class="mk-info"><b>' + esc(m.name) + '</b><small>' + fmtLat(m.lat) + ' · ' + fmtLng(m.lng) + '</small></span>' +
+          '<button class="mk-x" data-x="' + m.id + '" title="Remove">×</button>' +
+        '</div>').join('')
+    : '<div class="mk-empty">no markers yet — click the map or plot coordinates above</div>';
+}
+
+function ping(sx, sy, color){
+  const c = fx.circle(6).fill('none').stroke({ color, width: 1.4, opacity: .9 }).attr({ cx: sx, cy: sy });
+  const t0 = performance.now(), dur = 620;
+  const step = (t) => {
+    const p = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - p, 2);
+    c.attr({ r: 5 + 30 * e, opacity: .9 * (1 - p) });
+    if (p < 1) requestAnimationFrame(step); else c.remove();
+  };
+  requestAnimationFrame(step);
+}
+
+/* =====================================================================
+   9 · interaction: drag / wheel / pinch / click (inverse) / keys
+===================================================================== */
+const ptrs = new Map();
+let dragInfo = null, moved = false, pinchPrev = null, lastClickT = 0;
+const stageRect = () => stage.node.getBoundingClientRect();
+
+function stagePt(e){
+  const r = stageRect();
+  return [e.clientX - r.left, e.clientY - r.top];
+}
+
+stage.node.addEventListener('pointerdown', (e) => {
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  stage.node.setPointerCapture(e.pointerId);
+  ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (ptrs.size === 1){
+    moved = false;
+    dragInfo = { x: e.clientX, y: e.clientY, tx: view.tx, ty: view.ty };
+    crossG.node.classList.remove('on');
+  } else if (ptrs.size === 2){
+    moved = true; pinchPrev = null; dragInfo = null;
+  }
+});
+
+stage.node.addEventListener('pointermove', (e) => {
+  const p = ptrs.get(e.pointerId);
+  if (p){
+    p.x = e.clientX; p.y = e.clientY;
+    if (ptrs.size === 1 && dragInfo){
+      const dx = e.clientX - dragInfo.x, dy = e.clientY - dragInfo.y;
+      if (!moved && Math.hypot(dx, dy) > 4) moved = true;
+      if (moved){
+        view.tx = dragInfo.tx + dx;
+        view.ty = dragInfo.ty + dy;
+        clampView(); applyView();
+      }
+    } else if (ptrs.size === 2){
+      const [a, b] = [...ptrs.values()];
+      const mid  = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      const dist = Math.hypot(a.x - b.x, a.y - b.y);
+      if (pinchPrev && pinchPrev.dist > 0){
+        const r = stageRect();
+        zoomAt(mid.x - r.left, mid.y - r.top, dist / pinchPrev.dist, false);
+        view.tx += mid.x - pinchPrev.mid.x;
+        view.ty += mid.y - pinchPrev.mid.y;
+        clampView(); applyView();
+      }
+      pinchPrev = { mid, dist };
+      moved = true;
+    }
+  } else {
+    onLive(e);
+  }
+});
+
+function endPtr(e){
+  ptrs.delete(e.pointerId);
+  if (ptrs.size < 2) pinchPrev = null;
+  if (ptrs.size === 0){
+    if (!moved && dragInfo){
+      const [sx, sy] = stagePt(e);
+      handleClick(sx, sy);
+    }
+    dragInfo = null;
+  }
+}
+stage.node.addEventListener('pointerup', endPtr);
+stage.node.addEventListener('pointercancel', endPtr);
+stage.node.addEventListener('pointerleave', () => { if (ptrs.size === 0) crossG.node.classList.remove('on'); });
+
+stage.node.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  let dy = e.deltaY;
+  if (e.deltaMode === 1) dy *= 33;
+  const [sx, sy] = stagePt(e);
+  zoomAt(sx, sy, Math.pow(1.0015, -dy), false);
+}, { passive: false });
+
+stage.node.addEventListener('dblclick', (e) => {
+  e.preventDefault();
+  const [sx, sy] = stagePt(e);
+  const t2 = targetAtZoom(sx, sy, clamp(view.k * 2, KMIN, KMAX));
+  animateView(t2, 340);
+});
+
+stage.node.addEventListener('pointerover', (e) => {
+  const c = (e.target.closest && e.target.closest('.country')) || null;
+  const hg = $('#hoverGeo');
+  if (c && c.dataset.name){ hg.textContent = '▣ ' + c.dataset.name.toUpperCase(); hg.classList.add('show'); }
+  else hg.classList.remove('show');
+});
+
+/* live cursor readout (inverse), rAF-throttled */
+let liveEv = null, liveRaf = false;
+function onLive(e){
+  liveEv = e;
+  if (!liveRaf){
+    liveRaf = true;
+    requestAnimationFrame(() => { liveRaf = false; if (liveEv) liveCursor(liveEv); });
+  }
+}
+function liveCursor(e){
+  const [sx, sy] = stagePt(e);
+  chH.node.setAttribute('y1', sy); chH.node.setAttribute('y2', sy);
+  chV.node.setAttribute('x1', sx); chV.node.setAttribute('x2', sx);
+  curDot.node.setAttribute('cx', sx); curDot.node.setAttribute('cy', sy);
+  crossG.node.classList.add('on');
+
+  const g = geoOfScreen(sx, sy);
+  if (g){
+    $('#curLat').textContent = fmtLat(g.lat);
+    $('#curLng').textContent = fmtLng(g.lng);
+    $('#curDms').textContent = dms(g.lat, true) + '  ·  ' + dms(g.lng, false);
+    $('#curStatus').className = 'status';
+    $('#curStatusName').textContent = 'IN MAP';
+  } else {
+    $('#curLat').textContent = '········';
+    $('#curLng').textContent = '········';
+    $('#curDms').textContent = 'outside the projection domain';
+    $('#curStatus').className = 'status out';
+    $('#curStatusName').textContent = 'OUT OF MAP';
+  }
+}
+
+function handleClick(sx, sy){
+  const now = performance.now();
+  const isDouble = now - lastClickT < 350;
+  lastClickT = now;
+  const g = geoOfScreen(sx, sy);
+  if (g){
+    $('#clkLat').textContent = fmtLat(g.lat);
+    $('#clkLng').textContent = fmtLng(g.lng);
+    $('#clkDms').textContent = dms(g.lat, true) + '  ·  ' + dms(g.lng, false);
+    $('#clkStatus').className = 'status';
+    $('#clkStatusName').textContent = 'LOCKED';
+    if (!isDouble) ping(sx, sy, '#ffb54d');
+    console.log('%c⊕ click%c  lat ' + g.lat.toFixed(6) + '°   λ ' + g.lng.toFixed(6) + '°   →   x ' + eeForward(g.lng, g.lat)[0].toFixed(5) + '  y ' + eeForward(g.lng, g.lat)[1].toFixed(5),
+      'color:#ffb54d;font-weight:700', 'color:inherit');
+  } else {
+    $('#clkLat').textContent = '——————';
+    $('#clkLng').textContent = '——————';
+    $('#clkDms').textContent = 'outside the projection domain';
+    $('#clkStatus').className = 'status out';
+    $('#clkStatusName').textContent = 'OUT OF MAP';
+    if (!isDouble) ping(sx, sy, '#5b7186');
+    console.log('⊕ click — outside projection domain at (' + sx.toFixed(0) + ', ' + sy.toFixed(0) + ')');
+  }
+}
+
+window.addEventListener('keydown', (e) => {
+  if (e.target.matches('input, textarea')) return;
+  switch (e.key){
+    case '+': case '=': zoomAt(W/2, H/2, 1.5, true); break;
+    case '-': case '_': zoomAt(W/2, H/2, 1/1.5, true); break;
+    case '0':   animateView({ k: 1, tx: W/2, ty: H/2 }, 450); break;
+    case 'ArrowLeft':  view.tx += 70; clampView(); applyView(); e.preventDefault(); break;
+    case 'ArrowRight': view.tx -= 70; clampView(); applyView(); e.preventDefault(); break;
+    case 'ArrowUp':    view.ty += 70; clampView(); applyView(); e.preventDefault(); break;
+    case 'ArrowDown':  view.ty -= 70; clampView(); applyView(); e.preventDefault(); break;
+  }
+});
+
+/* =====================================================================
+   10 · UI wiring
+===================================================================== */
+const inLat = $('#inLat'), inLng = $('#inLng'), inName = $('#inName');
+
+function doPlot(){
+  const lat = parseFloat(inLat.value), lng = parseFloat(inLng.value);
+  if (!isFinite(lat) || !isFinite(lng)){
+    [inLat, inLng].forEach(i => { i.classList.remove('shake'); void i.offsetWidth; i.classList.add('shake'); });
+    return;
+  }
+  const cLat = clamp(lat, -90, 90), cLng = clamp(lng, -180, 180);
+  inLat.value = cLat; inLng.value = cLng;
+  const name = inName.value.trim();
+  inName.value = '';
+  const m = addMarker(cLat, cLng, name);
+  console.log('%c✛ forward%c  (' + m.lat + ', ' + m.lng + ')  →  x ' + eeForward(m.lng, m.lat)[0].toFixed(5) + '  y ' + eeForward(m.lng, m.lat)[1].toFixed(5),
+    'color:#4fd8e0;font-weight:700', 'color:inherit');
+}
+$('#plotForm').addEventListener('submit', (e) => { e.preventDefault(); doPlot(); });
+
+const CITIES = [
+  ['Quito',     -0.1807, -78.4678],
+  ['London',    51.5074,  -0.1278],
+  ['New York', 40.7128,  -74.0060],
+  ['Tokyo',    35.6762, 139.6503],
+  ['Sydney',   -33.8688, 151.2093],
+  ['Reykjavík',64.1466,  -21.9426],
+];
+const chipsEl = $('#chips');
+for (const [name, lat, lng] of CITIES){
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'chip'; b.textContent = name;
+  b.addEventListener('click', () => { inLat.value = lat; inLng.value = lng; inName.value = name; doPlot(); });
+  chipsEl.appendChild(b);
+}
+
+$('#mkList').addEventListener('click', (e) => {
+  const x = e.target.closest('[data-x]');
+  if (x){ removeMarker(+x.dataset.x); return; }
+  const row = e.target.closest('.mk-row');
+  if (row){
+    const m = markers.find(m => m.id === +row.dataset.id);
+    if (m) flyToGeo(m.lng, m.lat);
+  }
+});
+
+$('#zin').addEventListener('click', () => zoomAt(W/2, H/2, 1.6, true));
+$('#zout').addEventListener('click', () => zoomAt(W/2, H/2, 1/1.6, true));
+$('#zreset').addEventListener('click', () => animateView({ k: 1, tx: W/2, ty: H/2 }, 450));
+
+$('#panelToggle').addEventListener('click', () => $('#panel').classList.toggle('collapsed'));
+if (matchMedia('(max-width:760px)').matches) $('#panel').classList.add('collapsed');
+
+/* resize (debounced) */
+let rzRaf = 0;
+window.addEventListener('resize', () => {
+  cancelAnimationFrame(rzRaf);
+  rzRaf = requestAnimationFrame(fit);
+});
+
+/* =====================================================================
+   11 · boot
+===================================================================== */
+fit();
+applyView();
+updateMarkerList();
+loadWorld();
+
+console.log('%c⊕ EQUAL EARTH%c  ·  interactive coordinate lab',
+  'color:#ffb54d;font-weight:700;font-size:14px;letter-spacing:.1em',
+  'color:#8fa9bd;font-size:12px');
+console.log('forward  (λ,φ) → x,y   inverse  (x,y) → λ,φ  (Newton, 1e-13 tol)');
+console.log('zoom & pan = exact similarity transform of the projection — equal-area at every scale');
+
+})();
+</script>
+</body>
+</html>

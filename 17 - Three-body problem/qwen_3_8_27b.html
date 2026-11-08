@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gravity Transit — Sun · Earth · Jupiter</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #101018; overflow: hidden; }
+  canvas { display: block; }
+  #ui {
+    position: fixed; top: 14px; left: 14px; color: #e8ecff;
+    font-family: 'Segoe UI', system-ui, sans-serif; font-size: 13px;
+    background: rgba(10,12,24,0.55); backdrop-filter: blur(6px);
+    padding: 14px 16px; border-radius: 12px; border: 1px solid rgba(120,140,255,0.25);
+    max-width: 280px; line-height: 1.5; user-select: none;
+  }
+  #ui h1 { font-size: 16px; margin: 0 0 6px; letter-spacing: .5px; color: #fff; }
+  #ui .row { display: flex; justify-content: space-between; gap: 10px; }
+  #ui .k { color: #9aa4c8; }
+  #ui .v { color: #fff; font-variant-numeric: tabular-nums; }
+  #ui .phase { margin-top: 8px; padding: 6px 10px; border-radius: 8px;
+    background: rgba(80,120,255,0.15); color: #cfe0ff; font-weight: 600; }
+  #ui .legend { margin-top: 10px; font-size: 12px; }
+  #ui .legend span { display: inline-block; width: 10px; height: 10px;
+    border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+  #ui .hint { margin-top: 10px; font-size: 11px; color: #7f89ad; }
+  button {
+    margin-top: 10px; padding: 7px 14px; font-size: 12px; cursor: pointer;
+    background: rgba(80,120,255,0.2); color: #dfe8ff; border: 1px solid rgba(120,140,255,0.4);
+    border-radius: 8px; font-family: inherit;
+  }
+  button:hover { background: rgba(80,120,255,0.4); }
+</style>
+</head>
+<body>
+<div id="ui">
+  <h1>GRAVITY TRANSIT</h1>
+  <div class="row"><span class="k">Time</span><span class="v" id="t">0.0</span></div>
+  <div class="row"><span class="k">Spacecraft</span><span class="v" id="phase">—</span></div>
+  <div class="row"><span class="k">Speed</span><span class="v" id="spd">0</span></div>
+  <div class="row"><span class="k">Bodies</span><span class="v">Sun · Earth · Jupiter</span></div>
+  <div class="legend">
+    <span style="background:#ffd76a"></span>Sun&nbsp;
+    <span style="background:#4fa8ff"></span>Earth&nbsp;
+    <span style="background:#e8a86a"></span>Jupiter
+  </div>
+  <div class="hint">Space = pause · R = reset · drag = pan · scroll = zoom</div>
+  <button id="resetBtn">↻ Reset</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+<script>
+// =====================================================================
+//  MULTI-BODY GRAVITY + SPACECRAFT TRANSIT
+//  Newtonian N-body (velocity Verlet) + spacecraft gravity assist
+// =====================================================================
+
+// ---------- Tunable constants ----------
+const G = 1.0;                 // gravitational constant (sim units)
+const SOFT = 12;               // softening length (prevents singularity)
+const SUBSTEPS = 6;            // physics substeps per frame (accuracy)
+const TRAIL = 900;             // trail length (frames)
+const BOUND = 1150;            // soft boundary for containment
+const BOUND_PUSH = 0.00006;    // gentle inward force near boundary
+
+// ---------- Bodies ----------
+// mass, position, velocity, colour, radius, name
+let bodies = [];
+let spacecraft = null;
+let sun, earth, jupiter;
+
+let simTime = 0;
+let paused = false;
+let cam = { x: 0, y: 0, zoom: 1 };
+let dragging = false, dragStart = null, camStart = null;
+let phaseLabel = "—";
+
+// ---------- p5 lifecycle ----------
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  pixelDensity(1);
+  background(220);
+  noStroke();
+  resetSim();
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+  background(220);
+}
+
+// =====================================================================
+//  SIMULATION SETUP
+// =====================================================================
+function resetSim() {
+  simTime = 0;
+
+  // Sun at origin, very massive, slow drift
+  sun = mkBody(52000, 0, 0, 0.0, 0.0, '#ffd76a', 26, 'Sun');
+
+  // Earth — eccentric, tilted orbit (chaotic, non-circular)
+  earth = mkBody(1200, 150, -40, 0.0, -0.95, '#4fa8ff', 9, 'Earth');
+
+  // Jupiter — retrograde-ish, wide, eccentric (opposite sense to Earth)
+  jupiter = mkBody(9000, -520, 120, 0.55, 0.28, '#e8a86a', 18, 'Jupiter');
+
+  bodies = [sun, earth, jupiter];
+
+  // Give the system a small net momentum so it doesn't sit dead-still
+  // (visual drift only; the boundary keeps it coherent)
+  bodies.forEach(b => { b.vx += 0.02; b.vy += 0.01; });
+
+  // Spacecraft starts ON Earth
+  spacecraft = {
+    x: earth.x, y: earth.y,
+    vx: earth.vx, vy: earth.vy,
+    trail: [],
+    state: 'docked',       // docked -> launch -> loop -> assist -> arrive
+    stateT: 0,
+    launchT: 0,
+    loopAngle: 0,
+    loopStart: 0,
+    assistDone: false,
+    arrived: false,
+    color: '#ffffff'
+  };
+
+  // pre-fill trails so the very first frame isn't empty
+  bodies.forEach(b => b.trail = [{ x: b.x, y: b.y }]);
+}
+
+function mkBody(mass, x, y, vx, vy, color, r, name) {
+  return { mass, x, y, vx, vy, fx: 0, fy: 0, color, r, name, trail: [] };
+}
+
+// =====================================================================
+//  PHYSICS
+// =====================================================================
+function accelAt(x, y) {
+  let ax = 0, ay = 0;
+  for (const b of bodies) {
+    const dx = b.x - x, dy = b.y - y;
+    const d2 = dx * dx + dy * dy + SOFT * SOFT;
+    const inv = 1 / Math.sqrt(d2);
+    const f = G * b.mass / (d2 * inv);
+    ax += f * dx;
+    ay += f * dy;
+  }
+  return [ax, ay];
+}
+
+function computeForces() {
+  for (const b of bodies) {
+    const [ax, ay] = accelAt(b.x, b.y);
+    b.fx = ax;
+    b.fy = ay;
+    // soft boundary containment
+    const d = Math.hypot(b.x, b.y);
+    if (d > BOUND) {
+      const push = (d - BOUND) * BOUND_PUSH * b.mass;
+      b.fx -= (b.x / d) * push;
+      b.fy -= (b.y / d) * push;
+    }
+  }
+}
+
+function integrate(dt) {
+  // velocity Verlet
+  for (const b of bodies) {
+    b.x += b.vx * dt + 0.5 * b.fx * dt * dt;
+    b.y += b.vy * dt + 0.5 * b.fy * dt * dt;
+  }
+  computeForces();
+  for (const b of bodies) {
+    b.vx += 0.5 * (b.fx + b.fx) * dt; // fx already recomputed below; use stored
+    b.vy += 0.5 * (b.fy + b.fy) * dt;
+  }
+}
+
+// Cleaner Verlet step (recompute forces mid-step)
+function stepBodies(dt) {
+  // 1) half-step velocity with current accel
+  for (const b of bodies) {
+    b.vx += 0.5 * b.fx * dt;
+    b.vy += 0.5 * b.fy * dt;
+  }
+  // 2) full-step position
+  for (const b of bodies) {
+    b.x += b.vx * dt;
+    b.y += b.vy * dt;
+  }
+  // 3) recompute forces at new positions
+  computeForces();
+  // 4) second half-step velocity
+  for (const b of bodies) {
+    b.vx += 0.5 * b.fx * dt;
+    b.vy += 0.5 * b.fy * dt;
+  }
+}
+
+function stepSpacecraft(dt) {
+  const s = spacecraft;
+  if (s.state === 'docked') {
+    // ride along with Earth
+    s.x = earth.x; s.y = earth.y; s.vx = earth.vx; s.vy = earth.vy;
+    s.stateT++;
+    if (s.stateT > 120) { s.state = 'launch'; s.stateT = 0; }
+    return;
+  }
+
+  if (s.state === 'launch') {
+    // burn: accelerate tangentially away from Earth
+    const ang = Math.atan2(s.y, s.x) + (earth.vy >= 0 ? 0 : 0);
+    const dir = Math.atan2(earth.vy, earth.vx);
+    const a = 0.010;
+    s.vx += Math.cos(dir) * a * dt;
+    s.vy += Math.sin(dir) * a * dt;
+    s.stateT += dt;
+    if (s.stateT > 55) { s.state = 'loop'; s.stateT = 0; s.loopStart = Math.atan2(s.y, s.x); }
+  }
+
+  // loop / assist / arrive: free flight under gravity (+ gentle steering)
+  const [ax, ay] = accelAt(s.x, s.y);
+  s.vx += ax * dt;
+  s.vy += ay * dt;
+
+  if (s.state === 'loop') {
+    // keep a roughly circular path around the Sun by steering toward a target speed
+    const r = Math.hypot(s.x, s.y);
+    const targetV = Math.sqrt(G * sun.mass / Math.max(r, 40));
+    const v = Math.hypot(s.vx, s.vy);
+    // radial correction: nudge toward circular speed (tangential)
+    const tx = -s.y / r, ty = s.x / r; // tangent
+    const vt = s.vx * tx + s.vy * ty;
+    const diff = targetV - vt;
+    const steer = Math.max(-0.004, Math.min(0.004, diff * 0.02));
+    s.vx += tx * steer * dt;
+    s.vy += ty * steer * dt;
+
+    s.loopAngle = Math.atan2(s.y, s.x) - s.loopStart;
+    if (s.loopAngle > Math.PI * 2) { // completed a full loop
+      s.state = 'assist'; s.stateT = 0; s.assistDone = false;
+    }
+  }
+
+  if (s.state === 'assist') {
+    // gravity assist around Jupiter, then head to it
+    const dx = jupiter.x - s.x, dy = jupiter.y - s.y;
+    const dist = Math.hypot(dx, dy);
+
+    if (!s.assistDone) {
+      // steer toward a flyby point beside Jupiter
+      const tx = jupiter.x - dx / dist * 120 - dy / dist * 60;
+      const ty = jupiter.y - dy / dist * 120 + dx / dist * 60;
+      steerToward(s, tx, ty, 0.006, dt);
+      if (dist < 130) s.assistDone = true; // passed the flyby
+    } else {
+      // after the assist, steer directly to Jupiter
+      steerToward(s, jupiter.x, jupiter.y, 0.005, dt);
+    }
+
+    if (dist < 40) { s.state = 'arrive'; s.stateT = 0; }
+  }
+
+  if (s.state === 'arrive') {
+    // gently match Jupiter's velocity (soft capture)
+    s.vx += (jupiter.vx - s.vx) * 0.02 * dt;
+    s.vy += (jupiter.vy - s.vy) * 0.02 * dt;
+    s.x += (jupiter.x - s.x) * 0.05 * dt;
+    s.y += (jupiter.y - s.y) * 0.05 * dt;
+    s.stateT += dt;
+    if (s.stateT > 60) s.arrived = true;
+  }
+
+  s.x += s.vx * dt;
+  s.y += s.vy * dt;
+}
+
+function steerToward(s, tx, ty, power, dt) {
+  const dx = tx - s.x, dy = ty - s.y;
+  const d = Math.hypot(dx, dy) || 1;
+  s.vx += (dx / d) * power * dt;
+  s.vy += (dy / d) * power * dt;
+}
+
+// =====================================================================
+//  MAIN LOOP
+// =====================================================================
+function draw() {
+  if (!paused) {
+    computeForces();
+    const dt = 1;
+    for (let i = 0; i < SUBSTEPS; i++) {
+      stepBodies(dt / SUBSTEPS);
+      stepSpacecraft(dt / SUBSTEPS);
+    }
+    simTime += 1;
+
+    // record trails
+    for (const b of bodies) {
+      b.trail.push({ x: b.x, y: b.y });
+      if (b.trail.length > TRAIL) b.trail.shift();
+    }
+    spacecraft.trail.push({ x: spacecraft.x, y: spacecraft.y });
+    if (spacecraft.trail.length > 1400) spacecraft.trail.shift();
+  }
+
+  // ---- camera: follow spacecraft, keep it centred ----
+  const tx = spacecraft.x, ty = spacecraft.y;
+  cam.x += (tx - cam.x) * 0.06;
+  cam.y += (ty - cam.y) * 0.06;
+
+  // ---- render ----
+  background(220);
+  noStroke();
+
+  push();
+  translate(width / 2, height / 2);
+  scale(cam.zoom);
+  translate(-cam.x, -cam.y);
+
+  drawTrails();
+  drawBodies();
+  drawSpacecraft();
+
+  pop();
+
+  updateUI();
+}
+
+// ---------- rendering helpers ----------
+function drawTrails() {
+  for (const b of bodies) {
+    const t = b.trail;
+    if (t.length < 2) continue;
+    for (let i = 1; i < t.length; i++) {
+      const a = i / t.length;
+      const c = hexToRgb(b.color);
+      fill(c.r, c.g, c.b, a * 200);
+      const sz = (b.r * 0.35) * (0.4 + a);
+      ellipse(t[i].x, t[i].y, sz, sz);
+    }
+  }
+  // spacecraft trail (bright, short)
+  const st = spacecraft.trail;
+  for (let i = 1; i < st.length; i++) {
+    const a = i / st.length;
+    fill(255, 255, 255, a * 220);
+    ellipse(st[i].x, st[i].y, 2.2, 2.2);
+  }
+}
+
+function drawBodies() {
+  for (const b of bodies) {
+    // glow
+    const c = hexToRgb(b.color);
+    for (let g = 5; g > 0; g--) {
+      fill(c.r, c.g, c.b, 12);
+      ellipse(b.x, b.y, b.r * 2 + g * 8, b.r * 2 + g * 8);
+    }
+    // core
+    fill(b.color);
+    ellipse(b.x, b.y, b.r * 2, b.r * 2);
+    fill(255, 255, 255, 180);
+    ellipse(b.x - b.r * 0.25, b.y - b.r * 0.25, b.r * 0.6, b.r * 0.6);
+  }
+}
+
+function drawSpacecraft() {
+  const s = spacecraft;
+  const ang = Math.atan2(s.vy, s.vx);
+  push();
+  translate(s.x, s.y);
+  rotate(ang);
+  // glow
+  fill(255, 255, 255, 40);
+  ellipse(0, 0, 22, 22);
+  // body
+  fill(255);
+  triangle(10, 0, -7, -5, -7, 5);
+  fill(120, 160, 255);
+  rect(-9, -3, 4, 6);
+  pop();
+}
+
+// ---------- utilities ----------
+function hexToRgb(hex) {
+  const h = hex.replace('#', '');
+  return {
+    r: parseInt(h.substr(0, 2), 16),
+    g: parseInt(h.substr(2, 2), 16),
+    b: parseInt(h.substr(4, 2), 16)
+  };
+}
+
+function updateUI() {
+  document.getElementById('t').textContent = simTime.toFixed(0);
+  document.getElementById('spd').textContent =
+    Math.hypot(spacecraft.vx, spacecraft.vy).toFixed(2);
+
+  let label;
+  switch (spacecraft.state) {
+    case 'docked':   label = 'Docked on Earth'; break;
+    case 'launch':   label = 'Launching from Earth'; break;
+    case 'loop':     label = 'Orbiting the Sun (' +
+                    Math.round(spacecraft.loopAngle / (Math.PI * 2) * 100) + '%)'; break;
+    case 'assist':   label = 'Gravity assist around Jupiter'; break;
+    case 'arrive':   label = 'Approaching Jupiter'; break;
+    default:         label = 'Arrived at Jupiter ✓';
+  }
+  if (spacecraft.arrived) label = 'Arrived at Jupiter ✓';
+  document.getElementById('phase').textContent = label;
+}
+
+// ---------- interaction ----------
+function keyPressed() {
+  if (key === ' ') { paused = !paused; return false; }
+  if (key === 'r' || key === 'R') resetSim();
+}
+
+function mousePressed() {
+  if (mouseX < 300 && mouseY < 340) return; // ignore UI panel
+  dragging = true;
+  dragStart = { x: mouseX, y: mouseY };
+  camStart = { x: cam.x, y: cam.y };
+}
+function mouseDragged() {
+  if (!dragging) return;
+  cam.x = camStart.x - (mouseX - dragStart.x) / cam.zoom;
+  cam.y = camStart.y - (mouseY - dragStart.y) / cam.zoom;
+}
+function mouseReleased() { dragging = false; }
+function mouseWheel(e) {
+  cam.zoom = constrain(cam.zoom - e.delta * 0.001, 0.3, 3.0);
+  return false;
+}
+
+document.getElementById('resetBtn').addEventListener('click', resetSim);
+</script>
+</body>
+</html>

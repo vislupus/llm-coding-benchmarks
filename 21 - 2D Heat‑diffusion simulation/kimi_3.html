@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>2D Heat Diffusion Sandbox — p5.js</title>
+<script src="https://cdn.jsdelivr.net/npm/p5@1.9.4/lib/p5.min.js"></script>
+<style>
+  :root { --bg:#111318; --panel:#1b1f27; --fg:#dfe3ea; --accent:#ff7a3c; --dim:#8b93a3; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:13px/1.45 system-ui,Segoe UI,Roboto,sans-serif; }
+  #wrap { display:flex; gap:14px; padding:14px; align-items:flex-start; flex-wrap:wrap; }
+  #canvas-holder { border-radius:10px; overflow:hidden; box-shadow:0 6px 30px rgba(0,0,0,.6); line-height:0; }
+  #panel { width:292px; background:var(--panel); border-radius:10px; padding:12px 14px 14px;
+           max-height:calc(100vh - 28px); overflow-y:auto; }
+  h2 { margin:2px 0 10px; font-size:17px; }
+  h3 { margin:14px 0 6px; font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--dim);
+       border-bottom:1px solid #2a2f3a; padding-bottom:4px; }
+  .row { margin:6px 0; }
+  .btns { display:flex; gap:6px; flex-wrap:wrap; }
+  button { background:#262c38; color:var(--fg); border:1px solid #343b49; border-radius:6px;
+           padding:6px 9px; cursor:pointer; font-size:12px; flex:1 1 auto; }
+  button:hover { background:#2f3746; }
+  .tool.active { background:var(--accent); border-color:var(--accent); color:#16100b; font-weight:600; }
+  label.sl { display:flex; justify-content:space-between; color:var(--dim); margin-top:8px; }
+  label.sl span:last-child { color:var(--fg); font-variant-numeric:tabular-nums; }
+  input[type=range] { width:100%; accent-color:var(--accent); margin:2px 0 0; }
+  select { width:100%; background:#262c38; color:var(--fg); border:1px solid #343b49; border-radius:6px; padding:5px; margin-top:2px; }
+  .chk { display:flex; align-items:center; gap:7px; margin:6px 0; color:var(--fg); cursor:pointer; }
+  .chk input { accent-color:var(--accent); }
+  #legend { height:12px; border-radius:6px; margin:4px 0 2px;
+    background:linear-gradient(90deg,#060a3c,#1e6ee6,#0a0a0c,#c8320a,#ffc832,#fffff0); }
+  .legend-lbl { display:flex; justify-content:space-between; color:var(--dim); font-size:10px; }
+  #hud { font-variant-numeric:tabular-nums; color:var(--dim); background:#141821; border-radius:6px; padding:7px 9px; margin-top:8px; }
+  #hud b { color:var(--fg); }
+  .help { color:var(--dim); font-size:11px; margin-top:8px; }
+  kbd { background:#262c38; border:1px solid #343b49; border-radius:4px; padding:0 4px; font-size:10px; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="canvas-holder"></div>
+  <div id="panel">
+    <h2>🔥 Heat Diffusion</h2>
+
+    <div class="row btns">
+      <button id="btnPause">⏸ Pause</button>
+      <button id="btnReset">↺ Reset heat</button>
+    </div>
+    <div class="row btns">
+      <button id="btnClearMat">✖ Clear materials</button>
+      <button id="btnDemo">✨ Demo scene</button>
+    </div>
+
+    <h3>Brush</h3>
+    <div class="row btns tools">
+      <button class="tool active" data-tool="heat">Heat (H)</button>
+      <button class="tool" data-tool="cool">Cool (C)</button>
+    </div>
+    <div class="row btns tools">
+      <button class="tool" data-tool="mat4">Metal</button>
+      <button class="tool" data-tool="mat3">Water</button>
+      <button class="tool" data-tool="mat2">Wood</button>
+    </div>
+    <div class="row btns tools">
+      <button class="tool" data-tool="mat1">Insulator</button>
+      <button class="tool" data-tool="mat0">Erase mat.</button>
+    </div>
+    <label class="sl"><span>Brush size</span><span id="vBrush">12</span></label>
+    <input type="range" id="sBrush" min="2" max="40" step="1" value="12">
+    <label class="sl"><span>Brush strength</span><span id="vStr">0.70</span></label>
+    <input type="range" id="sStr" min="0.05" max="1" step="0.05" value="0.7">
+
+    <h3>Physics</h3>
+    <label class="sl"><span>Diffusion speed (Δt/frame)</span><span id="vSpeed">0.30</span></label>
+    <input type="range" id="sSpeed" min="0.02" max="2" step="0.02" value="0.3">
+    <label class="sl"><span>Base conductivity α</span><span id="vBaseK">0.15</span></label>
+    <input type="range" id="sBaseK" min="0.02" max="0.6" step="0.01" value="0.15">
+    <label class="sl"><span>Convection cooling</span><span id="vConv">0.002</span></label>
+    <input type="range" id="sConv" min="0" max="0.02" step="0.001" value="0.002">
+
+    <h3>Grid &amp; Boundaries</h3>
+    <label class="sl"><span>Resolution</span></label>
+    <select id="selRes">
+      <option value="96">96 × 96</option>
+      <option value="128" selected>128 × 128</option>
+      <option value="160">160 × 160</option>
+      <option value="192">192 × 192</option>
+      <option value="256">256 × 256</option>
+    </select>
+    <label class="sl" style="margin-top:8px"><span>Boundary condition</span></label>
+    <select id="selBC">
+      <option value="insulated" selected>Insulated (zero-flux)</option>
+      <option value="cold">Fixed cold border (T = 0)</option>
+      <option value="hot">Fixed hot border (T = 1)</option>
+      <option value="periodic">Periodic (wrap-around)</option>
+    </select>
+    <label class="chk"><input type="checkbox" id="chkMat" checked> Show material overlay</label>
+    <label class="chk"><input type="checkbox" id="chkSmooth" checked> Smooth (interpolated) view</label>
+
+    <h3>Temperature scale</h3>
+    <div id="legend"></div>
+    <div class="legend-lbl"><span>-1 cold</span><span>0 ambient</span><span>+1 hot</span></div>
+
+    <div id="hud">
+      FPS <b id="hudFps">–</b> · substeps <b id="hudSub">–</b> · Δt <b id="hudDt">–</b><br>
+      Cursor T: <b id="hudT">–</b>
+    </div>
+
+    <div class="help">
+      <b>Drag</b> paint · <b>Right-drag / Shift-drag</b> cool<br>
+      <kbd>H</kbd>/<kbd>C</kbd> heat/cool · <kbd>1–4</kbd> materials · <kbd>0</kbd> erase ·
+      <kbd>[</kbd><kbd>]</kbd> size · <kbd>B</kbd> boundary · <kbd>M</kbd> overlay ·
+      <kbd>Space</kbd> pause · <kbd>R</kbd> reset · <kbd>X</kbd> clear materials
+    </div>
+  </div>
+</div>
+
+<script>
+/* =====================================================================
+   2D Heat equation  ∂T/∂t = ∇·(k ∇T)  − convection
+   Explicit finite-difference (FTCS) on a padded grid with ghost cells.
+   Variable conductivity via harmonic-mean face coefficients:
+     Tⁿ⁺¹ᵢ = Tᵢ + Δt · Σ_faces  k_face · (T_neighbor − Tᵢ)
+   Stable for Δt ≤ 1/(4·k_max)  → auto sub-stepped each frame.
+   ===================================================================== */
+
+// ---------------- state ----------------
+let gw, gh, gs;                 // grid width/height (interior), stride = gw+2
+let T, Tn;                      // temperature fields (ping-pong)
+let K;                          // conductivity per cell
+let mat;                        // material id per cell (0 = base)
+let kE, kW, kN, kS;             // harmonic-mean face conductivities
+let heatImg, matImg;            // offscreen images at grid resolution
+
+let paused = false;
+let tool = 'heat';              // 'heat' | 'cool' | 'mat0'..'mat4'
+let brushR = 12, brushStr = 0.7;
+let speed = 0.3;                // Δt per frame (auto sub-stepped)
+let baseK = 0.15;               // conductivity of base medium
+let conv  = 0.002;              // convection coefficient (cooling to ambient 0)
+let bc    = 'insulated';        // 'insulated' | 'cold' | 'hot' | 'periodic'
+let bcTemp = 0;
+let showMat = true;
+
+let coupDirty = true, matDirty = true;
+let lastSub = 1, lastDt = 0;
+
+const MATS = [ // id: name, conductivity (null → baseK), overlay color
+  { name:'Base',      k:null,  c:[0,0,0,0]       },
+  { name:'Insulator', k:0.004, c:[140,140,150,150] },
+  { name:'Wood',      k:0.06,  c:[160,105,45,150]  },
+  { name:'Water',     k:0.35,  c:[40,140,210,150]  },
+  { name:'Metal',     k:1.00,  c:[225,225,240,160] },
+];
+const kOf = id => id === 0 ? baseK : MATS[id].k;
+const DT_STABLE = 0.24;        // < 1/(4·k_max), k_max = 1 (metal)
+const MAX_SUB   = 16;
+
+// ---------------- colormap LUT ----------------
+const LUT_N = 1024, LUT_MIN = -1.0, LUT_MAX = 1.6;
+const lutR = new Uint8Array(LUT_N), lutG = new Uint8Array(LUT_N), lutB = new Uint8Array(LUT_N);
+const STOPS = [
+  [-1.00,   6, 10, 60], [-0.70,  16, 50,160], [-0.40,  30,110,230],
+  [-0.15,  20, 40, 90], [ 0.00,   8,  8, 10], [ 0.15,  80, 14, 14],
+  [ 0.40, 200, 50, 10], [ 0.70, 255,140, 25], [ 1.00, 255,215,110],
+  [ 1.60, 255,255,240],
+];
+(function buildLUT(){
+  for (let s = 0; s < STOPS.length - 1; s++){
+    const [t0,r0,g0,b0] = STOPS[s], [t1,r1,g1,b1] = STOPS[s+1];
+    const i0 = Math.round((t0-LUT_MIN)/(LUT_MAX-LUT_MIN)*(LUT_N-1));
+    const i1 = Math.round((t1-LUT_MIN)/(LUT_MAX-LUT_MIN)*(LUT_N-1));
+    for (let i = i0; i <= i1 && i < LUT_N; i++){
+      const f = (i-i0)/Math.max(1,i1-i0);
+      lutR[i]=r0+(r1-r0)*f; lutG[i]=g0+(g1-g0)*f; lutB[i]=b0+(b1-b0)*f;
+    }
+  }
+})();
+
+// ---------------- grid setup ----------------
+function setupGrid(res){
+  gw = gh = res; gs = res + 2;
+  const n = gs * gs;
+  T  = new Float32Array(n);  Tn = new Float32Array(n);
+  K  = new Float32Array(n);  K.fill(baseK);
+  mat = new Uint8Array(n);
+  kE = new Float32Array(n);  kW = new Float32Array(n);
+  kN = new Float32Array(n);  kS = new Float32Array(n);
+  heatImg = createImage(res, res);
+  matImg  = createImage(res, res);
+  coupDirty = matDirty = true;
+}
+
+// ---------------- ghost cells (boundary conditions) ----------------
+function ghostsT(){
+  const S = gs, W = gw, H = gh;
+  if (bc === 'periodic'){
+    for (let i=1;i<=W;i++){ T[i]=T[H*S+i]; T[(H+1)*S+i]=T[S+i]; }
+    for (let j=1;j<=H;j++){ T[j*S]=T[j*S+W]; T[j*S+W+1]=T[j*S+1]; }
+    T[0]=T[H*S+W]; T[W+1]=T[H*S+1]; T[(H+1)*S]=T[S+W]; T[(H+1)*S+W+1]=T[S+1];
+  } else if (bc === 'insulated'){          // zero normal gradient
+    for (let i=1;i<=W;i++){ T[i]=T[S+i]; T[(H+1)*S+i]=T[H*S+i]; }
+    for (let j=1;j<=H;j++){ T[j*S]=T[j*S+1]; T[j*S+W+1]=T[j*S+W]; }
+    T[0]=T[1]; T[W+1]=T[W]; T[(H+1)*S]=T[(H+1)*S+1]; T[(H+1)*S+W+1]=T[(H+1)*S+W];
+  } else {                                  // Dirichlet: ghost = 2·Tb − T_interior
+    const tb = bcTemp;
+    for (let i=1;i<=W;i++){ T[i]=2*tb-T[S+i]; T[(H+1)*S+i]=2*tb-T[H*S+i]; }
+    for (let j=1;j<=H;j++){ T[j*S]=2*tb-T[j*S+1]; T[j*S+W+1]=2*tb-T[j*S+W]; }
+    T[0]=T[1]; T[W+1]=T[W]; T[(H+1)*S]=T[(H+1)*S+1]; T[(H+1)*S+W+1]=T[(H+1)*S+W];
+  }
+}
+function ghostK(){ // conductivity ghosts (mirror; opposite edge for periodic)
+  const S = gs, W = gw, H = gh;
+  if (bc === 'periodic'){
+    for (let i=1;i<=W;i++){ K[i]=K[H*S+i]; K[(H+1)*S+i]=K[S+i]; }
+    for (let j=1;j<=H;j++){ K[j*S]=K[j*S+W]; K[j*S+W+1]=K[j*S+1]; }
+  } else {
+    for (let i=1;i<=W;i++){ K[i]=K[S+i]; K[(H+1)*S+i]=K[H*S+i]; }
+    for (let j=1;j<=H;j++){ K[j*S]=K[j*S+1]; K[j*S+W+1]=K[j*S+W]; }
+  }
+}
+
+// ---------------- face coefficients ----------------
+const hm = (a,b) => (a+b > 1e-12) ? (2*a*b)/(a+b) : 0;
+function rebuildCoupling(){
+  ghostK();
+  const S = gs;
+  for (let j=1;j<=gh;j++){
+    let id = j*S + 1;
+    for (let i=1;i<=gw;i++,id++){
+      const kc = K[id];
+      kE[id]=hm(kc,K[id+1]); kW[id]=hm(kc,K[id-1]);
+      kS[id]=hm(kc,K[id+S]); kN[id]=hm(kc,K[id-S]);
+    }
+  }
+  coupDirty = false;
+}
+
+// ---------------- one explicit time step ----------------
+function step(dt){
+  const S = gs, c = conv;
+  ghostsT();
+  for (let j=1;j<=gh;j++){
+    let id = j*S + 1;
+    for (let i=1;i<=gw;i++,id++){
+      const t = T[id];
+      Tn[id] = t + dt * ( kE[id]*(T[id+1]-t) + kW[id]*(T[id-1]-t)
+                        + kS[id]*(T[id+S]-t) + kN[id]*(T[id-S]-t)
+                        - c*t );
+    }
+  }
+  const tmp = T; T = Tn; Tn = tmp;   // swap
+}
+
+// ---------------- rendering ----------------
+function renderHeat(){
+  heatImg.loadPixels();
+  const px = heatImg.pixels, S = gs;
+  const scale = (LUT_N-1)/(LUT_MAX-LUT_MIN);
+  let o = 0;
+  for (let j=0;j<gh;j++){
+    let id = (j+1)*S + 1;
+    for (let i=0;i<gw;i++,id++,o+=4){
+      let li = ((T[id]-LUT_MIN)*scale)|0;
+      if (li<0) li=0; else if (li>=LUT_N) li=LUT_N-1;
+      px[o]=lutR[li]; px[o+1]=lutG[li]; px[o+2]=lutB[li]; px[o+3]=255;
+    }
+  }
+  heatImg.updatePixels();
+}
+function renderMatImg(){
+  matImg.loadPixels();
+  const px = matImg.pixels, S = gs;
+  let o = 0;
+  for (let j=0;j<gh;j++){
+    let id = (j+1)*S + 1;
+    for (let i=0;i<gw;i++,id++,o+=4){
+      const c = MATS[mat[id]].c;
+      px[o]=c[0]; px[o+1]=c[1]; px[o+2]=c[2]; px[o+3]=c[3];
+    }
+  }
+  matImg.updatePixels();
+  matDirty = false;
+}
+
+// ---------------- brush ----------------
+function applyBrush(px, py, forceCool){
+  const u = px/width*gw, v = py/height*gh;   // cursor in cell units
+  const r = brushR;
+  const i0 = Math.max(1, Math.floor(u-r+1)), i1 = Math.min(gw, Math.ceil(u+r));
+  const j0 = Math.max(1, Math.floor(v-r+1)), j1 = Math.min(gh, Math.ceil(v+r));
+  const S = gs;
+
+  if (tool === 'heat' || tool === 'cool'){
+    const cool = forceCool || tool === 'cool';
+    const target = cool ? -0.9 : 1.4;
+    for (let j=j0;j<=j1;j++){
+      const dy = (j-0.5)-v;
+      for (let i=i0;i<=i1;i++){
+        const dx = (i-0.5)-u, q = Math.sqrt(dx*dx+dy*dy)/r;
+        if (q > 1) continue;
+        const f = Math.exp(-4*q*q) * brushStr;
+        const id = j*S+i;
+        T[id] += (target - T[id]) * f;
+      }
+    }
+  } else { // material paint
+    const mid = +tool.slice(3), kv = kOf(mid);
+    for (let j=j0;j<=j1;j++){
+      const dy = (j-0.5)-v;
+      for (let i=i0;i<=i1;i++){
+        const dx = (i-0.5)-u;
+        if (dx*dx+dy*dy > r*r) continue;
+        const id = j*S+i;
+        mat[id] = mid; K[id] = kv;
+      }
+    }
+    coupDirty = matDirty = true;
+  }
+}
+function paintStroke(x0,y0,x1,y1){
+  const d = dist(x0,y0,x1,y1);
+  const spacing = Math.max(2, brushR/gw*width*0.4);
+  const n = Math.max(1, Math.ceil(d/spacing));
+  const forceCool = (mouseButton === RIGHT) || keyIsDown(SHIFT);
+  for (let s=0;s<=n;s++) applyBrush(lerp(x0,x1,s/n), lerp(y0,y1,s/n), forceCool);
+}
+
+// ---------------- field ops ----------------
+function resetHeat(){ T.fill(0); }
+function clearMaterials(){
+  mat.fill(0); K.fill(baseK);
+  coupDirty = matDirty = true;
+}
+function demoScene(){
+  clearMaterials(); resetHeat();
+  const W = gw, H = gh, S = gs;
+  const setM = (i,j,m) => { const id=j*S+i; mat[id]=m; K[id]=kOf(m); };
+  // metal bar across the middle
+  for (let j=(H*0.44)|0;j<(H*0.56)|0;j++)
+    for (let i=(W*0.18)|0;i<(W*0.82)|0;i++) setM(i,j,4);
+  // insulator block
+  for (let j=(H*0.16)|0;j<(H*0.32)|0;j++)
+    for (let i=(W*0.62)|0;i<(W*0.78)|0;i++) setM(i,j,1);
+  // water pool (circle, bottom-left)
+  for (let j=1;j<=H;j++) for (let i=1;i<=W;i++){
+    const dx=i-W*0.28, dy=j-H*0.80;
+    if (dx*dx+dy*dy < (W*0.10)*(W*0.10)) setM(i,j,3);
+  }
+  // hot blob at the bar's left end
+  for (let j=1;j<=H;j++) for (let i=1;i<=W;i++){
+    const dx=i-W*0.24, dy=j-H*0.50, q=Math.sqrt(dx*dx+dy*dy)/(W*0.07);
+    if (q<1) T[j*S+i] = 1.3*Math.exp(-3*q*q);
+  }
+  coupDirty = matDirty = true;
+}
+
+// ---------------- p5 ----------------
+function setup(){
+  const cv = createCanvas(640, 640);
+  cv.parent('canvas-holder');
+  document.getElementById('canvas-holder')
+          .addEventListener('contextmenu', e => e.preventDefault());
+  setupGrid(128);
+  demoScene();
+  bindUI();
+}
+
+function draw(){
+  // painting (also while standing still)
+  if (mouseIsPressed && mouseX>=0 && mouseX<width && mouseY>=0 && mouseY<height)
+    paintStroke(pmouseX, pmouseY, mouseX, mouseY);
+
+  if (coupDirty) rebuildCoupling();
+
+  if (!paused){
+    lastSub = Math.max(1, Math.min(MAX_SUB, Math.ceil(speed/DT_STABLE)));
+    lastDt  = speed/lastSub;
+    for (let s=0;s<lastSub;s++) step(lastDt);
+  }
+
+  if (document.getElementById('chkSmooth').checked) smooth(); else noSmooth();
+  background(0);
+  renderHeat();
+  image(heatImg, 0, 0, width, height);
+  showMat = document.getElementById('chkMat').checked;
+  if (showMat){
+    if (matDirty) renderMatImg();
+    image(matImg, 0, 0, width, height);
+  }
+
+  if (frameCount % 10 === 0) updateHUD();
+}
+
+function updateHUD(){
+  document.getElementById('hudFps').textContent = frameRate().toFixed(0);
+  document.getElementById('hudSub').textContent = lastSub;
+  document.getElementById('hudDt').textContent  = lastDt.toFixed(4);
+  let txt = '–';
+  if (mouseX>=0 && mouseX<width && mouseY>=0 && mouseY<height){
+    const i = 1+Math.min(gw-1, Math.floor(mouseX/width*gw));
+    const j = 1+Math.min(gh-1, Math.floor(mouseY/height*gh));
+    txt = T[j*gs+i].toFixed(3);
+  }
+  document.getElementById('hudT').textContent = txt;
+}
+
+// ---------------- UI ----------------
+function setTool(t){
+  tool = t;
+  document.querySelectorAll('.tool').forEach(b =>
+    b.classList.toggle('active', b.dataset.tool === t));
+}
+function togglePause(){
+  paused = !paused;
+  document.getElementById('btnPause').textContent = paused ? '▶ Run' : '⏸ Pause';
+}
+function bindUI(){
+  document.querySelectorAll('.tool').forEach(b =>
+    b.addEventListener('click', () => setTool(b.dataset.tool)));
+  document.getElementById('btnPause').onclick = togglePause;
+  document.getElementById('btnReset').onclick = resetHeat;
+  document.getElementById('btnClearMat').onclick = clearMaterials;
+  document.getElementById('btnDemo').onclick = demoScene;
+
+  const link = (id, vid, fn, fmt) => {
+    const el = document.getElementById(id);
+    el.addEventListener('input', () => {
+      fn(+el.value);
+      document.getElementById(vid).textContent = fmt(+el.value);
+    });
+  };
+  link('sBrush','vBrush', v=>brushR=v,        v=>v.toFixed(0));
+  link('sStr','vStr',     v=>brushStr=v,      v=>v.toFixed(2));
+  link('sSpeed','vSpeed', v=>speed=v,         v=>v.toFixed(2));
+  link('sConv','vConv',   v=>conv=v,          v=>v.toFixed(3));
+  link('sBaseK','vBaseK', v=>{
+    baseK=v;
+    for (let id=0; id<mat.length; id++) if (mat[id]===0) K[id]=baseK;
+    coupDirty = true;
+  }, v=>v.toFixed(2));
+
+  document.getElementById('selRes').addEventListener('change', e => {
+    setupGrid(+e.target.value); demoScene();
+  });
+  document.getElementById('selBC').addEventListener('change', e => {
+    bc = e.target.value;
+    bcTemp = bc==='hot' ? 1 : 0;
+    coupDirty = true;
+  });
+}
+
+function keyPressed(){
+  const k = key.toLowerCase();
+  if (key === ' ')  { togglePause(); return false; }
+  if (k === 'r') resetHeat();
+  if (k === 'x') clearMaterials();
+  if (k === 'h') setTool('heat');
+  if (k === 'c') setTool('cool');
+  if (k >= '1' && k <= '4') setTool('mat'+k);
+  if (k === '0' || k === 'e') setTool('mat0');
+  if (k === 'm') { const c=document.getElementById('chkMat'); c.checked=!c.checked; }
+  if (k === 'b') {
+    const sel = document.getElementById('selBC');
+    sel.selectedIndex = (sel.selectedIndex+1) % sel.options.length;
+    sel.dispatchEvent(new Event('change'));
+  }
+  if (key === '[' || key === ']'){
+    const s = document.getElementById('sBrush');
+    s.value = constrain(+s.value + (key===']'?2:-2), +s.min, +s.max);
+    s.dispatchEvent(new Event('input'));
+  }
+  return true;
+}
+</script>
+</body>
+</html>

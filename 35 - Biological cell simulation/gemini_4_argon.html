@@ -1,0 +1,3004 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CYTO-GPU // 3D WebGPU Eukaryotic Cell & Mitosis Simulation</title>
+<style>
+  :root {
+    --bg-deep: #040814;
+    --panel-bg: rgba(9, 16, 32, 0.86);
+    --panel-border: rgba(56, 189, 248, 0.24);
+    --accent-cyan: #38bdf8;
+    --accent-teal: #2dd4bf;
+    --accent-violet: #a855f7;
+    --accent-amber: #fbbf24;
+    --accent-rose: #f43f5e;
+    --accent-lime: #4ade80;
+    --text-main: #f1f5f9;
+    --text-muted: #94a3b8;
+  }
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: var(--bg-deep);
+    color: var(--text-main);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 13px;
+  }
+
+  #gpu-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+    cursor: grab;
+    z-index: 1;
+  }
+  #gpu-canvas:active {
+    cursor: grabbing;
+  }
+
+  /* 3D Floating Organelle Labels Layer */
+  #labels-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 2;
+    overflow: hidden;
+  }
+
+  .label-3d {
+    position: absolute;
+    transform: translate(-50%, -100%);
+    pointer-events: auto;
+    cursor: pointer;
+    background: rgba(7, 13, 28, 0.82);
+    border: 1px solid rgba(56, 189, 248, 0.4);
+    color: #e2e8f0;
+    padding: 4px 9px;
+    border-radius: 14px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    white-space: nowrap;
+    backdrop-filter: blur(6px);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+    transition: border-color 0.15s, background 0.15s, transform 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .label-3d::after {
+    content: '';
+    position: absolute;
+    bottom: -5px;
+    left: 50%;
+    transform: translateX(-50%);
+    border-width: 5px 5px 0;
+    border-style: solid;
+    border-color: rgba(56, 189, 248, 0.5) transparent;
+  }
+  .label-3d:hover, .label-3d.active {
+    background: rgba(14, 30, 62, 0.95);
+    border-color: var(--accent-cyan);
+    color: #ffffff;
+    transform: translate(-50%, -106%) scale(1.06);
+    z-index: 10;
+    box-shadow: 0 0 18px rgba(56, 189, 248, 0.45);
+  }
+  .label-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+
+  /* Hover Tooltip */
+  #hover-tooltip {
+    position: absolute;
+    pointer-events: none;
+    z-index: 20;
+    background: rgba(6, 11, 24, 0.94);
+    border: 1px solid var(--accent-cyan);
+    border-radius: 10px;
+    padding: 10px 13px;
+    max-width: 260px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(8px);
+    opacity: 0;
+    transition: opacity 0.12s;
+  }
+  #hover-tooltip.visible {
+    opacity: 1;
+  }
+  #hover-tooltip h4 {
+    font-size: 12px;
+    color: var(--accent-cyan);
+    margin-bottom: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.7px;
+  }
+  #hover-tooltip p {
+    font-size: 11.5px;
+    color: #cbd5e1;
+    line-height: 1.4;
+  }
+
+  /* Main UI Layout Grid */
+  #ui-root {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 5;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    grid-template-columns: 290px 1fr 330px;
+    padding: 12px;
+    gap: 12px;
+  }
+
+  .panel {
+    pointer-events: auto;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 12px;
+    backdrop-filter: blur(12px);
+    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55);
+  }
+
+  /* Top Header Bar */
+  header.panel {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 18px;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .badge-gpu {
+    background: linear-gradient(135deg, rgba(56, 189, 248, 0.22), rgba(168, 85, 247, 0.25));
+    border: 1px solid rgba(56, 189, 248, 0.5);
+    color: var(--accent-cyan);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 1.5px;
+    padding: 4px 9px;
+    border-radius: 6px;
+    text-transform: uppercase;
+  }
+  .brand h1 {
+    font-size: 17px;
+    font-weight: 800;
+    letter-spacing: 0.4px;
+    background: linear-gradient(90deg, #38bdf8, #e2e8f0, #a855f7);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .mode-tabs {
+    display: flex;
+    background: rgba(4, 9, 20, 0.75);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 9px;
+    padding: 3px;
+    gap: 4px;
+  }
+  .mode-tab {
+    appearance: none;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 700;
+    padding: 6px 14px;
+    border-radius: 7px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .mode-tab.active {
+    background: linear-gradient(135deg, rgba(56, 189, 248, 0.28), rgba(168, 85, 247, 0.28));
+    color: #ffffff;
+    box-shadow: 0 0 14px rgba(56, 189, 248, 0.25);
+    border: 1px solid rgba(56, 189, 248, 0.45);
+  }
+
+  .top-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .btn {
+    appearance: none;
+    background: rgba(20, 32, 58, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    color: var(--text-main);
+    font-size: 11.5px;
+    font-weight: 600;
+    padding: 6px 11px;
+    border-radius: 7px;
+    cursor: pointer;
+    transition: all 0.15s;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .btn:hover {
+    border-color: var(--accent-cyan);
+    background: rgba(56, 189, 248, 0.16);
+  }
+  .btn.active {
+    background: rgba(56, 189, 248, 0.25);
+    border-color: var(--accent-cyan);
+    color: #fff;
+  }
+  .speed-box {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    background: rgba(15, 23, 42, 0.75);
+    padding: 5px 10px;
+    border-radius: 7px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    font-size: 11.5px;
+  }
+  input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 5px;
+    background: rgba(255, 255, 255, 0.16);
+    border-radius: 3px;
+    outline: none;
+    cursor: pointer;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--accent-cyan);
+    box-shadow: 0 0 8px var(--accent-cyan);
+    cursor: pointer;
+  }
+
+  /* Left Sidebar: Organelle Explorer & Toggles */
+  .sidebar-left {
+    grid-column: 1;
+    grid-row: 2;
+    display: flex;
+    flex-direction: column;
+    padding: 13px;
+    gap: 10px;
+    overflow-y: auto;
+    max-height: 100%;
+  }
+  .section-hdr {
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 1.4px;
+    color: var(--accent-cyan);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 6px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+  .organelle-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    overflow-y: auto;
+    padding-right: 3px;
+  }
+  .org-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 8px;
+    border-radius: 7px;
+    background: rgba(15, 23, 42, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    cursor: pointer;
+    transition: all 0.14s;
+  }
+  .org-item:hover {
+    background: rgba(30, 46, 78, 0.75);
+    border-color: rgba(56, 189, 248, 0.35);
+  }
+  .org-item.selected {
+    background: linear-gradient(90deg, rgba(56, 189, 248, 0.22), rgba(168, 85, 247, 0.14));
+    border-color: var(--accent-cyan);
+    box-shadow: inset 2px 0 0 var(--accent-cyan);
+  }
+  .org-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    box-shadow: 0 0 6px currentColor;
+  }
+  .org-toggle {
+    accent-color: var(--accent-cyan);
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+  }
+
+  /* Right Sidebar: Educational Annotations & Particle Legend */
+  .sidebar-right {
+    grid-column: 3;
+    grid-row: 2;
+    display: flex;
+    flex-direction: column;
+    padding: 14px;
+    gap: 12px;
+    overflow-y: auto;
+    max-height: 100%;
+  }
+  .info-card {
+    background: rgba(13, 22, 44, 0.78);
+    border: 1px solid rgba(56, 189, 248, 0.25);
+    border-radius: 10px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .info-tag {
+    display: inline-block;
+    align-self: flex-start;
+    font-size: 10px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: rgba(56, 189, 248, 0.16);
+    color: var(--accent-cyan);
+  }
+  .info-title {
+    font-size: 16px;
+    font-weight: 800;
+    color: #ffffff;
+  }
+  .info-desc {
+    font-size: 12px;
+    line-height: 1.5;
+    color: #cbd5e1;
+  }
+  .info-meta {
+    background: rgba(6, 11, 24, 0.65);
+    border-left: 3px solid var(--accent-teal);
+    padding: 7px 9px;
+    border-radius: 0 6px 6px 0;
+    font-size: 11.5px;
+    color: #a7f3d0;
+    line-height: 1.4;
+  }
+
+  /* Particle Legend */
+  .legend-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .legend-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: rgba(15, 23, 42, 0.55);
+    padding: 6px 9px;
+    border-radius: 7px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    font-size: 11.5px;
+  }
+  .legend-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .legend-sub {
+    font-size: 10.5px;
+    color: var(--text-muted);
+    display: block;
+  }
+
+  /* Bottom Timeline & Pathway Bar */
+  footer.panel {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    padding: 11px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+  }
+  .timeline-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .stage-buttons {
+    display: flex;
+    gap: 6px;
+    flex: 1;
+    flex-wrap: wrap;
+  }
+  .stage-btn {
+    flex: 1;
+    min-width: 105px;
+    background: rgba(15, 23, 42, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: #cbd5e1;
+    padding: 7px 10px;
+    border-radius: 8px;
+    font-size: 11.5px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-align: center;
+  }
+  .stage-btn span.step-num {
+    display: block;
+    font-size: 9.5px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--accent-cyan);
+    margin-bottom: 2px;
+  }
+  .stage-btn:hover {
+    border-color: var(--accent-cyan);
+    background: rgba(56, 189, 248, 0.15);
+  }
+  .stage-btn.active {
+    background: linear-gradient(135deg, rgba(56, 189, 248, 0.3), rgba(168, 85, 247, 0.3));
+    border-color: var(--accent-cyan);
+    color: #ffffff;
+    box-shadow: 0 0 15px rgba(56, 189, 248, 0.3);
+  }
+  .scrubber-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .scrubber-row input[type="range"] {
+    flex: 1;
+  }
+  .camera-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+
+  /* WebGPU Error Fallback Overlay */
+  #gpu-error {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at center, #0f172a 0%, #020617 100%);
+    z-index: 100;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    text-align: center;
+  }
+  .err-box {
+    max-width: 540px;
+    background: rgba(15, 23, 42, 0.92);
+    border: 1px solid var(--accent-rose);
+    border-radius: 14px;
+    padding: 32px;
+    box-shadow: 0 0 50px rgba(244, 63, 94, 0.25);
+  }
+  .err-box h2 {
+    color: var(--accent-rose);
+    margin-bottom: 12px;
+    font-size: 22px;
+  }
+  .err-box p {
+    color: #cbd5e1;
+    line-height: 1.6;
+    font-size: 14px;
+  }
+
+  @media (max-width: 1024px) {
+    #ui-root {
+      grid-template-columns: 240px 1fr 270px;
+    }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="gpu-canvas"></canvas>
+<div id="labels-layer"></div>
+<div id="hover-tooltip">
+  <h4 id="tt-title">Organelle</h4>
+  <p id="tt-desc">Description</p>
+</div>
+
+<div id="gpu-error">
+  <div class="err-box">
+    <h2>WebGPU Not Available</h2>
+    <p id="gpu-error-msg">
+      This 3D biological cell simulation uses hardware-accelerated <b>WebGPU</b> shaders and pipelines. Please open this file in a WebGPU-enabled browser (such as Chrome 113+, Edge 113+, or Safari 18+ with WebGPU enabled).
+    </p>
+  </div>
+</div>
+
+<div id="ui-root">
+  <!-- TOP HEADER -->
+  <header class="panel">
+    <div class="brand">
+      <span class="badge-gpu">WebGPU 3D</span>
+      <h1>Eukaryotic Cell &amp; Mitosis Simulator</h1>
+    </div>
+
+    <div class="mode-tabs">
+      <button class="mode-tab active" id="tab-homeostasis">Homeostasis &amp; Pathways</button>
+      <button class="mode-tab" id="tab-mitosis">Mitosis &amp; Cell Division</button>
+    </div>
+
+    <div class="top-controls">
+      <button class="btn active" id="btn-play">Pause</button>
+      <div class="speed-box">
+        <span>Speed</span>
+        <input type="range" id="sl-speed" min="0.1" max="2.5" step="0.1" value="1.0" style="width:70px;">
+        <span id="val-speed" style="font-family:monospace;min-width:30px;">1.0x</span>
+      </div>
+      <button class="btn active" id="btn-cutaway" title="Slice outer membranes to view interior organelles clearly">Cutaway View: ON</button>
+      <button class="btn active" id="btn-labels">3D Labels: ON</button>
+      <button class="btn" id="btn-reset-cam">Reset Camera</button>
+    </div>
+  </header>
+
+  <!-- LEFT SIDEBAR: ORGANELLE EXPLORER & VISIBILITY TOGGLES -->
+  <aside class="panel sidebar-left">
+    <div class="section-hdr">
+      <span>Organelles &amp; Structures</span>
+      <span style="font-size:10px;color:#94a3b8;cursor:pointer;" id="btn-toggle-all">All ON</span>
+    </div>
+    <div class="organelle-list" id="organelle-list"></div>
+  </aside>
+
+  <!-- RIGHT SIDEBAR: EDUCATIONAL INSPECTOR & PARTICLE LEGEND -->
+  <aside class="panel sidebar-right">
+    <div class="section-hdr">
+      <span>Educational Inspector</span>
+      <span id="inspector-mode-badge" style="font-size:10px;color:#2dd4bf;">Interactive</span>
+    </div>
+
+    <div class="info-card">
+      <span class="info-tag" id="info-category">Organelle</span>
+      <div class="info-title" id="info-title">Eukaryotic Cell Overview</div>
+      <div class="info-desc" id="info-desc">
+        Click any organelle in the 3D cell, floating label, or left-hand list to inspect its ultrastructure and biochemical role.
+      </div>
+      <div class="info-meta" id="info-pathway">
+        <b>Active Pathway:</b> Gene transcription in the nucleus exports mRNA to Rough ER ribosomes, synthesizing proteins that traffic through the Golgi apparatus and secrete via vesicles along microtubules.
+      </div>
+    </div>
+
+    <div class="section-hdr" style="margin-top:4px;">
+      <span>Biochemical Particle Legend</span>
+      <span style="font-size:10px;color:#94a3b8;">1,600 Active</span>
+    </div>
+    <div class="legend-list" id="particle-legend"></div>
+  </aside>
+
+  <!-- BOTTOM TIMELINE SCRUBBER -->
+  <footer class="panel">
+    <div class="timeline-top">
+      <div class="stage-buttons" id="timeline-buttons"></div>
+    </div>
+    <div class="scrubber-row">
+      <span id="scrubber-label" style="font-weight:700;color:#38bdf8;min-width:145px;">Pathway Cycle:</span>
+      <input type="range" id="sl-timeline" min="0" max="5.99" step="0.01" value="0">
+      <span class="camera-hint"><b>Left-Drag:</b> Orbit &nbsp;|&nbsp; <b>Right-Drag:</b> Pan &nbsp;|&nbsp; <b>Scroll:</b> Zoom &nbsp;|&nbsp; <b>Click:</b> Inspect</span>
+    </div>
+  </footer>
+</div>
+
+<script>
+"use strict";
+
+/* ============================================================================
+   ARCHITECTURAL & SCIENTIFIC DOCUMENTATION
+   ============================================================================
+   1. WEBGPU SETUP & RENDERING PIPELINE:
+      - Initializes a hardware WebGPU adapter & device (`navigator.gpu`), configures
+        a 4x MSAA (Multi-Sample Anti-Aliasing) color target paired with a `depth24plus`
+        depth buffer for smooth scientific visuals.
+      - Uses three specialized WGSL pipelines sharing a global 256-byte uniform buffer:
+        (a) `opaquePipeline`: Renders solid/subsurface-scattered internal organelles
+            (Chromosomes, Nucleolus, Ribosomes, ER, Golgi, Mitochondrial Cristae,
+            Microtubules, Centrosomes) using hardware instancing, procedural 3D
+            cellular noise surface relief, Blinn-Phong specular highlights, wrap
+            subsurface scattering, and Fresnel rim lighting.
+        (b) `transparentPipeline`: Renders semi-transparent lipid bilayers (Plasma
+            Membrane, Nuclear Envelope with procedural Nuclear Pore Complexes,
+            Mitochondrial Outer Membranes, and Lysosomes) using a two-pass back-face
+            then front-face alpha-blended pipeline (`depthWriteEnabled: false`) to
+            prevent transparency sorting artifacts even during cytokinesis pinching.
+        (c) `particlePipeline`: Renders 1,600 glowing biochemical molecules (mRNA,
+            Proteins/Vesicles, ATP, Kinesin/Dynein Motor Cargoes, and Enzymes) with
+            velocity-aligned motion stretch and additive/alpha radial luminescence.
+
+   2. SIMULATION LOOP & MITOSIS STATE MACHINE:
+      - Runs on `requestAnimationFrame` with adjustable simulation speed (`0.1x`-`2.5x`).
+      - Supports two coupled educational modes:
+        * HOMEOSTASIS & PATHWAYS MODE: Highlights the 6-step Endomembrane Secretory
+          & Bioenergetic Pathway while the cell is in Interphase.
+        * MITOSIS & CELL DIVISION MODE: Continuously animates `mitosisProgress` in
+          `[0.0, 6.0)` across Interphase -> Prophase -> Metaphase -> Anaphase ->
+          Telophase -> Cytokinesis, driving chromatin condensation into X-shaped
+          chromosomes, nuclear envelope dissolution, centrosome migration, spindle
+          fiber attachment, sister chromatid separation (with V-shaped trailing arms),
+          nuclear reformation, and plasma membrane cleavage furrow pinching.
+
+   3. PARTICLE MOVEMENT SYSTEM:
+      - 1,600 individual particles follow deterministic + stochastic 3D splines:
+        * mRNA (Cyan): Transcribed in Nucleus -> exits Nuclear Pores -> docks at Rough ER.
+        * Proteins & Secretory Vesicles (Gold -> Violet): Translated at Rough ER ->
+          COPII vesicle transfer to cis-Golgi -> cisternal maturation through
+          medial/trans-Golgi -> secretory vesicle exocytosis at the Plasma Membrane.
+        * ATP (Lime Green): Synthesized in Mitochondrial cristae -> diffuses to
+          ribosomes, ER, and mitotic spindle motors.
+        * Motor Cargoes (Magenta): Walk directly along 3D Cytoskeleton Microtubule
+          tracks (Kinesin/Dynein active transport).
+        * Hydrolase Enzymes & Signals (Coral Orange): Traffic between Golgi,
+          endocytic membrane sites, and Lysosomes.
+
+   4. BIOLOGICAL MODEL ASSUMPTIONS & LIMITATIONS:
+      - Scale & Crowding: Real eukaryotic cells are ~10-30 µm across and contain
+        millions of ribosomes and macromolecules (molecular crowding). For visual
+        clarity, organelle sizes are stylized (e.g., ribosomes and chromosomes are
+        enlarged relative to the cell radius) and count is scaled to ~450 organelle
+        sub-structures and 1,600 tracer molecules.
+      - Chromosome Number: A human diploid cell has 46 chromosomes (23 pairs); this
+        simulation visualizes 8 representative sister chromatid pairs so students
+        can clearly track kinetochore attachment and anaphase separation.
+      - Timescales: In vivo, protein synthesis takes seconds, vesicular transport
+        takes minutes, and mitosis takes ~1 hour; here, timescales are harmonized
+        so all processes can be observed simultaneously in real time.
+   ============================================================================ */
+
+/* ============================================================================
+   1. EDUCATIONAL DATABASE: ORGANELLES, PATHWAYS & MITOSIS STAGES
+   ============================================================================ */
+const ORGANELLES = [
+  {
+    id: 1,
+    name: 'Plasma Membrane',
+    color: '#38bdf8',
+    rgb: [0.22, 0.74, 0.97],
+    visible: true,
+    labelPos: [0, 9.6, 0],
+    shortDesc: 'Selective phospholipid bilayer boundary regulating transport & signaling.',
+    fullDesc: 'A dynamic phospholipid bilayer embedded with integral proteins, ion channels, and receptors. It maintains intracellular homeostasis, mediates endocytosis and exocytosis of secretory vesicles, and pinches inward via an actin-myosin contractile ring during cytokinesis.',
+    pathwayNote: 'Secretory vesicles from the trans-Golgi fuse here (exocytosis) to release proteins outside the cell.'
+  },
+  {
+    id: 2,
+    name: 'Nucleus & Envelope',
+    color: '#818cf8',
+    rgb: [0.51, 0.55, 0.97],
+    visible: true,
+    labelPos: [-1.2, 4.1, 0],
+    shortDesc: 'Double-membrane command center housing genomic DNA and nuclear pores.',
+    fullDesc: 'Enclosed by an inner and outer nuclear membrane perforated by octagonal Nuclear Pore Complexes (NPCs). The nuclear envelope regulates the passage of transcription factors and mRNA transcripts, disassembling during Prophase/Metaphase and reassembling around daughter chromosomes in Telophase.',
+    pathwayNote: 'Pre-mRNA is transcribed inside the nucleoplasm and exported through Nuclear Pores into the cytosol.'
+  },
+  {
+    id: 3,
+    name: 'Nucleolus',
+    color: '#c084fc',
+    rgb: [0.75, 0.52, 0.99],
+    visible: true,
+    labelPos: [-1.7, 1.8, -0.3],
+    shortDesc: 'Dense sub-nuclear factory for ribosomal RNA (rRNA) and ribosome assembly.',
+    fullDesc: 'The largest structure inside the eukaryotic nucleus. This membrane-less phase-separated condensate transcribes ribosomal RNA (rRNA) and assembles the 40S and 60S ribosomal subunits before exporting them to the cytoplasm. It disperses during Prophase and reforms in Telophase.',
+    pathwayNote: 'Produces ribosomal subunits that populate the Rough ER and cytosol to translate mRNA.'
+  },
+  {
+    id: 4,
+    name: 'Chromosomes / Chromatin',
+    color: '#f472b6',
+    rgb: [0.96, 0.45, 0.71],
+    visible: true,
+    labelPos: [-0.8, 0.4, 1.2],
+    shortDesc: 'Genomic DNA wound around histone octamers; condenses into X-chromatids in mitosis.',
+    fullDesc: 'During Interphase, DNA exists as loosely coiled euchromatin and heterochromatin fibers to allow RNA polymerase access. During Mitosis, condensin proteins compact the replicated DNA into X-shaped sister chromatids joined at a centromere with proteinaceous kinetochores.',
+    pathwayNote: 'Carries genetic instructions; pulled apart by kinetochore microtubules during Anaphase.'
+  },
+  {
+    id: 5,
+    name: 'Endoplasmic Reticulum (ER)',
+    color: '#2dd4bf',
+    rgb: [0.18, 0.83, 0.75],
+    visible: true,
+    labelPos: [-4.6, -1.6, 2.5],
+    shortDesc: 'Continuous network of ribosome-studded sheets (Rough ER) and lipid tubules (Smooth ER).',
+    fullDesc: 'Continuous with the outer nuclear membrane. The Rough ER consists of flattened cisternae studded with ribosomes that co-translationally translocate nascent polypeptides into the ER lumen for folding and N-linked glycosylation. The Smooth ER synthesizes phospholipids, steroids, and sequesters Ca²⁺ ions.',
+    pathwayNote: 'Packages folded proteins into COPII-coated transport vesicles bound for the cis-Golgi.'
+  },
+  {
+    id: 6,
+    name: 'Golgi Apparatus',
+    color: '#fbbf24',
+    rgb: [0.98, 0.75, 0.14],
+    visible: true,
+    labelPos: [4.2, -0.6, 2.6],
+    shortDesc: 'Polarized stack of cisternae that modifies, sorts, and packages proteins.',
+    fullDesc: 'Composed of flattened, curved membrane sacs (cis, medial, and trans cisternae). Proteins arriving from the Rough ER at the cis-Golgi undergo enzymatic oligosaccharide remodeling and phosphorylation as they mature toward the trans-Golgi network (TGN), where they are sorted into secretory vesicles or lysosomes.',
+    pathwayNote: 'Acts as the cell’s post office—dispatching secretory vesicles to the plasma membrane and hydrolases to lysosomes.'
+  },
+  {
+    id: 7,
+    name: 'Mitochondria',
+    color: '#4ade80',
+    rgb: [0.29, 0.87, 0.50],
+    visible: true,
+    labelPos: [4.8, 3.8, -2.2],
+    shortDesc: 'Double-membrane bioenergetic organelles generating ATP via oxidative phosphorylation.',
+    fullDesc: 'Semi-autonomous organelles containing their own circular mtDNA. A smooth outer membrane encloses a highly folded inner membrane forming cristae, which maximize surface area for the Electron Transport Chain and F₁F₀-ATP Synthase complexes to generate ATP from proton gradients.',
+    pathwayNote: 'Exports bright green ATP energy molecules that fuel protein synthesis and motor protein transport.'
+  },
+  {
+    id: 8,
+    name: 'Ribosomes (80S)',
+    color: '#fde047',
+    rgb: [0.99, 0.88, 0.28],
+    visible: true,
+    labelPos: [-3.6, 2.6, 3.2],
+    shortDesc: 'Ribonucleoprotein nanomachines that translate mRNA codons into polypeptide chains.',
+    fullDesc: 'Eukaryotic 80S ribosomes consist of a small (40S) subunit that decodes mRNA and a large (60S) subunit that catalyzes peptide bond formation via peptidyl transferase activity. Bound ribosomes on the Rough ER synthesize membrane/secretory proteins, while free cytosolic ribosomes make cytoplasmic proteins.',
+    pathwayNote: 'Receives cyan mRNA transcripts from the nucleus and synthesizes golden nascent proteins.'
+  },
+  {
+    id: 9,
+    name: 'Lysosomes',
+    color: '#fb7185',
+    rgb: [0.98, 0.44, 0.52],
+    visible: true,
+    labelPos: [-5.4, -4.2, -2.0],
+    shortDesc: 'Acidic digestive organelles containing ~50 hydrolytic enzymes for autophagy.',
+    fullDesc: 'Membrane-bound spherical compartments maintained at an acidic pH (~4.5–5.0) by V-ATPase proton pumps. Lysosomes degrade worn-out organelles (autophagy), endocytosed macromolecules, and pathogens, recycling amino acids, monosaccharides, and lipids back into the cytosol.',
+    pathwayNote: 'Receives mannose-6-phosphate tagged hydrolytic enzymes from the trans-Golgi network.'
+  },
+  {
+    id: 10,
+    name: 'Transport & Secretory Vesicles',
+    color: '#a855f7',
+    rgb: [0.66, 0.33, 0.97],
+    visible: true,
+    labelPos: [5.8, -2.5, 3.5],
+    shortDesc: 'Small membrane-enclosed sacs shuttling cargo between ER, Golgi, and membrane.',
+    fullDesc: 'Bud from donor membranes via coat proteins (COPII from ER, COPI within Golgi, Clathrin from TGN/plasma membrane) and fuse with target compartments via SNARE protein complexes. Motor proteins haul vesicles along microtubule tracks.',
+    pathwayNote: 'Carries glycosylated proteins from the Golgi to fuse with the Plasma Membrane.'
+  },
+  {
+    id: 11,
+    name: 'Cytoskeleton & Mitotic Spindle',
+    color: '#38bdf8',
+    rgb: [0.22, 0.85, 0.98],
+    visible: true,
+    labelPos: [1.5, -5.8, -1.5],
+    shortDesc: 'Dynamic α/β-tubulin polymers forming intracellular highways and the mitotic spindle.',
+    fullDesc: 'Hollow 25-nm cylindrical tubules polymerized from α/β-tubulin dimers. In Interphase, microtubules radiate from the Centrosome to provide structural polarity and tracks for kinesin and dynein motor proteins. In Mitosis, they rapidly remodel into the bipolar Mitotic Spindle that captures and segregates chromosomes.',
+    pathwayNote: 'Guides magenta motor-transported cargoes and pulls sister chromatids apart in Anaphase.'
+  },
+  {
+    id: 12,
+    name: 'Centrosomes (Centrioles)',
+    color: '#f97316',
+    rgb: [0.98, 0.45, 0.09],
+    visible: true,
+    labelPos: [0.8, 3.6, 2.2],
+    shortDesc: 'Primary Microtubule-Organizing Center (MTOC) containing orthogonal centriole barrels.',
+    fullDesc: 'Composed of two perpendicular barrel-shaped centrioles (9×3 microtubule triplets) surrounded by Pericentriolar Material (PCM) rich in γ-tubulin ring complexes. Duplicated in S-phase, the two centrosomes migrate to opposite poles during Prophase to establish the bipolar mitotic spindle.',
+    pathwayNote: 'Nucleates the minus-ends of microtubules and forms the two opposite poles during cell division.'
+  }
+];
+
+const PARTICLE_TYPES = [
+  { id: 0, name: 'mRNA Transcripts', sub: 'Nucleus → Nuclear Pore → Rough ER', color: '#00f2fe', visible: true },
+  { id: 1, name: 'Proteins & Secretory Vesicles', sub: 'Rough ER → COPII → Golgi → Exocytosis', color: '#fbbf24', visible: true },
+  { id: 2, name: 'ATP Bio-Energy', sub: 'Mitochondrial Cristae → Cytosol', color: '#4ade80', visible: true },
+  { id: 3, name: 'Motor Protein Cargoes', sub: 'Kinesin / Dynein on Microtubules', color: '#e879f9', visible: true },
+  { id: 4, name: 'Lysosomal Enzymes & Signals', sub: 'Golgi / Membrane → Lysosomes', color: '#fb7185', visible: true }
+];
+
+const HOMEOSTASIS_STAGES = [
+  {
+    step: 'Pathway 01',
+    name: 'Transcription & Export',
+    focusOrg: 2,
+    desc: 'Inside the Nucleus, RNA Polymerase II transcribes DNA genes into messenger RNA (mRNA) while the Nucleolus synthesizes rRNA. Mature mRNA transcripts (cyan particles) exit through octagonal Nuclear Pore Complexes into the cytoplasm.',
+    note: 'Watch cyan mRNA particles emerge from the chromatin core and pass through pores in the Nuclear Envelope.'
+  },
+  {
+    step: 'Pathway 02',
+    name: 'ER Translation & Folding',
+    focusOrg: 5,
+    desc: 'Ribosomes (80S) docked on the Rough Endoplasmic Reticulum translate mRNA into polypeptide chains, threading them into the ER lumen where chaperone proteins fold them and add core N-linked oligosaccharides.',
+    note: 'Golden nascent proteins accumulate along the ribosome-studded Rough ER cisternae.'
+  },
+  {
+    step: 'Pathway 03',
+    name: 'COPII Vesicle Transfer',
+    focusOrg: 10,
+    desc: 'Properly folded proteins bud off from Rough ER exit sites inside COPII-coated transport vesicles, traversing the cytosol to fuse with the cis-face of the Golgi Apparatus.',
+    note: 'Vesicles bridge the endoplasmic reticulum and the crescent-shaped Golgi stacks.'
+  },
+  {
+    step: 'Pathway 04',
+    name: 'Golgi Maturation & Sorting',
+    focusOrg: 6,
+    desc: 'As cargo progresses from cis → medial → trans Golgi cisternae, resident enzymes remodel carbohydrate chains. The trans-Golgi Network sorts proteins into secretory vesicles or mannose-6-phosphate tagged lysosomal vesicles.',
+    note: 'Protein cargo shifts color from gold to violet as it matures through the Golgi cisternae.'
+  },
+  {
+    step: 'Pathway 05',
+    name: 'Microtubule Transport & Secretion',
+    focusOrg: 11,
+    desc: 'Kinesin and dynein motor proteins walk along polarized Cytoskeleton Microtubules (powered by ATP hydrolysis) to haul secretory vesicles to the Plasma Membrane for exocytosis.',
+    note: 'Magenta motor cargoes glide along cyan microtubule filaments from the centrosome to the cell cortex.'
+  },
+  {
+    step: 'Pathway 06',
+    name: 'Mitochondrial ATP Respiration',
+    focusOrg: 7,
+    desc: 'Across the folded inner cristae of Mitochondria, the electron transport chain drives ATP Synthase to phosphorylate ADP into ATP (bright green particles), supplying chemical energy for all cellular biosynthesis.',
+    note: 'Emerald ATP packets stream outward from the inner cristae of all 8 mitochondria.'
+  }
+];
+
+const MITOSIS_STAGES = [
+  {
+    step: 'Phase 01',
+    name: 'Interphase (G₂)',
+    desc: 'The cell grows, carries out normal metabolic & secretory pathways, and completes DNA replication. Chromatin remains loosely decondensed inside an intact Nuclear Envelope with a prominent Nucleolus, while duplicated Centrosomes sit adjacent to the nucleus.',
+    note: 'DNA is replicated; two centrosome pairs prepare to initiate mitotic spindle assembly.'
+  },
+  {
+    step: 'Phase 02',
+    name: 'Prophase',
+    desc: 'Condensin complexes coil diffuse chromatin fibers into compact X-shaped sister chromatids held together at their centromeres. The Nucleolus disperses, the Nuclear Envelope begins fragmenting, and the two Centrosomes migrate toward opposite poles while polymerizing the Mitotic Spindle.',
+    note: 'Observe chromatin condensing into distinct X-chromosomes as the nuclear envelope dissolves.'
+  },
+  {
+    step: 'Phase 03',
+    name: 'Metaphase',
+    desc: 'The Nuclear Envelope has completely disassembled. Centrosomes reach opposite poles (-X and +X), and kinetochore microtubules attach to the centromere of each chromosome. Tug-of-war motor forces align all chromosomes along the equatorial Metaphase Plate (x = 0).',
+    note: 'All 8 sister chromatid pairs align symmetrically on the equatorial Metaphase Plate.'
+  },
+  {
+    step: 'Phase 04',
+    name: 'Anaphase',
+    desc: 'Separase cleaves cohesin proteins linking sister chromatids. Kinetochore microtubules shorten via depolymerization, pulling separated daughter chromosomes toward opposite spindle poles (arms trailing in classic V-shapes), while polar microtubules push the poles further apart.',
+    note: 'Sister chromatids split and travel toward opposite centrosome poles as the cell elongates.'
+  },
+  {
+    step: 'Phase 05',
+    name: 'Telophase',
+    desc: 'Separated sets of daughter chromosomes arrive at opposite poles and begin decondensing back into transcriptionally active chromatin. Nuclear membrane vesicles fuse to reform two distinct Nuclear Envelopes, Nucleoli reappear, and mitotic spindle fibers depolymerize.',
+    note: 'Two new nuclear envelopes reassemble around the segregated daughter genomes.'
+  },
+  {
+    step: 'Phase 06',
+    name: 'Cytokinesis',
+    desc: 'A contractile ring of actin microfilaments and myosin-II motors assembles beneath the equatorial plasma membrane, pinching inward to create a deep Cleavage Furrow that partitions the cytoplasm and organelles into two genetically identical daughter cells.',
+    note: 'The plasma membrane pinches at the equator, dividing the cell into two daughter cells.'
+  }
+];
+
+/* ============================================================================
+   2. VECTOR & MATRIX MATH UTILITIES
+   ============================================================================ */
+const TAU = Math.PI * 2;
+const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
+const lerp = (a, b, t) => a + (b - a) * t;
+const smoothstep = (e0, e1, x) => {
+  const t = clamp((x - e0) / (e1 - e0), 0, 1);
+  return t * t * (3 - 2 * t);
+};
+
+const Mat4 = {
+  create() {
+    const m = new Float32Array(16);
+    m[0] = m[5] = m[10] = m[15] = 1;
+    return m;
+  },
+  perspective(out, fovy, aspect, near, far) {
+    const f = 1.0 / Math.tan(fovy * 0.5);
+    out.fill(0);
+    out[0] = f / aspect;
+    out[5] = f;
+    out[10] = far / (near - far);
+    out[11] = -1;
+    out[14] = (far * near) / (near - far);
+    return out;
+  },
+  lookAt(out, eye, center, up) {
+    let zx = eye[0] - center[0], zy = eye[1] - center[1], zz = eye[2] - center[2];
+    let len = Math.hypot(zx, zy, zz) || 1;
+    zx /= len; zy /= len; zz /= len;
+    let xx = up[1] * zz - up[2] * zy;
+    let xy = up[2] * zx - up[0] * zz;
+    let xz = up[0] * zy - up[1] * zx;
+    len = Math.hypot(xx, xy, xz) || 1;
+    xx /= len; xy /= len; xz /= len;
+    const yx = zy * xz - zz * xy;
+    const yy = zz * xx - zx * xz;
+    const yz = zx * xy - zy * xx;
+    out[0] = xx; out[1] = yx; out[2] = zx; out[3] = 0;
+    out[4] = xy; out[5] = yy; out[6] = zy; out[7] = 0;
+    out[8] = xz; out[9] = yz; out[10] = zz; out[11] = 0;
+    out[12] = -(xx * eye[0] + xy * eye[1] + xz * eye[2]);
+    out[13] = -(yx * eye[0] + yy * eye[1] + yz * eye[2]);
+    out[14] = -(zx * eye[0] + zy * eye[1] + zz * eye[2]);
+    out[15] = 1;
+    return out;
+  },
+  multiply(out, a, b) {
+    const a00 = a[0], a01 = a[1], a02 = a[2], a03 = a[3];
+    const a10 = a[4], a11 = a[5], a12 = a[6], a13 = a[7];
+    const a20 = a[8], a21 = a[9], a22 = a[10], a23 = a[11];
+    const a30 = a[12], a31 = a[13], a32 = a[14], a33 = a[15];
+    for (let i = 0; i < 4; i++) {
+      const b0 = b[i * 4], b1 = b[i * 4 + 1], b2 = b[i * 4 + 2], b3 = b[i * 4 + 3];
+      out[i * 4]     = b0 * a00 + b1 * a10 + b2 * a20 + b3 * a30;
+      out[i * 4 + 1] = b0 * a01 + b1 * a11 + b2 * a21 + b3 * a31;
+      out[i * 4 + 2] = b0 * a02 + b1 * a12 + b2 * a22 + b3 * a32;
+      out[i * 4 + 3] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
+    }
+    return out;
+  },
+  fromTRS(out, tx, ty, tz, rx, ry, rz, sx, sy, sz) {
+    const cx = Math.cos(rx), sx_ = Math.sin(rx);
+    const cy = Math.cos(ry), sy_ = Math.sin(ry);
+    const cz = Math.cos(rz), sz_ = Math.sin(rz);
+    out[0] = (cy * cz) * sx;
+    out[1] = (cy * sz_) * sx;
+    out[2] = (-sy_) * sx;
+    out[3] = 0;
+    out[4] = (sx_ * sy_ * cz - cx * sz_) * sy;
+    out[5] = (sx_ * sy_ * sz_ + cx * cz) * sy;
+    out[6] = (sx_ * cy) * sy;
+    out[7] = 0;
+    out[8] = (cx * sy_ * cz + sx_ * sz_) * sz;
+    out[9] = (cx * sy_ * sz_ - sx_ * cz) * sz;
+    out[10] = (cx * cy) * sz;
+    out[11] = 0;
+    out[12] = tx;
+    out[13] = ty;
+    out[14] = tz;
+    out[15] = 1;
+    return out;
+  },
+  // Orient a cylinder/capsule along segment A -> B with radius r
+  fromSegment(out, ax, ay, az, bx, by, bz, rX, rZ = rX) {
+    let dx = bx - ax, dy = by - ay, dz = bz - az;
+    const len = Math.hypot(dx, dy, dz) || 0.0001;
+    const ux = dx / len, uy = dy / len, uz = dz / len;
+    // Build orthonormal basis around Y = u
+    let refX = 0, refY = 1, refZ = 0;
+    if (Math.abs(uy) > 0.92) { refX = 1; refY = 0; }
+    let xx = refY * uz - refZ * uy;
+    let xy = refZ * ux - refX * uz;
+    let xz = refX * uy - refY * ux;
+    const xLen = Math.hypot(xx, xy, xz) || 1;
+    xx /= xLen; xy /= xLen; xz /= xLen;
+    const zx = uy * xz - uz * xy;
+    const zy = uz * xx - ux * xz;
+    const zz = ux * xy - uy * xx;
+
+    out[0] = xx * rX; out[1] = xy * rX; out[2] = xz * rX; out[3] = 0;
+    out[4] = ux * len; out[5] = uy * len; out[6] = uz * len; out[7] = 0;
+    out[8] = zx * rZ; out[9] = zy * rZ; out[10] = zz * rZ; out[11] = 0;
+    out[12] = (ax + bx) * 0.5;
+    out[13] = (ay + by) * 0.5;
+    out[14] = (az + bz) * 0.5;
+    out[15] = 1;
+    return out;
+  },
+  projectToScreen(vpMat, wx, wy, wz, width, height) {
+    const cx = vpMat[0] * wx + vpMat[4] * wy + vpMat[8] * wz + vpMat[12];
+    const cy = vpMat[1] * wx + vpMat[5] * wy + vpMat[9] * wz + vpMat[13];
+    const cz = vpMat[2] * wx + vpMat[6] * wy + vpMat[10] * wz + vpMat[14];
+    const cw = vpMat[3] * wx + vpMat[7] * wy + vpMat[11] * wz + vpMat[15];
+    if (cw <= 0.1) return null;
+    const ndcX = cx / cw;
+    const ndcY = cy / cw;
+    const ndcZ = cz / cw;
+    return {
+      x: (ndcX * 0.5 + 0.5) * width,
+      y: (0.5 - ndcY * 0.5) * height,
+      z: ndcZ
+    };
+  }
+};
+
+/* ============================================================================
+   3. PROCEDURAL 3D GEOMETRY GENERATORS (SPHERE, CAPSULE, CISTERNA SAC)
+   Each vertex packs 8 floats (32 bytes): position(3), normal(3), uv(2).
+   ============================================================================ */
+function buildSphereMesh(latBands = 32, lonBands = 48) {
+  const verts = [];
+  const indices = [];
+  for (let lat = 0; lat <= latBands; lat++) {
+    const v = lat / latBands;
+    const theta = v * Math.PI;
+    const sinT = Math.sin(theta), cosT = Math.cos(theta);
+    for (let lon = 0; lon <= lonBands; lon++) {
+      const u = lon / lonBands;
+      const phi = u * TAU;
+      const nx = sinT * Math.cos(phi);
+      const ny = cosT;
+      const nz = sinT * Math.sin(phi);
+      verts.push(nx, ny, nz, nx, ny, nz, u, v);
+    }
+  }
+  for (let lat = 0; lat < latBands; lat++) {
+    for (let lon = 0; lon < lonBands; lon++) {
+      const a = lat * (lonBands + 1) + lon;
+      const b = a + lonBands + 1;
+      indices.push(a, b, a + 1, a + 1, b, b + 1);
+    }
+  }
+  return {
+    vertices: new Float32Array(verts),
+    indices: new Uint32Array(indices)
+  };
+}
+
+// Unit cylinder/capsule spanning Y in [-0.5, +0.5] with rounded hemispherical end-caps
+function buildCapsuleMesh(rings = 18, segs = 24, capRatio = 0.22) {
+  const verts = [];
+  const indices = [];
+  for (let ir = 0; ir <= rings; ir++) {
+    const v = ir / rings; // 0 = bottom pole, 1 = top pole
+    let y, r, ny;
+    if (v < capRatio) {
+      const t = (v / capRatio) * (Math.PI * 0.5);
+      r = Math.sin(t);
+      ny = -Math.cos(t);
+      y = -0.5 + capRatio * (1.0 - Math.cos(t));
+    } else if (v > 1.0 - capRatio) {
+      const t = ((v - (1.0 - capRatio)) / capRatio) * (Math.PI * 0.5);
+      r = Math.cos(t);
+      ny = Math.sin(t);
+      y = 0.5 - capRatio * (1.0 - Math.sin(t));
+    } else {
+      r = 1.0;
+      ny = 0.0;
+      y = (v - 0.5) * (1.0 - 2.0 * capRatio);
+    }
+    const nr = Math.sqrt(Math.max(0, 1.0 - ny * ny));
+    for (let is = 0; is <= segs; is++) {
+      const u = is / segs;
+      const phi = u * TAU;
+      const cp = Math.cos(phi), sp = Math.sin(phi);
+      verts.push(cp * r, y, sp * r, cp * nr, ny, sp * nr, u, v);
+    }
+  }
+  for (let ir = 0; ir < rings; ir++) {
+    for (let is = 0; is < segs; is++) {
+      const a = ir * (segs + 1) + is;
+      const b = a + segs + 1;
+      indices.push(a, a + 1, b, a + 1, b + 1, b);
+    }
+  }
+  return {
+    vertices: new Float32Array(verts),
+    indices: new Uint32Array(indices)
+  };
+}
+
+// Curved Cup-Shaped Cisterna Mesh (for Golgi Apparatus stacks & Rough ER sheets)
+function buildCisternaMesh(rings = 16, segs = 32) {
+  const verts = [];
+  const indices = [];
+  for (let ir = 0; ir <= rings; ir++) {
+    const v = ir / rings; // 0 = top center, 0.5 = rim, 1 = bottom center
+    const theta = v * Math.PI;
+    const rad = Math.sin(theta);
+    // Flattened pancake profile with swollen bulbous rim (characteristic of Golgi cisternae!)
+    const rimBulge = 1.0 + 0.65 * Math.pow(rad, 3.0);
+    const localY = Math.cos(theta) * 0.16 * rimBulge;
+    for (let is = 0; is <= segs; is++) {
+      const u = is / segs;
+      const phi = u * TAU;
+      const lx = Math.cos(phi) * rad;
+      const lz = Math.sin(phi) * rad;
+      // Cup curvature: bend downward as radius increases
+      const cupDrop = -0.28 * (lx * lx + lz * lz);
+      const px = lx;
+      const py = localY + cupDrop;
+      const pz = lz;
+
+      const nx = lx * (0.35 + 0.65 * Math.pow(rad, 4));
+      const ny = Math.cos(theta);
+      const nz = lz * (0.35 + 0.65 * Math.pow(rad, 4));
+      const nLen = Math.hypot(nx, ny, nz) || 1;
+      verts.push(px, py, pz, nx / nLen, ny / nLen, nz / nLen, u, v);
+    }
+  }
+  for (let ir = 0; ir < rings; ir++) {
+    for (let is = 0; is < segs; is++) {
+      const a = ir * (segs + 1) + is;
+      const b = a + segs + 1;
+      indices.push(a, b, a + 1, a + 1, b, b + 1);
+    }
+  }
+  return {
+    vertices: new Float32Array(verts),
+    indices: new Uint32Array(indices)
+  };
+}
+
+/* ============================================================================
+   4. WEBGPU WGSL SHADERS (ORGANELLES, MEMBRANES & BIOCHEMICAL PARTICLES)
+   ============================================================================ */
+const ORGANELLE_WGSL = /* wgsl */`
+struct GlobalUniforms {
+  viewProj: mat4x4<f32>,
+  invViewProj: mat4x4<f32>,
+  camPos: vec4<f32>,
+  lightDir: vec4<f32>,
+  // params0: x=time, y=cleavagePinch, z=cellElongation, w=cutawayMode
+  params0: vec4<f32>,
+  // params1: x=selectedOrgId, y=mitosisProgress, z=nuclearDissolve, w=hoveredOrgId
+  params1: vec4<f32>,
+};
+
+@group(0) @binding(0) var<uniform> u: GlobalUniforms;
+
+struct VertexInput {
+  @location(0) aPos: vec3<f32>,
+  @location(1) aNorm: vec3<f32>,
+  @location(2) aUV: vec2<f32>,
+  @location(3) iMat0: vec4<f32>,
+  @location(4) iMat1: vec4<f32>,
+  @location(5) iMat2: vec4<f32>,
+  @location(6) iMat3: vec4<f32>,
+  @location(7) iColor: vec4<f32>,
+  // iMeta: x=organelleId, y=shaderBehavior, z=roughness, w=emissive
+  @location(8) iMeta: vec4<f32>,
+};
+
+struct VertexOutput {
+  @builtin(position) clipPos: vec4<f32>,
+  @location(0) worldPos: vec3<f32>,
+  @location(1) localPos: vec3<f32>,
+  @location(2) normal: vec3<f32>,
+  @location(3) color: vec4<f32>,
+  @location(4) meta: vec4<f32>,
+};
+
+// Procedural 3D cellular hash noise for organic membrane & chromatin texture
+fn hash3(p: vec3<f32>) -> f32 {
+  var q = fract(p * vec3<f32>(0.1031, 0.1030, 0.0973));
+  q += dot(q, q.yxz + 33.33);
+  return fract((q.x + q.y) * q.z);
+}
+
+fn noise3(x: vec3<f32>) -> f32 {
+  let i = floor(x);
+  let f = fract(x);
+  let u = f * f * (3.0 - 2.0 * f);
+  return mix(
+    mix(mix(hash3(i + vec3<f32>(0,0,0)), hash3(i + vec3<f32>(1,0,0)), u.x),
+        mix(hash3(i + vec3<f32>(0,1,0)), hash3(i + vec3<f32>(1,1,0)), u.x), u.y),
+    mix(mix(hash3(i + vec3<f32>(0,0,1)), hash3(i + vec3<f32>(1,0,1)), u.x),
+        mix(hash3(i + vec3<f32>(0,1,1)), hash3(i + vec3<f32>(1,1,1)), u.x), u.y),
+    u.z
+  );
+}
+
+@vertex
+fn vs_main(in: VertexInput) -> VertexOutput {
+  var out: VertexOutput;
+  let model = mat4x4<f32>(in.iMat0, in.iMat1, in.iMat2, in.iMat3);
+  let behavior = in.iMeta.y;
+  let time = u.params0.x;
+
+  var pos = in.aPos;
+  var norm = in.aNorm;
+
+  // Behavior 1.0: Plasma Membrane with Cytokinesis Cleavage Furrow Pinching
+  if (abs(behavior - 1.0) < 0.1) {
+    let pinch = u.params0.y;
+    let elong = u.params0.z;
+    let x0 = pos.x;
+    // Equatorial actin-myosin contractile ring constriction at x = 0
+    let neck = 1.0 - pinch * 0.86 * exp(-x0 * x0 * 8.5);
+    // Daughter cell lobe rounding
+    let lobe = 1.0 + pinch * 0.28 * sin(abs(x0) * 3.1415926);
+    let radScale = neck * lobe;
+
+    // Gentle organic membrane undulation
+    let wave = sin(time * 1.4 + pos.x * 4.0 + pos.y * 3.0) * 0.014;
+    pos = vec3<f32>(pos.x * elong, pos.y * radScale, pos.z * radScale) * (1.0 + wave);
+
+    // Analytical normal adjustment for the cleavage furrow
+    let dNeck = pinch * 0.86 * 17.0 * x0 * exp(-x0 * x0 * 8.5);
+    let signX = select(-1.0, 1.0, x0 >= 0.0);
+    let dLobe = pinch * 0.28 * 3.1415926 * signX * cos(abs(x0) * 3.1415926);
+    let dRad = dNeck * lobe + neck * dLobe;
+    let rYZ = length(in.aPos.yz);
+    norm = normalize(vec3<f32>(norm.x / elong - rYZ * dRad * 0.48, norm.y, norm.z));
+  }
+  // Behavior 3.0: ER & Golgi Cisternae subtle fluid undulation
+  else if (abs(behavior - 3.0) < 0.1) {
+    let ripple = sin(time * 2.0 + pos.x * 5.0 + pos.z * 5.0) * 0.025;
+    pos.y += ripple;
+  }
+
+  let wp = model * vec4<f32>(pos, 1.0);
+  out.worldPos = wp.xyz;
+  out.localPos = in.aPos;
+  out.normal = normalize((model * vec4<f32>(norm, 0.0)).xyz);
+  out.color = in.iColor;
+  out.meta = in.iMeta;
+  out.clipPos = u.viewProj * wp;
+  return out;
+}
+
+@fragment
+fn fs_main(in: VertexOutput, @builtin(front_facing) isFront: bool) -> @location(0) vec4<f32> {
+  let orgId = in.meta.x;
+  let behavior = in.meta.y;
+  let roughness = in.meta.z;
+  let emissive = in.meta.w;
+  let time = u.params0.x;
+  let cutaway = u.params0.w;
+
+  var baseColor = in.color.rgb;
+  var alpha = in.color.a;
+
+  // 1. Interactive Cross-Section Cutaway for Outer Membranes
+  var isCutEdge = false;
+  if (cutaway > 0.5) {
+    // Plasma Membrane cutaway: open front-upper viewing window
+    if (abs(behavior - 1.0) < 0.1) {
+      let cutMetric = in.worldPos.z - 1.15 + in.worldPos.y * 0.35;
+      if (cutMetric > 0.0) {
+        discard;
+      } else if (cutMetric > -0.24) {
+        isCutEdge = true;
+      }
+    }
+    // Nuclear Envelope cutaway: slice front hemisphere so Nucleolus & Chromosomes are unobstructed
+    if (abs(behavior - 2.0) < 0.1) {
+      if (in.localPos.z > 0.18 && in.localPos.y > -0.35) {
+        discard;
+      } else if (in.localPos.z > 0.12 && in.localPos.y > -0.40) {
+        isCutEdge = true;
+      }
+    }
+    // Mitochondrial Outer Membrane cutaway: slice upper window to reveal inner Cristae folds
+    if (abs(behavior - 4.0) < 0.1) {
+      if (in.localPos.z > 0.15) {
+        discard;
+      } else if (in.localPos.z > 0.07) {
+        isCutEdge = true;
+      }
+    }
+  }
+
+  // 2. Behavior 2.0: Nuclear Envelope Pore Complexes & Mitotic Dissolution
+  if (abs(behavior - 2.0) < 0.1) {
+    let dissolve = u.params1.z;
+    if (dissolve > 0.01) {
+      let nDiss = noise3(in.localPos * 6.5 + vec3<f32>(time * 0.2));
+      if (nDiss < dissolve) {
+        discard;
+      }
+      if (nDiss < dissolve + 0.08) {
+        isCutEdge = true;
+      }
+    }
+    // Procedural Nuclear Pore Complexes (NPCs)
+    let poreGrid = fract(in.localPos * 4.8) - vec3<f32>(0.5);
+    let poreDist = length(poreGrid);
+    if (poreDist < 0.17) {
+      discard;
+    } else if (poreDist < 0.25) {
+      // Glowing octagonal NPC protein ring
+      baseColor = mix(baseColor, vec3<f32>(0.55, 0.92, 1.0), 0.75);
+      alpha = min(1.0, alpha + 0.35);
+    }
+  }
+
+  // 3. Surface Micro-Relief & Subsurface Scattering Lighting
+  var N = normalize(in.normal);
+  if (!isFront) {
+    N = -N;
+  }
+  let V = normalize(u.camPos.xyz - in.worldPos);
+  let L = normalize(u.lightDir.xyz);
+  let H = normalize(L + V);
+
+  // Organic cellular surface texture perturbation
+  let nMicro = noise3(in.worldPos * 3.2);
+  let nFine = noise3(in.worldPos * 9.5);
+  var surfaceMod = 0.88 + 0.24 * nMicro;
+
+  // Chromatin / Chromosome nucleosome banding (Behavior 5.0)
+  if (abs(behavior - 5.0) < 0.1) {
+    let band = 0.5 + 0.5 * sin(in.localPos.y * 28.0 + nMicro * 6.0);
+    surfaceMod *= (0.78 + 0.42 * band);
+  }
+
+  // Wrap diffuse + Subsurface Scattering (SSS) for translucent biological tissue look
+  let ndl = dot(N, L);
+  let wrapDiff = max(0.0, (ndl + 0.45) / 1.45);
+  let backLight = max(0.0, dot(-N, L)) * 0.42;
+  let sssColor = baseColor * vec3<f32>(1.15, 0.95, 1.08) * backLight;
+
+  // Blinn-Phong Wet Membrane Specular Highlight
+  let shininess = mix(96.0, 14.0, roughness);
+  let spec = pow(max(dot(N, H), 0.0), shininess) * (1.0 - roughness * 0.65);
+
+  // Fresnel Electron-Microscope / Bioluminescent Rim Lighting
+  let ndv = max(dot(N, V), 0.0);
+  let fresnel = pow(1.0 - ndv, 3.2);
+
+  // Ambient interior occlusion (darker deep inside center, brighter toward periphery)
+  let radialAO = 0.68 + 0.32 * clamp(length(in.worldPos) / 10.0, 0.0, 1.0);
+
+  var litColor = baseColor * surfaceMod * (0.28 + 0.78 * wrapDiff) * radialAO;
+  litColor += sssColor;
+  litColor += vec3<f32>(0.88, 0.96, 1.0) * spec * 0.48;
+  litColor += baseColor * fresnel * (0.65 + emissive);
+  litColor += baseColor * emissive * 0.45;
+
+  // Highlighted / Selected or Hovered Organelle Pulse
+  let selId = u.params1.x;
+  let hovId = u.params1.w;
+  if (abs(orgId - selId) < 0.1 || abs(orgId - hovId) < 0.1) {
+    let pulse = 0.55 + 0.45 * sin(time * 5.5);
+    litColor += (baseColor + vec3<f32>(0.25, 0.45, 0.55)) * (0.28 + 0.55 * fresnel) * pulse;
+  }
+
+  // Glowing Phospholipid Bilayer Cross-Section Rim
+  if (isCutEdge) {
+    litColor = mix(litColor, vec3<f32>(0.45, 0.95, 1.0), 0.82);
+    alpha = max(alpha, 0.92);
+  }
+
+  // For semi-transparent membranes, boost opacity at grazing Fresnel angles (realistic glass/lipid effect)
+  if (alpha < 0.95) {
+    alpha = clamp(alpha * (0.45 + 1.35 * fresnel) + spec * 0.35, 0.08, 0.94);
+  }
+
+  return vec4<f32>(litColor, alpha);
+}
+`;
+
+const PARTICLE_WGSL = /* wgsl */`
+struct GlobalUniforms {
+  viewProj: mat4x4<f32>,
+  invViewProj: mat4x4<f32>,
+  camPos: vec4<f32>,
+  lightDir: vec4<f32>,
+  params0: vec4<f32>,
+  params1: vec4<f32>,
+};
+
+@group(0) @binding(0) var<uniform> u: GlobalUniforms;
+
+struct ParticleIn {
+  @location(0) aPos: vec3<f32>,
+  @location(1) aNorm: vec3<f32>,
+  @location(2) pPosSize: vec4<f32>,
+  @location(3) pColor: vec4<f32>,
+};
+
+struct ParticleOut {
+  @builtin(position) clipPos: vec4<f32>,
+  @location(0) normal: vec3<f32>,
+  @location(1) viewDir: vec3<f32>,
+  @location(2) color: vec4<f32>,
+};
+
+@vertex
+fn vs_main(in: ParticleIn) -> ParticleOut {
+  var out: ParticleOut;
+  let worldPos = in.pPosSize.xyz + in.aPos * in.pPosSize.w;
+  out.clipPos = u.viewProj * vec4<f32>(worldPos, 1.0);
+  out.normal = in.aNorm;
+  out.viewDir = normalize(u.camPos.xyz - worldPos);
+  out.color = in.pColor;
+  return out;
+}
+
+@fragment
+fn fs_main(in: ParticleOut) -> @location(0) vec4<f32> {
+  let N = normalize(in.normal);
+  let V = normalize(in.viewDir);
+  let core = max(dot(N, V), 0.0);
+  let glow = pow(core, 1.35);
+  let col = mix(in.color.rgb, vec3<f32>(1.0, 1.0, 1.0), pow(core, 4.0) * 0.65);
+  return vec4<f32>(col * (1.25 + glow), glow * in.color.a);
+}
+`;
+
+const BG_WGSL = /* wgsl */`
+struct GlobalUniforms {
+  viewProj: mat4x4<f32>,
+  invViewProj: mat4x4<f32>,
+  camPos: vec4<f32>,
+  lightDir: vec4<f32>,
+  params0: vec4<f32>,
+  params1: vec4<f32>,
+};
+@group(0) @binding(0) var<uniform> u: GlobalUniforms;
+
+struct VSOut {
+  @builtin(position) pos: vec4<f32>,
+  @location(0) uv: vec2<f32>,
+};
+
+@vertex
+fn vs_main(@builtin(vertex_index) vid: u32) -> VSOut {
+  var pos = array<vec2<f32>, 3>(
+    vec2<f32>(-1.0, -1.0),
+    vec2<f32>( 3.0, -1.0),
+    vec2<f32>(-1.0,  3.0)
+  );
+  var out: VSOut;
+  out.pos = vec4<f32>(pos[vid], 0.9999, 1.0);
+  out.uv = pos[vid] * 0.5 + 0.5;
+  return out;
+}
+
+@fragment
+fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
+  let d = length(in.uv - vec2<f32>(0.5));
+  let t = u.params0.x * 0.15;
+  // Deep cytosolic aqueous microscope field gradient with subtle bokeh
+  var col = mix(vec3<f32>(0.045, 0.095, 0.18), vec3<f32>(0.012, 0.024, 0.055), smoothstep(0.0, 0.85, d));
+  let b1 = smoothstep(0.28, 0.0, length(in.uv - vec2<f32>(0.3 + sin(t)*0.08, 0.35 + cos(t)*0.06)));
+  let b2 = smoothstep(0.32, 0.0, length(in.uv - vec2<f32>(0.72 - cos(t)*0.07, 0.65 + sin(t)*0.07)));
+  col += vec3<f32>(0.02, 0.08, 0.14) * b1 + vec3<f32>(0.06, 0.02, 0.11) * b2;
+  return vec4<f32>(col, 1.0);
+}
+`;
+
+/* ============================================================================
+   5. DYNAMIC INSTANCE BATCHER FOR WEBGPU
+   Packs 24 floats (96 bytes) per instance:
+   [0..15]: mat4x4 modelMatrix
+   [16..19]: vec4 color (r, g, b, alpha)
+   [20..23]: vec4 meta  (organelleId, shaderBehavior, roughness, emissive)
+   ============================================================================ */
+const FLOATS_PER_INST = 24;
+
+class WebGPUBatch {
+  constructor(device, meshData, maxInstances) {
+    this.device = device;
+    this.maxInstances = maxInstances;
+    this.count = 0;
+    this.cpuData = new Float32Array(maxInstances * FLOATS_PER_INST);
+    this.indexCount = meshData.indices.length;
+
+    this.vbo = device.createBuffer({
+      size: meshData.vertices.byteLength,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+      mappedAtCreation: true
+    });
+    new Float32Array(this.vbo.getMappedRange()).set(meshData.vertices);
+    this.vbo.unmap();
+
+    this.ibo = device.createBuffer({
+      size: meshData.indices.byteLength,
+      usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+      mappedAtCreation: true
+    });
+    new Uint32Array(this.ibo.getMappedRange()).set(meshData.indices);
+    this.ibo.unmap();
+
+    this.instBuf = device.createBuffer({
+      size: this.cpuData.byteLength,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+    });
+  }
+
+  clear() {
+    this.count = 0;
+  }
+
+  add(mat, r, g, b, a, orgId, behavior = 0, roughness = 0.35, emissive = 0.1) {
+    if (this.count >= this.maxInstances) return;
+    const off = this.count * FLOATS_PER_INST;
+    this.count++;
+    const d = this.cpuData;
+    for (let i = 0; i < 16; i++) d[off + i] = mat[i];
+    d[off + 16] = r;
+    d[off + 17] = g;
+    d[off + 18] = b;
+    d[off + 19] = a;
+    d[off + 20] = orgId;
+    d[off + 21] = behavior;
+    d[off + 22] = roughness;
+    d[off + 23] = emissive;
+  }
+
+  upload(queue) {
+    if (this.count === 0) return;
+    queue.writeBuffer(this.instBuf, 0, this.cpuData, 0, this.count * FLOATS_PER_INST);
+  }
+
+  draw(pass) {
+    if (this.count === 0) return;
+    pass.setVertexBuffer(0, this.vbo);
+    pass.setVertexBuffer(1, this.instBuf);
+    pass.setIndexBuffer(this.ibo, 'uint32');
+    pass.drawIndexed(this.indexCount, this.count);
+  }
+}
+
+/* ============================================================================
+   6. BIOLOGICAL CELL LAYOUT, MITOSIS KINEMATICS & PARTICLE PATHWAY ENGINE
+   ============================================================================ */
+const simState = {
+  mode: 'homeostasis',    // 'homeostasis' | 'mitosis'
+  playing: true,
+  speed: 1.0,
+  time: 0,
+  pathwayStep: 0,         // 0..5 in Homeostasis mode
+  mitosisProgress: 0.0,   // [0.0, 6.0) in Mitosis mode
+  cutaway: true,
+  showLabels: true,
+  selectedOrgId: 1,
+  hoveredOrgId: -1,
+  cleavagePinch: 0.0,
+  cellElongation: 1.0,
+  nuclearDissolve: 0.0
+};
+
+// Fixed structural anchors for organelles so particles can navigate between them
+const mitoAnchors = [
+  { pos: [ 4.8,  3.8, -2.2], rot: [0.4, 0.8, 0.2], side: 1 },
+  { pos: [ 5.5, -3.2, -2.8], rot: [-0.3, 1.2, 0.5], side: 1 },
+  { pos: [ 3.2,  4.8,  3.2], rot: [0.6, -0.4, 0.1], side: 1 },
+  { pos: [ 6.2,  0.4,  2.4], rot: [0.2, 0.3, -0.6], side: 1 },
+  { pos: [-5.2,  4.0, -2.4], rot: [-0.5, 0.9, -0.3], side: -1 },
+  { pos: [-6.0, -2.8,  2.6], rot: [0.3, -1.1, 0.4], side: -1 },
+  { pos: [-3.8, -5.0, -2.5], rot: [-0.4, 0.5, 0.7], side: -1 },
+  { pos: [-6.4,  0.8,  2.2], rot: [0.5, 0.2, -0.5], side: -1 }
+];
+
+const lysosomeAnchors = [
+  [-5.4, -4.2, -2.0], [ 4.5, -4.8,  1.2], [-6.2,  2.2, -3.2], [ 6.0,  2.6, -3.0],
+  [-2.5, -5.8,  2.4], [ 2.4,  5.6, -2.8], [-4.8,  4.8,  1.8], [ 5.2, -1.5, -4.6]
+];
+
+const ribosomeOffsets = [];
+const freeRibosomes = [];
+const erTubules = [];
+const microtubuleTracks = []; // Updated dynamically every frame for motor proteins!
+const boundingSpheres = [];   // Used for 3D raycast click/hover picking on the canvas
+
+function initCellularUltrastructure() {
+  // Deterministic PRNG for reproducible biological layout
+  let seed = 2025;
+  const rand = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
+
+  // 1. 56 Bound Ribosomes studding the Rough ER cisternae around the Nucleus
+  for (let i = 0; i < 56; i++) {
+    const shellR = 4.05 + (i % 3) * 0.52;
+    const theta = 0.35 * Math.PI + rand() * 0.45 * Math.PI;
+    const phi = -Math.PI * 0.85 + rand() * Math.PI * 1.45;
+    ribosomeOffsets.push({
+      ox: shellR * Math.sin(theta) * Math.cos(phi),
+      oy: shellR * Math.cos(theta),
+      oz: shellR * Math.sin(theta) * Math.sin(phi),
+      side: i % 2 === 0 ? -1 : 1
+    });
+  }
+
+  // 2. 34 Free Polysome Ribosomes in the cytoplasm
+  for (let i = 0; i < 34; i++) {
+    const r = 5.6 + rand() * 3.1;
+    const theta = 0.2 * Math.PI + rand() * 0.6 * Math.PI;
+    const phi = rand() * TAU;
+    const x = r * Math.sin(theta) * Math.cos(phi);
+    freeRibosomes.push({
+      x,
+      y: r * Math.cos(theta),
+      z: r * Math.sin(theta) * Math.sin(phi),
+      side: x < 0 ? -1 : 1
+    });
+  }
+
+  // 3. 18 Smooth ER branching tubules
+  for (let i = 0; i < 18; i++) {
+    const ang = (i / 18) * TAU;
+    const r1 = 4.6, r2 = 6.3;
+    const y1 = (rand() - 0.5) * 3.8;
+    const y2 = y1 + (rand() - 0.5) * 1.8;
+    erTubules.push({
+      ax: -1.2 + Math.cos(ang) * r1, ay: y1, az: Math.sin(ang) * r1,
+      bx: -1.2 + Math.cos(ang + 0.18) * r2, by: y2, bz: Math.sin(ang + 0.18) * r2,
+      side: Math.cos(ang) < 0 ? -1 : 1
+    });
+  }
+}
+
+/* ============================================================================
+   7. BIOCHEMICAL PARTICLE SIMULATION SYSTEM (1,600 MOLECULES)
+   ============================================================================ */
+const NUM_PARTICLES = 1600;
+const particles = [];
+const particleGPUData = new Float32Array(NUM_PARTICLES * 8); // pos(3)+size(1), color(4)
+let activeParticleCount = 0;
+
+function initParticles() {
+  particles.length = 0;
+  for (let i = 0; i < NUM_PARTICLES; i++) {
+    let type = 0;
+    if (i < 320) type = 0;       // mRNA (Cyan)
+    else if (i < 740) type = 1;  // Proteins & Secretory Vesicles (Gold -> Violet)
+    else if (i < 1120) type = 2; // ATP Energy (Lime Green)
+    else if (i < 1380) type = 3; // Motor Cargoes on Microtubules (Magenta)
+    else type = 4;               // Lysosomal Enzymes & Signals (Coral Orange)
+
+    particles.push({
+      type,
+      progress: Math.random(),
+      speed: 0.18 + Math.random() * 0.16,
+      targetIdx: i,
+      jitterPhase: Math.random() * TAU,
+      x: 0, y: 0, z: 0,
+      size: 0.11,
+      r: 1, g: 1, b: 1, a: 0.9
+    });
+  }
+}
+
+function cubicBezier(p0, p1, p2, p3, t, out) {
+  const u = 1 - t;
+  const b0 = u * u * u;
+  const b1 = 3 * u * u * t;
+  const b2 = 3 * u * t * t;
+  const b3 = t * t * t;
+  out[0] = b0 * p0[0] + b1 * p1[0] + b2 * p2[0] + b3 * p3[0];
+  out[1] = b0 * p0[1] + b1 * p1[1] + b2 * p2[1] + b3 * p3[1];
+  out[2] = b0 * p0[2] + b1 * p1[2] + b2 * p2[2] + b3 * p3[2];
+}
+
+const tmpVec = [0, 0, 0];
+
+function updateParticles(dt, time, nucCenter, golgiCenter, lobeShift) {
+  activeParticleCount = 0;
+
+  for (let i = 0; i < NUM_PARTICLES; i++) {
+    const p = particles[i];
+    if (!PARTICLE_TYPES[p.type].visible) continue;
+
+    p.progress += p.speed * dt;
+    if (p.progress >= 1.0) {
+      p.progress -= 1.0;
+    }
+    const t = p.progress;
+    const jit = 0.14 * Math.sin(time * 3.2 + p.jitterPhase);
+
+    if (p.type === 0) {
+      // PATHWAY 0: mRNA Transcription in Nucleus -> Nuclear Pore Export -> Rough ER Ribosome
+      const ribo = ribosomeOffsets[p.targetIdx % ribosomeOffsets.length];
+      const sideShift = (ribo.side < 0 ? -1 : 1) * lobeShift;
+      const start = [nucCenter[0] + sideShift + Math.cos(p.jitterPhase) * 1.1, nucCenter[1] + Math.sin(p.jitterPhase) * 1.1, nucCenter[2]];
+      const poreDirX = ribo.ox, poreDirY = ribo.oy, poreDirZ = ribo.oz;
+      const pLen = Math.hypot(poreDirX, poreDirY, poreDirZ) || 1;
+      const pore = [
+        nucCenter[0] + sideShift + (poreDirX / pLen) * 3.55,
+        nucCenter[1] + (poreDirY / pLen) * 3.55,
+        nucCenter[2] + (poreDirZ / pLen) * 3.55
+      ];
+      const dest = [nucCenter[0] + sideShift + ribo.ox, nucCenter[1] + ribo.oy, nucCenter[2] + ribo.oz];
+
+      if (t < 0.55) {
+        const u = t / 0.55;
+        p.x = lerp(start[0], pore[0], u) + jit;
+        p.y = lerp(start[1], pore[1], u) + jit;
+        p.z = lerp(start[2], pore[2], u);
+      } else {
+        const u = (t - 0.55) / 0.45;
+        p.x = lerp(pore[0], dest[0], u);
+        p.y = lerp(pore[1], dest[1], u);
+        p.z = lerp(pore[2], dest[2], u);
+      }
+      p.size = 0.095;
+      p.r = 0.0; p.g = 0.95; p.b = 1.0; p.a = 0.92;
+    }
+    else if (p.type === 1) {
+      // PATHWAY 1: Secretory Pathway (Rough ER -> COPII Vesicle -> Golgi Maturation -> Exocytosis)
+      const ribo = ribosomeOffsets[p.targetIdx % ribosomeOffsets.length];
+      const erPt = [nucCenter[0] + ribo.ox, nucCenter[1] + ribo.oy, nucCenter[2] + ribo.oz];
+      const cisGolgi = [golgiCenter[0] - 0.9, golgiCenter[1] + Math.sin(p.jitterPhase) * 1.1, golgiCenter[2] - 0.5];
+      const transGolgi = [golgiCenter[0] + 1.1, golgiCenter[1] + Math.cos(p.jitterPhase) * 1.2, golgiCenter[2] + 0.8];
+      const memAngle = (p.targetIdx * 0.37) % TAU;
+      const memPt = [
+        Math.cos(memAngle) * 9.3 * simState.cellElongation,
+        Math.sin(p.jitterPhase) * 5.2,
+        Math.sin(memAngle) * 8.2
+      ];
+
+      cubicBezier(erPt, cisGolgi, transGolgi, memPt, t, tmpVec);
+      p.x = tmpVec[0] + jit * 0.6;
+      p.y = tmpVec[1] + jit * 0.6;
+      p.z = tmpVec[2];
+
+      // Color shifts from Golden Nascent Protein in ER to Violet Secretory Vesicle after Golgi glycosylation
+      const golgiShift = smoothstep(0.35, 0.72, t);
+      p.r = lerp(1.0, 0.72, golgiShift);
+      p.g = lerp(0.76, 0.32, golgiShift);
+      p.b = lerp(0.12, 0.98, golgiShift);
+      p.size = lerp(0.10, 0.145, golgiShift);
+      p.a = 0.94;
+    }
+    else if (p.type === 2) {
+      // PATHWAY 2: Mitochondrial ATP Energy Synthesis & Diffusion
+      const mAnchor = mitoAnchors[p.targetIdx % mitoAnchors.length];
+      const mx = mAnchor.pos[0] + mAnchor.side * lobeShift;
+      const my = mAnchor.pos[1];
+      const mz = mAnchor.pos[2];
+
+      const dirAng = p.jitterPhase;
+      const dirElev = ((p.targetIdx % 11) / 11 - 0.5) * Math.PI;
+      const rad = t * 5.2;
+      p.x = mx + Math.cos(dirElev) * Math.cos(dirAng) * rad + jit;
+      p.y = my + Math.sin(dirElev) * rad + jit;
+      p.z = mz + Math.cos(dirElev) * Math.sin(dirAng) * rad;
+      p.size = 0.085 * (1.15 - 0.4 * t);
+      p.r = 0.25; p.g = 0.98; p.b = 0.48; p.a = 0.9 * (1.0 - t * 0.55);
+    }
+    else if (p.type === 3) {
+      // PATHWAY 3: Motor Protein (Kinesin/Dynein) Walking Directly Along Microtubule Tracks
+      if (microtubuleTracks.length > 0) {
+        const track = microtubuleTracks[p.targetIdx % microtubuleTracks.length];
+        p.x = lerp(track.ax, track.bx, t);
+        p.y = lerp(track.ay, track.by, t);
+        p.z = lerp(track.az, track.bz, t);
+      }
+      p.size = 0.125;
+      p.r = 0.95; p.g = 0.35; p.b = 0.98; p.a = 0.95;
+    }
+    else {
+      // PATHWAY 4: Lysosomal Hydrolase Enzymes & Cell Signaling Molecules
+      const lyso = lysosomeAnchors[p.targetIdx % lysosomeAnchors.length];
+      const lx = lyso[0] + (lyso[0] < 0 ? -1 : 1) * lobeShift;
+      const ly = lyso[1], lz = lyso[2];
+
+      const isEndocytic = (p.targetIdx % 2 === 0);
+      const origin = isEndocytic
+        ? [lx * 1.45, ly * 1.35, lz * 1.35] // From Plasma Membrane receptor
+        : [golgiCenter[0], golgiCenter[1], golgiCenter[2]]; // From trans-Golgi
+
+      p.x = lerp(origin[0], lx, t) + jit * 0.5;
+      p.y = lerp(origin[1], ly, t) + jit * 0.5;
+      p.z = lerp(origin[2], lz, t);
+      p.size = 0.105;
+      p.r = 0.99; p.g = 0.42; p.b = 0.52; p.a = 0.9;
+    }
+
+    const off = activeParticleCount * 8;
+    activeParticleCount++;
+    particleGPUData[off]     = p.x;
+    particleGPUData[off + 1] = p.y;
+    particleGPUData[off + 2] = p.z;
+    particleGPUData[off + 3] = p.size;
+    particleGPUData[off + 4] = p.r;
+    particleGPUData[off + 5] = p.g;
+    particleGPUData[off + 6] = p.b;
+    particleGPUData[off + 7] = p.a;
+  }
+}
+
+/* ============================================================================
+   8. SCENE ASSEMBLY: BUILD ALL 12 ORGANELLES & MITOTIC STAGES EACH FRAME
+   ============================================================================ */
+const tmpMat = Mat4.create();
+
+function buildCellScene(time, dt, batches) {
+  const {
+    opaqueSpheres,
+    opaqueCapsules,
+    opaqueCisternae,
+    transparentSpheres,
+    transparentCapsules
+  } = batches;
+
+  opaqueSpheres.clear();
+  opaqueCapsules.clear();
+  opaqueCisternae.clear();
+  transparentSpheres.clear();
+  transparentCapsules.clear();
+  microtubuleTracks.length = 0;
+  boundingSpheres.length = 0;
+
+  const isVisible = (id) => ORGANELLES[id - 1].visible;
+
+  // Compute continuous Mitosis kinematic parameters from `m = [0.0, 6.0)`
+  // 0..1: Interphase -> Prophase
+  // 1..2: Prophase -> Metaphase
+  // 2..3: Metaphase -> Anaphase
+  // 3..4: Anaphase -> Telophase
+  // 4..5: Telophase -> Cytokinesis
+  // 5..6: Cytokinesis Completion
+  const m = simState.mode === 'mitosis' ? simState.mitosisProgress : 0.0;
+
+  // Condensation of chromatin into X-chromosomes (ramps up in Prophase, decondenses in Telophase)
+  const condensation = smoothstep(0.3, 1.4, m) * (1.0 - smoothstep(4.2, 5.5, m) * 0.65);
+  // Nuclear envelope dissolution (dissolves in Prophase/Metaphase, reforms in Telophase)
+  const nucDissolve = smoothstep(0.6, 1.7, m) * (1.0 - smoothstep(3.7, 4.6, m));
+  // Daughter nuclei separation in Telophase/Cytokinesis
+  const daughterNucActive = smoothstep(3.6, 4.4, m);
+  // Cell elongation along X-axis (starts in Anaphase)
+  const cellElong = 1.0 + 0.42 * smoothstep(2.2, 4.8, m);
+  // Cytokinesis equatorial cleavage furrow pinch
+  const cleavagePinch = 0.90 * smoothstep(4.0, 5.7, m);
+  // Daughter lobe horizontal shift for cytoplasmic organelles
+  const lobeShift = 3.2 * smoothstep(2.6, 5.2, m);
+
+  simState.cleavagePinch = cleavagePinch;
+  simState.cellElongation = cellElong;
+  simState.nuclearDissolve = nucDissolve;
+
+  // Nucleus center shifts from (-1.2, 0.3, 0) in Interphase to (0,0,0) in Prophase
+  const prophaseCenterBlend = smoothstep(0.0, 1.2, m);
+  const nucCenter = [
+    lerp(-1.2, 0.0, prophaseCenterBlend),
+    lerp(0.3, 0.0, prophaseCenterBlend),
+    0.0
+  ];
+  const golgiCenter = [3.8 + lobeShift * 0.75, -0.8, 2.2];
+
+  // Update 3D floating label world coordinates dynamically
+  ORGANELLES[0].labelPos = [0, 9.5 * (1.0 - cleavagePinch * 0.45), 0];
+  ORGANELLES[1].labelPos = daughterNucActive > 0.5 ? [-5.4, 3.3, 0] : [nucCenter[0], nucCenter[1] + 3.8, 0];
+  ORGANELLES[2].labelPos = daughterNucActive > 0.5 ? [-5.4, 1.4, 0] : [nucCenter[0] - 0.5, nucCenter[1] + 1.5, -0.3];
+  ORGANELLES[3].labelPos = m >= 2.3 ? [3.6, 0.8, 1.2] : [nucCenter[0] + 0.4, nucCenter[1] + 0.4, 1.2];
+  ORGANELLES[4].labelPos = [-4.4 - lobeShift * 0.7, -1.6, 2.5];
+  ORGANELLES[5].labelPos = [golgiCenter[0] + 0.4, golgiCenter[1] + 1.2, golgiCenter[2]];
+  ORGANELLES[6].labelPos = [4.8 + lobeShift, 3.8, -2.2];
+  ORGANELLES[11].labelPos = m > 0.5 ? [-6.8 - lobeShift * 0.4, 0.8, 0] : [0.8, 3.6, 2.2];
+
+  // -------------------------------------------------------------------------
+  // 1. PLASMA MEMBRANE (ID 1) - Semi-Transparent Phospholipid Bilayer
+  // -------------------------------------------------------------------------
+  if (isVisible(1)) {
+    // Outer leaflet
+    Mat4.fromTRS(tmpMat, 0, 0, 0, 0, 0, 0, 10.0, 9.2, 9.2);
+    transparentSpheres.add(tmpMat, 0.16, 0.68, 0.96, 0.28, 1, 1.0, 0.15, 0.15);
+    // Inner leaflet
+    Mat4.fromTRS(tmpMat, 0, 0, 0, 0, 0, 0, 9.76, 8.98, 8.98);
+    transparentSpheres.add(tmpMat, 0.10, 0.52, 0.85, 0.18, 1, 1.0, 0.25, 0.08);
+  }
+
+  // -------------------------------------------------------------------------
+  // 2. NUCLEUS & NUCLEAR ENVELOPE (ID 2) + 3. NUCLEOLUS (ID 3)
+  // -------------------------------------------------------------------------
+  if (isVisible(2)) {
+    if (daughterNucActive < 0.5 && nucDissolve < 0.98) {
+      // Single Interphase/Prophase Nuclear Envelope
+      Mat4.fromTRS(tmpMat, nucCenter[0], nucCenter[1], nucCenter[2], 0, time * 0.05, 0, 3.6, 3.5, 3.6);
+      transparentSpheres.add(tmpMat, 0.48, 0.52, 0.98, 0.58, 2, 2.0, 0.25, 0.22);
+      boundingSpheres.push({ id: 2, x: nucCenter[0], y: nucCenter[1], z: nucCenter[2], r: 3.6 });
+    } else if (daughterNucActive >= 0.5) {
+      // Two Reformed Daughter Nuclear Envelopes in Telophase & Cytokinesis!
+      const dScale = 2.65 * smoothstep(3.6, 4.6, m);
+      const poleX = 5.4 + lobeShift * 0.35;
+      for (const side of [-1, 1]) {
+        Mat4.fromTRS(tmpMat, side * poleX, 0, 0, 0, time * 0.05 * side, 0, dScale, dScale, dScale);
+        transparentSpheres.add(tmpMat, 0.48, 0.52, 0.98, 0.58, 2, 2.0, 0.25, 0.22);
+        boundingSpheres.push({ id: 2, x: side * poleX, y: 0, z: 0, r: dScale });
+      }
+    }
+  }
+
+  if (isVisible(3)) {
+    // Nucleolus: Prominent in Interphase, shrinks in Prophase, reforms in Telophase
+    const nucleolusScale = (1.0 - smoothstep(0.3, 1.3, m)) + smoothstep(4.1, 5.1, m) * 0.85;
+    if (nucleolusScale > 0.08) {
+      if (daughterNucActive < 0.5) {
+        const nx = nucCenter[0] - 0.45, ny = nucCenter[1] + 0.35, nz = -0.25;
+        Mat4.fromTRS(tmpMat, nx, ny, nz, 0, time * 0.2, 0, 1.18 * nucleolusScale, 1.15 * nucleolusScale, 1.18 * nucleolusScale);
+        opaqueSpheres.add(tmpMat, 0.78, 0.42, 0.98, 1.0, 3, 0.0, 0.3, 0.45);
+        boundingSpheres.push({ id: 3, x: nx, y: ny, z: nz, r: 1.2 * nucleolusScale });
+      } else {
+        const poleX = 5.4 + lobeShift * 0.35;
+        for (const side of [-1, 1]) {
+          Mat4.fromTRS(tmpMat, side * poleX, 0.2, -0.2, 0, 0, 0, 0.9 * nucleolusScale, 0.9 * nucleolusScale, 0.9 * nucleolusScale);
+          opaqueSpheres.add(tmpMat, 0.78, 0.42, 0.98, 1.0, 3, 0.0, 0.3, 0.45);
+          boundingSpheres.push({ id: 3, x: side * poleX, y: 0.2, z: -0.2, r: 0.95 });
+        }
+      }
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // 4. CHROMOSOMES / CHROMATIN (ID 4) - 8 Sister Chromatid Pairs
+  //    Animates Condensation -> Metaphase Plate -> Anaphase Separation!
+  // -------------------------------------------------------------------------
+  const kinetochorePositions = []; // Saved so Mitotic Spindle fibers attach accurately!
+  if (isVisible(4)) {
+    const numPairs = 8;
+    const alignBlend = smoothstep(1.0, 2.0, m);     // Move to Metaphase Plate (x = 0)
+    const separateBlend = smoothstep(2.05, 3.5, m); // Anaphase separation to ±poles
+    const poleTargetX = 5.3 + lobeShift * 0.35;
+
+    for (let i = 0; i < numPairs; i++) {
+      const ang = (i / numPairs) * TAU;
+      // Interphase nuclear position
+      const ix = nucCenter[0] + Math.cos(ang * 2.0 + 0.5) * 1.65;
+      const iy = nucCenter[1] + Math.sin(ang) * 1.75;
+      const iz = Math.sin(ang * 2.0) * 1.65;
+
+      // Metaphase equatorial ring position at x = 0
+      const metaR = 2.35;
+      const mx = 0.0;
+      const my = Math.cos(ang) * metaR;
+      const mz = Math.sin(ang) * metaR;
+
+      // Base pair position before Anaphase separation
+      const bx = lerp(ix, mx, alignBlend);
+      const by = lerp(iy, my, alignBlend);
+      const bz = lerp(iz, mz, alignBlend);
+
+      // Chromatid thickness & length morph with condensation
+      const armRad = lerp(0.085, 0.19, condensation);
+      const armLen = lerp(1.45, 0.95, condensation);
+
+      // Each chromosome pair consists of Left (-1) and Right (+1) Sister Chromatids
+      for (const sis of [-1, 1]) {
+        // In Interphase/Prophase/Metaphase, sister chromatids are joined at the centromere;
+        // In Anaphase+, they split and move to opposite poles!
+        const sepX = sis * (0.14 * condensation * (1.0 - separateBlend) + separateBlend * poleTargetX);
+        // Cluster slightly inside daughter nuclei during Telophase
+        const telophaseCluster = 1.0 - 0.48 * smoothstep(3.6, 4.8, m);
+        const cx = bx + sepX;
+        const cy = by * telophaseCluster;
+        const cz = bz * telophaseCluster;
+
+        kinetochorePositions.push({ sis, x: cx, y: cy, z: cz });
+
+        // Draw glowing Kinetochore / Centromere constriction sphere
+        Mat4.fromTRS(tmpMat, cx, cy, cz, 0, 0, 0, armRad * 1.25, armRad * 1.25, armRad * 1.25);
+        opaqueSpheres.add(tmpMat, 1.0, 0.85, 0.35, 1.0, 4, 0.0, 0.25, 0.65);
+
+        // Two chromatid arms (upper & lower) per sister chromatid:
+        // During Anaphase, pulling at the centromere makes the arms trail toward the equator in a V-shape!
+        const anaphasePull = Math.sin(separateBlend * Math.PI);
+        const trailX = -sis * anaphasePull * 0.65 + sis * 0.22 * (1.0 - separateBlend);
+
+        for (const armDir of [-1, 1]) {
+          const tipX = cx + trailX;
+          const tipY = cy + armDir * armLen * Math.cos(ang * 0.3);
+          const tipZ = cz + armDir * armLen * Math.sin(ang * 0.3 + sis * 0.25);
+          Mat4.fromSegment(tmpMat, cx, cy, cz, tipX, tipY, tipZ, armRad);
+          const hueShift = (i % 2 === 0) ? [0.96, 0.38, 0.68] : [0.82, 0.42, 0.98];
+          opaqueCapsules.add(tmpMat, hueShift[0], hueShift[1], hueShift[2], 1.0, 4, 5.0, 0.4, 0.28);
+        }
+      }
+      boundingSpheres.push({ id: 4, x: bx, y: by, z: bz, r: 1.1 });
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // 5. ENDOPLASMIC RETICULUM (ID 5) - Rough ER Cisternae & Smooth ER Tubules
+  // -------------------------------------------------------------------------
+  if (isVisible(5)) {
+    // Mitotic remodeling: ER retracts slightly toward the poles during Metaphase-Anaphase
+    const erMitoticShift = lobeShift * 0.75;
+    // 10 Stacked Rough ER Cisternae wrapping the Nuclear Envelope
+    for (let i = 0; i < 10; i++) {
+      const side = (i % 2 === 0) ? -1 : 1;
+      const layer = Math.floor(i / 2);
+      const rDist = 4.1 + layer * 0.34;
+      const ang = side * (0.55 + layer * 0.22);
+      const ex = nucCenter[0] + Math.sin(ang) * rDist + side * erMitoticShift;
+      const ey = nucCenter[1] + ((i % 3) - 1) * 0.85;
+      const ez = Math.cos(ang) * rDist * (i < 6 ? 1 : -1);
+      const s = 1.65 - layer * 0.12;
+
+      Mat4.fromTRS(tmpMat, ex, ey, ez, 0.4 * side, ang, Math.PI * 0.42 * side, s, s * 0.9, s);
+      opaqueCisternae.add(tmpMat, 0.14, 0.78, 0.72, 1.0, 5, 3.0, 0.32, 0.18);
+      if (i < 4) boundingSpheres.push({ id: 5, x: ex, y: ey, z: ez, r: 1.5 });
+    }
+
+    // Smooth ER Tubular Network
+    for (const tub of erTubules) {
+      const sx = tub.side * erMitoticShift;
+      Mat4.fromSegment(tmpMat, tub.ax + sx, tub.ay, tub.az, tub.bx + sx, tub.by, tub.bz, 0.18);
+      opaqueCapsules.add(tmpMat, 0.22, 0.86, 0.78, 1.0, 5, 0.0, 0.35, 0.15);
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // 6. GOLGI APPARATUS (ID 6) - Polarized cis / medial / trans Cisternae Stack
+  // -------------------------------------------------------------------------
+  if (isVisible(6)) {
+    const numStacks = daughterNucActive > 0.5 ? 2 : 1;
+    for (let sIdx = 0; sIdx < numStacks; sIdx++) {
+      const side = sIdx === 0 ? 1 : -1;
+      const gx = side * golgiCenter[0];
+      const gy = golgiCenter[1];
+      const gz = golgiCenter[2] * side;
+      boundingSpheres.push({ id: 6, x: gx, y: gy, z: gz, r: 2.1 });
+
+      for (let c = 0; c < 6; c++) {
+        // Progress from cis (inner) to trans (outer) face
+        const offset = (c - 2.5) * 0.34;
+        const scale = (1.65 - Math.abs(c - 2.5) * 0.14) * (numStacks === 2 ? 0.78 : 1.0);
+        const cx = gx + offset * 0.75 * side;
+        const cy = gy + offset * 0.25;
+        const cz = gz + offset * 0.55;
+        Mat4.fromTRS(tmpMat, cx, cy, cz, 0.35, -0.6 * side, -1.1 * side, scale, scale, scale);
+        // Color gradient from golden-amber (cis) to coral-gold (trans)
+        const tCol = c / 5;
+        opaqueCisternae.add(
+          tmpMat,
+          lerp(0.99, 0.96, tCol),
+          lerp(0.82, 0.56, tCol),
+          lerp(0.18, 0.24, tCol),
+          1.0, 6, 3.0, 0.28, 0.24
+        );
+      }
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // 7. MITOCHONDRIA (ID 7) - Outer Membrane + Internal Folded Cristae
+  // -------------------------------------------------------------------------
+  if (isVisible(7)) {
+    for (let i = 0; i < mitoAnchors.length; i++) {
+      const mObj = mitoAnchors[i];
+      const mx = mObj.pos[0] + mObj.side * lobeShift;
+      const my = mObj.pos[1] + Math.sin(time * 0.9 + i) * 0.12;
+      const mz = mObj.pos[2];
+      const rx = mObj.rot[0], ry = mObj.rot[1] + time * 0.08, rz = mObj.rot[2];
+
+      boundingSpheres.push({ id: 7, x: mx, y: my, z: mz, r: 1.4 });
+
+      // Inner Cristae Folds (5 transverse baffle discs inside each mitochondrion)
+      for (let c = -2; c <= 2; c++) {
+        const localY = c * 0.32;
+        const cristaScale = 0.52 * (1.0 - Math.abs(c) * 0.12);
+        // Offset along local capsule axis
+        const cy = my + localY * Math.cos(rx);
+        const cx = mx - localY * Math.sin(rz) * 0.7;
+        const cz = mz + localY * Math.sin(rx) * 0.7;
+        Mat4.fromTRS(tmpMat, cx, cy, cz, rx, ry, rz, cristaScale, 0.11, cristaScale * 0.85);
+        opaqueSpheres.add(tmpMat, 0.35, 0.96, 0.56, 1.0, 7, 0.0, 0.25, 0.45);
+      }
+
+      // Inner Matrix Core Filament
+      Mat4.fromTRS(tmpMat, mx, my, mz, rx, ry, rz, 0.36, 1.55, 0.36);
+      opaqueCapsules.add(tmpMat, 0.16, 0.75, 0.42, 1.0, 7, 0.0, 0.35, 0.25);
+
+      // Semi-Transparent Outer Mitochondrial Membrane (with cutaway window to view cristae!)
+      Mat4.fromTRS(tmpMat, mx, my, mz, rx, ry, rz, 0.68, 1.95, 0.68);
+      transparentCapsules.add(tmpMat, 0.24, 0.88, 0.50, 0.52, 7, 4.0, 0.18, 0.20);
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // 8. RIBOSOMES (ID 8) - Bound Rough ER Ribosomes & Free Cytosolic Polysomes
+  // -------------------------------------------------------------------------
+  if (isVisible(8)) {
+    const erMitoticShift = lobeShift * 0.75;
+    for (let i = 0; i < ribosomeOffsets.length; i++) {
+      const r = ribosomeOffsets[i];
+      const rx = nucCenter[0] + r.ox + r.side * erMitoticShift;
+      const ry = nucCenter[1] + r.oy;
+      const rz = nucCenter[2] + r.oz;
+      Mat4.fromTRS(tmpMat, rx, ry, rz, 0, 0, 0, 0.12, 0.14, 0.12);
+      opaqueSpheres.add(tmpMat, 0.99, 0.88, 0.28, 1.0, 8, 0.0, 0.3, 0.35);
+    }
+    for (let i = 0; i < freeRibosomes.length; i++) {
+      const r = freeRibosomes[i];
+      const rx = r.x + r.side * lobeShift * 0.8;
+      Mat4.fromTRS(tmpMat, rx, r.y, r.z, 0, 0, 0, 0.13, 0.13, 0.13);
+      opaqueSpheres.add(tmpMat, 0.99, 0.88, 0.28, 1.0, 8, 0.0, 0.3, 0.35);
+    }
+    boundingSpheres.push({ id: 8, x: -3.6, y: 2.6, z: 3.2, r: 1.2 });
+  }
+
+  // -------------------------------------------------------------------------
+  // 9. LYSOSOMES (ID 9) - Translucent Acidic Membrane + Hydrolytic Enzyme Core
+  // -------------------------------------------------------------------------
+  if (isVisible(9)) {
+    for (let i = 0; i < lysosomeAnchors.length; i++) {
+      const l = lysosomeAnchors[i];
+      const side = l[0] < 0 ? -1 : 1;
+      const lx = l[0] + side * lobeShift * 0.85;
+      const ly = l[1] + Math.cos(time * 1.1 + i) * 0.12;
+      const lz = l[2];
+
+      // Dense internal hydrolytic enzyme granules
+      Mat4.fromTRS(tmpMat, lx, ly, lz, 0, 0, 0, 0.38, 0.38, 0.38);
+      opaqueSpheres.add(tmpMat, 0.99, 0.32, 0.45, 1.0, 9, 0.0, 0.3, 0.45);
+      // Outer lysosomal membrane
+      Mat4.fromTRS(tmpMat, lx, ly, lz, 0, 0, 0, 0.65, 0.65, 0.65);
+      transparentSpheres.add(tmpMat, 0.98, 0.48, 0.56, 0.50, 9, 0.0, 0.18, 0.25);
+
+      boundingSpheres.push({ id: 9, x: lx, y: ly, z: lz, r: 0.75 });
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // 10. TRANSPORT & SECRETORY VESICLES (ID 10)
+  // -------------------------------------------------------------------------
+  if (isVisible(10)) {
+    for (let i = 0; i < 16; i++) {
+      const cyc = (time * 0.22 + i / 16) % 1.0;
+      const ang = (i / 16) * TAU;
+      const startX = (i % 2 === 0) ? -1.5 : golgiCenter[0];
+      const startY = (i % 2 === 0) ? 0.2 : golgiCenter[1];
+      const startZ = (i % 2 === 0) ? 2.8 : golgiCenter[2];
+
+      const endX = (i % 2 === 0) ? golgiCenter[0] : Math.cos(ang) * 8.6 * cellElong;
+      const endY = (i % 2 === 0) ? golgiCenter[1] : Math.sin(ang * 2.0) * 5.2;
+      const endZ = (i % 2 === 0) ? golgiCenter[2] : Math.sin(ang) * 7.6;
+
+      const vx = lerp(startX, endX, cyc);
+      const vy = lerp(startY, endY, cyc) + Math.sin(cyc * Math.PI) * 0.8;
+      const vz = lerp(startZ, endZ, cyc);
+
+      Mat4.fromTRS(tmpMat, vx, vy, vz, 0, 0, 0, 0.32, 0.32, 0.32);
+      opaqueSpheres.add(tmpMat, 0.68, 0.36, 0.98, 1.0, 10, 0.0, 0.25, 0.40);
+      if (i === 0) boundingSpheres.push({ id: 10, x: vx, y: vy, z: vz, r: 0.8 });
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // 12. CENTROSOMES / CENTRIOLES (ID 12) & 11. CYTOSKELETON / SPINDLE (ID 11)
+  // -------------------------------------------------------------------------
+  // Centrosomes migrate from adjacent to the Nucleus in Interphase to opposite
+  // poles (-X and +X) in Prophase -> Metaphase -> Anaphase!
+  const poleMigration = smoothstep(0.15, 1.65, m);
+  const poleDistX = 6.8 + lobeShift * 0.45;
+  const centrosomeL = [
+    lerp(0.5, -poleDistX, poleMigration),
+    lerp(3.5, 0.0, poleMigration),
+    lerp(2.0, 0.0, poleMigration)
+  ];
+  const centrosomeR = [
+    lerp(1.4, poleDistX, poleMigration),
+    lerp(3.3, 0.0, poleMigration),
+    lerp(2.0, 0.0, poleMigration)
+  ];
+  const centrosomes = [centrosomeL, centrosomeR];
+
+  if (isVisible(12)) {
+    for (let cIdx = 0; cIdx < 2; cIdx++) {
+      const cPos = centrosomes[cIdx];
+      // Mother Centriole barrel
+      Mat4.fromTRS(tmpMat, cPos[0], cPos[1], cPos[2], 0.3, time * 0.5, 0.4, 0.22, 0.72, 0.22);
+      opaqueCapsules.add(tmpMat, 0.99, 0.52, 0.12, 1.0, 12, 0.0, 0.25, 0.55);
+      // Orthogonal Daughter Centriole barrel
+      Mat4.fromTRS(tmpMat, cPos[0] + 0.25, cPos[1] - 0.15, cPos[2], 1.57, 0.3, time * 0.5, 0.22, 0.72, 0.22);
+      opaqueCapsules.add(tmpMat, 0.99, 0.65, 0.18, 1.0, 12, 0.0, 0.25, 0.55);
+      // Glowing Pericentriolar Material (PCM) halo
+      Mat4.fromTRS(tmpMat, cPos[0] + 0.1, cPos[1], cPos[2], 0, 0, 0, 0.68, 0.68, 0.68);
+      transparentSpheres.add(tmpMat, 0.99, 0.58, 0.15, 0.42, 12, 0.0, 0.2, 0.6);
+
+      boundingSpheres.push({ id: 12, x: cPos[0], y: cPos[1], z: cPos[2], r: 0.95 });
+    }
+  }
+
+  // Cytoskeleton Microtubules (Interphase) & Mitotic Spindle Fibers (Mitosis)
+  const spindleBlend = smoothstep(0.5, 1.5, m) * (1.0 - smoothstep(3.8, 4.7, m));
+
+  if (spindleBlend > 0.35 && kinetochorePositions.length > 0) {
+    // MITOTIC SPINDLE MODE: Kinetochore Microtubules + Polar & Astral Fibers
+    for (const kp of kinetochorePositions) {
+      const pole = kp.sis < 0 ? centrosomeL : centrosomeR;
+      microtubuleTracks.push({ ax: pole[0], ay: pole[1], az: pole[2], bx: kp.x, by: kp.y, bz: kp.z });
+      if (isVisible(11)) {
+        Mat4.fromSegment(tmpMat, pole[0], pole[1], pole[2], kp.x, kp.y, kp.z, 0.055);
+        opaqueCapsules.add(tmpMat, 0.28, 0.88, 1.0, 1.0, 11, 0.0, 0.25, 0.52);
+      }
+    }
+    // Polar & Astral microtubules radiating from both spindle poles
+    for (let i = 0; i < 12; i++) {
+      const ang = (i / 12) * TAU;
+      for (const side of [-1, 1]) {
+        const pole = side < 0 ? centrosomeL : centrosomeR;
+        const ax = pole[0] + side * 1.8;
+        const ay = Math.cos(ang) * 2.2;
+        const az = Math.sin(ang) * 2.2;
+        if (isVisible(11)) {
+          Mat4.fromSegment(tmpMat, pole[0], pole[1], pole[2], ax, ay, az, 0.04);
+          opaqueCapsules.add(tmpMat, 0.18, 0.72, 0.95, 1.0, 11, 0.0, 0.3, 0.35);
+        }
+      }
+    }
+  } else {
+    // INTERPHASE / TELOPHASE CYTOSKELETON: Radial Microtubule Highway Network
+    const numTracks = 28;
+    for (let i = 0; i < numTracks; i++) {
+      const side = (i % 2 === 0) ? 0 : 1;
+      const origin = daughterNucActive > 0.5 ? centrosomes[side] : centrosomeL;
+      const phi = (i / numTracks) * TAU * 2.0;
+      const elev = ((i % 7) / 6 - 0.5) * 2.1;
+      const rad = 8.4;
+
+      const tx = Math.cos(elev) * Math.cos(phi) * rad * cellElong;
+      const ty = Math.sin(elev) * rad * 0.88;
+      const tz = Math.cos(elev) * Math.sin(phi) * rad * 0.88;
+
+      microtubuleTracks.push({ ax: origin[0], ay: origin[1], az: origin[2], bx: tx, by: ty, bz: tz });
+      if (isVisible(11)) {
+        Mat4.fromSegment(tmpMat, origin[0], origin[1], origin[2], tx, ty, tz, 0.05);
+        opaqueCapsules.add(tmpMat, 0.20, 0.78, 0.96, 1.0, 11, 0.0, 0.3, 0.32);
+      }
+    }
+  }
+  if (isVisible(11)) {
+    boundingSpheres.push({ id: 11, x: 1.5, y: -4.8, z: -1.5, r: 1.4 });
+  }
+
+  // Update Biochemical Particles along active pathways
+  updateParticles(dt, time, nucCenter, golgiCenter, lobeShift);
+}
+
+/* ============================================================================
+   9. INTERACTIVE CAMERA & 3D RAYCAST PICKING
+   ============================================================================ */
+const camera = {
+  yaw: 0.38,
+  pitch: 0.28,
+  distance: 25.5,
+  target: [0, 0, 0],
+  eye: [0, 0, 25.5],
+  dragging: false,
+  panMode: false,
+  downX: 0,
+  downY: 0,
+  lastX: 0,
+  lastY: 0
+};
+
+const projMat = Mat4.create();
+const viewMat = Mat4.create();
+const viewProjMat = Mat4.create();
+
+function updateCameraMatrices(width, height) {
+  const cp = Math.cos(camera.pitch), sp = Math.sin(camera.pitch);
+  const cy = Math.cos(camera.yaw), sy = Math.sin(camera.yaw);
+  camera.eye[0] = camera.target[0] + camera.distance * cp * sy;
+  camera.eye[1] = camera.target[1] + camera.distance * sp;
+  camera.eye[2] = camera.target[2] + camera.distance * cp * cy;
+
+  Mat4.perspective(projMat, 45 * Math.PI / 180, width / Math.max(1, height), 0.5, 120.0);
+  Mat4.lookAt(viewMat, camera.eye, camera.target, [0, 1, 0]);
+  Mat4.multiply(viewProjMat, projMat, viewMat);
+}
+
+// Compute 3D world ray from mouse screen coordinates and test against organelle bounding spheres
+function pickOrganelleAtScreenPos(sx, sy, width, height) {
+  const ndcX = (sx / width) * 2.0 - 1.0;
+  const ndcY = 1.0 - (sy / height) * 2.0;
+  const tanHalfFov = Math.tan(22.5 * Math.PI / 180);
+  const aspect = width / Math.max(1, height);
+
+  // Camera basis vectors from viewMat
+  const right = [viewMat[0], viewMat[4], viewMat[8]];
+  const up    = [viewMat[1], viewMat[5], viewMat[9]];
+  const fwd   = [-viewMat[2], -viewMat[6], -viewMat[10]];
+
+  let rx = fwd[0] + right[0] * ndcX * aspect * tanHalfFov + up[0] * ndcY * tanHalfFov;
+  let ry = fwd[1] + right[1] * ndcX * aspect * tanHalfFov + up[1] * ndcY * tanHalfFov;
+  let rz = fwd[2] + right[2] * ndcX * aspect * tanHalfFov + up[2] * ndcY * tanHalfFov;
+  const rLen = Math.hypot(rx, ry, rz) || 1;
+  rx /= rLen; ry /= rLen; rz /= rLen;
+
+  let bestId = -1;
+  let bestT = 999;
+  for (const b of boundingSpheres) {
+    const ocX = camera.eye[0] - b.x;
+    const ocY = camera.eye[1] - b.y;
+    const ocZ = camera.eye[2] - b.z;
+    const proj = ocX * rx + ocY * ry + ocZ * rz;
+    const c = ocX * ocX + ocY * ocY + ocZ * ocZ - b.r * b.r;
+    const disc = proj * proj - c;
+    if (disc >= 0) {
+      const tHit = -proj - Math.sqrt(disc);
+      if (tHit > 0.5 && tHit < bestT) {
+        bestT = tHit;
+        bestId = b.id;
+      }
+    }
+  }
+  return bestId;
+}
+
+/* ============================================================================
+   10. UI CONTROLLER, FLOATING 3D LABELS & TIMELINE SYNC
+   ============================================================================ */
+const labelElements = [];
+const tooltipEl = document.getElementById('hover-tooltip');
+
+function initUI() {
+  const orgListEl = document.getElementById('organelle-list');
+  const labelsLayer = document.getElementById('labels-layer');
+
+  ORGANELLES.forEach((org) => {
+    // 1. Left Sidebar Item
+    const row = document.createElement('div');
+    row.className = 'org-item' + (org.id === simState.selectedOrgId ? ' selected' : '');
+    row.dataset.id = org.id;
+    row.innerHTML = `
+      <div class="org-left">
+        <span class="swatch" style="background:${org.color};color:${org.color};"></span>
+        <span>${org.name}</span>
+      </div>
+      <input type="checkbox" class="org-toggle" ${org.visible ? 'checked' : ''} title="Show/Hide ${org.name}">
+    `;
+    const chk = row.querySelector('.org-toggle');
+    chk.addEventListener('click', (e) => e.stopPropagation());
+    chk.addEventListener('change', (e) => {
+      org.visible = e.target.checked;
+    });
+    row.addEventListener('click', () => selectOrganelle(org.id));
+    orgListEl.appendChild(row);
+
+    // 2. Floating 3D Label Pin
+    const lbl = document.createElement('div');
+    lbl.className = 'label-3d' + (org.id === simState.selectedOrgId ? ' active' : '');
+    lbl.innerHTML = `<span class="label-dot" style="background:${org.color};"></span>${org.name}`;
+    lbl.addEventListener('click', () => selectOrganelle(org.id));
+    lbl.addEventListener('mouseenter', (e) => showTooltip(org.name, org.shortDesc, e.clientX, e.clientY));
+    lbl.addEventListener('mousemove', (e) => moveTooltip(e.clientX, e.clientY));
+    lbl.addEventListener('mouseleave', hideTooltip);
+    labelsLayer.appendChild(lbl);
+    labelElements.push({ org, el: lbl });
+  });
+
+  // 3. Particle Legend
+  const legendEl = document.getElementById('particle-legend');
+  PARTICLE_TYPES.forEach((pt) => {
+    const r = document.createElement('div');
+    r.className = 'legend-row';
+    r.innerHTML = `
+      <div class="legend-left">
+        <span class="swatch" style="background:${pt.color};color:${pt.color};"></span>
+        <div>
+          <strong>${pt.name}</strong>
+          <span class="legend-sub">${pt.sub}</span>
+        </div>
+      </div>
+      <input type="checkbox" class="org-toggle" checked title="Toggle ${pt.name}">
+    `;
+    r.querySelector('input').addEventListener('change', (e) => {
+      pt.visible = e.target.checked;
+    });
+    legendEl.appendChild(r);
+  });
+
+  // 4. Toggle All Organelles Button
+  const btnAll = document.getElementById('btn-toggle-all');
+  btnAll.addEventListener('click', () => {
+    const anyOff = ORGANELLES.some(o => !o.visible);
+    ORGANELLES.forEach(o => o.visible = anyOff);
+    document.querySelectorAll('#organelle-list .org-toggle').forEach(c => c.checked = anyOff);
+    btnAll.textContent = anyOff ? 'All ON' : 'All OFF';
+  });
+
+  // 5. Mode Tabs
+  document.getElementById('tab-homeostasis').addEventListener('click', () => setSimulationMode('homeostasis'));
+  document.getElementById('tab-mitosis').addEventListener('click', () => setSimulationMode('mitosis'));
+
+  // 6. Top Controls
+  const btnPlay = document.getElementById('btn-play');
+  btnPlay.addEventListener('click', () => {
+    simState.playing = !simState.playing;
+    btnPlay.textContent = simState.playing ? 'Pause' : 'Play';
+    btnPlay.classList.toggle('active', simState.playing);
+  });
+
+  const slSpeed = document.getElementById('sl-speed');
+  slSpeed.addEventListener('input', () => {
+    simState.speed = Number(slSpeed.value);
+    document.getElementById('val-speed').textContent = simState.speed.toFixed(1) + 'x';
+  });
+
+  const btnCut = document.getElementById('btn-cutaway');
+  btnCut.addEventListener('click', () => {
+    simState.cutaway = !simState.cutaway;
+    btnCut.textContent = `Cutaway View: ${simState.cutaway ? 'ON' : 'OFF'}`;
+    btnCut.classList.toggle('active', simState.cutaway);
+  });
+
+  const btnLbl = document.getElementById('btn-labels');
+  btnLbl.addEventListener('click', () => {
+    simState.showLabels = !simState.showLabels;
+    btnLbl.textContent = `3D Labels: ${simState.showLabels ? 'ON' : 'OFF'}`;
+    btnLbl.classList.toggle('active', simState.showLabels);
+    document.getElementById('labels-layer').style.display = simState.showLabels ? 'block' : 'none';
+  });
+
+  document.getElementById('btn-reset-cam').addEventListener('click', () => {
+    camera.yaw = 0.38;
+    camera.pitch = 0.28;
+    camera.distance = 25.5;
+    camera.target = [0, 0, 0];
+  });
+
+  // 7. Timeline Scrubber
+  const slTime = document.getElementById('sl-timeline');
+  slTime.addEventListener('input', () => {
+    const val = Number(slTime.value);
+    if (simState.mode === 'mitosis') {
+      simState.mitosisProgress = val;
+      updateStageHighlight(Math.floor(val));
+    } else {
+      simState.pathwayStep = Math.floor(val);
+      updateStageHighlight(simState.pathwayStep);
+    }
+  });
+
+  setSimulationMode('homeostasis');
+  selectOrganelle(2); // Start by highlighting the Nucleus
+}
+
+function setSimulationMode(mode) {
+  simState.mode = mode;
+  document.getElementById('tab-homeostasis').classList.toggle('active', mode === 'homeostasis');
+  document.getElementById('tab-mitosis').classList.toggle('active', mode === 'mitosis');
+  document.getElementById('scrubber-label').textContent =
+    mode === 'mitosis' ? 'Mitosis Progress:' : 'Biological Pathway:';
+
+  const container = document.getElementById('timeline-buttons');
+  container.innerHTML = '';
+  const list = mode === 'mitosis' ? MITOSIS_STAGES : HOMEOSTASIS_STAGES;
+
+  list.forEach((st, idx) => {
+    const b = document.createElement('button');
+    b.className = 'stage-btn' + (idx === 0 ? ' active' : '');
+    b.innerHTML = `<span class="step-num">${st.step}</span>${st.name}`;
+    b.addEventListener('click', () => {
+      if (simState.mode === 'mitosis') {
+        simState.mitosisProgress = idx + 0.35;
+        document.getElementById('sl-timeline').value = simState.mitosisProgress;
+      } else {
+        simState.pathwayStep = idx;
+        document.getElementById('sl-timeline').value = idx;
+        if (st.focusOrg) selectOrganelle(st.focusOrg, false);
+      }
+      updateStageHighlight(idx);
+    });
+    container.appendChild(b);
+  });
+
+  if (mode === 'mitosis') {
+    simState.mitosisProgress = 0.15;
+    updateStageHighlight(0);
+  } else {
+    simState.pathwayStep = 0;
+    updateStageHighlight(0);
+  }
+}
+
+function updateStageHighlight(stageIdx) {
+  const btns = document.querySelectorAll('#timeline-buttons .stage-btn');
+  btns.forEach((b, i) => b.classList.toggle('active', i === stageIdx));
+
+  const list = simState.mode === 'mitosis' ? MITOSIS_STAGES : HOMEOSTASIS_STAGES;
+  const st = list[clamp(stageIdx, 0, list.length - 1)];
+
+  document.getElementById('info-category').textContent =
+    simState.mode === 'mitosis' ? `Mitosis // ${st.step}` : `Cellular Pathway // ${st.step}`;
+  document.getElementById('info-title').textContent = st.name;
+  document.getElementById('info-desc').textContent = st.desc;
+  document.getElementById('info-pathway').innerHTML = `<b>Key Observation:</b> ${st.note}`;
+}
+
+function selectOrganelle(id, updateInspector = true) {
+  simState.selectedOrgId = id;
+  document.querySelectorAll('#organelle-list .org-item').forEach(el => {
+    el.classList.toggle('selected', Number(el.dataset.id) === id);
+  });
+  labelElements.forEach(item => {
+    item.el.classList.toggle('active', item.org.id === id);
+  });
+
+  if (updateInspector) {
+    const org = ORGANELLES.find(o => o.id === id);
+    if (org) {
+      document.getElementById('info-category').textContent = 'Organelle Ultrastructure';
+      document.getElementById('info-title').textContent = org.name;
+      document.getElementById('info-desc').textContent = org.fullDesc;
+      document.getElementById('info-pathway').innerHTML = `<b>Biochemical Role:</b> ${org.pathwayNote}`;
+    }
+  }
+}
+
+function showTooltip(title, desc, x, y) {
+  document.getElementById('tt-title').textContent = title;
+  document.getElementById('tt-desc').textContent = desc;
+  tooltipEl.classList.add('visible');
+  moveTooltip(x, y);
+}
+
+function moveTooltip(x, y) {
+  tooltipEl.style.left = Math.min(window.innerWidth - 280, x + 16) + 'px';
+  tooltipEl.style.top = Math.max(16, y - 24) + 'px';
+}
+
+function hideTooltip() {
+  tooltipEl.classList.remove('visible');
+}
+
+function updateFloating3DLabels(width, height) {
+  if (!simState.showLabels) return;
+  for (const item of labelElements) {
+    const org = item.org;
+    if (!org.visible) {
+      item.el.style.display = 'none';
+      continue;
+    }
+    const p = org.labelPos;
+    const scr = Mat4.projectToScreen(viewProjMat, p[0], p[1], p[2], width, height);
+    if (!scr || scr.x < 260 || scr.x > width - 300 || scr.y < 65 || scr.y > height - 95) {
+      item.el.style.display = 'none';
+    } else {
+      item.el.style.display = 'flex';
+      item.el.style.left = scr.x + 'px';
+      item.el.style.top = scr.y + 'px';
+    }
+  }
+}
+
+/* ============================================================================
+   11. WEBGPU INITIALIZATION & MAIN RENDER LOOP
+   ============================================================================ */
+async function initWebGPUSimulation() {
+  const canvas = document.getElementById('gpu-canvas');
+
+  if (!navigator.gpu) {
+    document.getElementById('gpu-error').style.display = 'flex';
+    return;
+  }
+
+  let adapter, device;
+  try {
+    adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+    if (!adapter) throw new Error('No compatible WebGPU adapter found.');
+    device = await adapter.requestDevice();
+  } catch (err) {
+    document.getElementById('gpu-error-msg').textContent = err.message;
+    document.getElementById('gpu-error').style.display = 'flex';
+    return;
+  }
+
+  const context = canvas.getContext('webgpu');
+  const format = navigator.gpu.getPreferredCanvasFormat();
+  const sampleCount = 4;
+
+  // Bind Mouse & Touch Camera Controls + 3D Raycast Picking
+  canvas.addEventListener('mousedown', (e) => {
+    camera.dragging = true;
+    camera.panMode = (e.button === 2 || e.shiftKey);
+    camera.downX = e.clientX;
+    camera.downY = e.clientY;
+    camera.lastX = e.clientX;
+    camera.lastY = e.clientY;
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (camera.dragging) {
+      const dx = e.clientX - camera.lastX;
+      const dy = e.clientY - camera.lastY;
+      camera.lastX = e.clientX;
+      camera.lastY = e.clientY;
+
+      if (camera.panMode) {
+        const panScale = camera.distance * 0.0012;
+        const rightX = viewMat[0], rightY = viewMat[4], rightZ = viewMat[8];
+        const upX = viewMat[1], upY = viewMat[5], upZ = viewMat[9];
+        camera.target[0] -= (rightX * dx - upX * dy) * panScale;
+        camera.target[1] -= (rightY * dx - upY * dy) * panScale;
+        camera.target[2] -= (rightZ * dx - upZ * dy) * panScale;
+      } else {
+        camera.yaw -= dx * 0.0065;
+        camera.pitch = clamp(camera.pitch + dy * 0.0065, -1.42, 1.42);
+      }
+      hideTooltip();
+    } else if (e.target === canvas) {
+      const hitId = pickOrganelleAtScreenPos(e.clientX, e.clientY, window.innerWidth, window.innerHeight);
+      simState.hoveredOrgId = hitId;
+      if (hitId > 0) {
+        const org = ORGANELLES[hitId - 1];
+        canvas.style.cursor = 'pointer';
+        showTooltip(org.name, org.shortDesc, e.clientX, e.clientY);
+      } else {
+        canvas.style.cursor = 'grab';
+        hideTooltip();
+      }
+    }
+  });
+
+  window.addEventListener('mouseup', (e) => {
+    if (camera.dragging) {
+      const moveDist = Math.hypot(e.clientX - camera.downX, e.clientY - camera.downY);
+      camera.dragging = false;
+      if (moveDist < 5 && e.target === canvas) {
+        const hitId = pickOrganelleAtScreenPos(e.clientX, e.clientY, window.innerWidth, window.innerHeight);
+        if (hitId > 0) selectOrganelle(hitId, true);
+      }
+    }
+  });
+
+  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    camera.distance = clamp(camera.distance + e.deltaY * 0.018, 9.0, 48.0);
+  }, { passive: false });
+
+  // Global Uniform Buffer (256 bytes)
+  const uniformData = new Float32Array(64);
+  const uniformBuffer = device.createBuffer({
+    size: 256,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+  });
+
+  const bindGroupLayout = device.createBindGroupLayout({
+    entries: [{
+      binding: 0,
+      visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+      buffer: { type: 'uniform' }
+    }]
+  });
+
+  const globalBindGroup = device.createBindGroup({
+    layout: bindGroupLayout,
+    entries: [{ binding: 0, resource: { buffer: uniformBuffer } }]
+  });
+
+  const pipelineLayout = device.createPipelineLayout({
+    bindGroupLayouts: [bindGroupLayout]
+  });
+
+  // Vertex buffer layout for Instanced Organelles
+  const organelleVertexBuffers = [
+    {
+      arrayStride: 32,
+      stepMode: 'vertex',
+      attributes: [
+        { shaderLocation: 0, offset: 0, format: 'float32x3' },
+        { shaderLocation: 1, offset: 12, format: 'float32x3' },
+        { shaderLocation: 2, offset: 24, format: 'float32x2' }
+      ]
+    },
+    {
+      arrayStride: FLOATS_PER_INST * 4,
+      stepMode: 'instance',
+      attributes: [
+        { shaderLocation: 3, offset: 0, format: 'float32x4' },
+        { shaderLocation: 4, offset: 16, format: 'float32x4' },
+        { shaderLocation: 5, offset: 32, format: 'float32x4' },
+        { shaderLocation: 6, offset: 48, format: 'float32x4' },
+        { shaderLocation: 7, offset: 64, format: 'float32x4' },
+        { shaderLocation: 8, offset: 80, format: 'float32x4' }
+      ]
+    }
+  ];
+
+  const orgModule = device.createShaderModule({ code: ORGANELLE_WGSL });
+  const bgModule  = device.createShaderModule({ code: BG_WGSL });
+  const ptModule  = device.createShaderModule({ code: PARTICLE_WGSL });
+
+  // 1. Background Pipeline
+  const bgPipeline = device.createRenderPipeline({
+    layout: pipelineLayout,
+    vertex: { module: bgModule, entryPoint: 'vs_main' },
+    fragment: { module: bgModule, entryPoint: 'fs_main', targets: [{ format }] },
+    primitive: { topology: 'triangle-list' },
+    depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'always' },
+    multisample: { count: sampleCount }
+  });
+
+  // 2. Opaque Organelle Pipeline
+  const opaquePipeline = device.createRenderPipeline({
+    layout: pipelineLayout,
+    vertex: { module: orgModule, entryPoint: 'vs_main', buffers: organelleVertexBuffers },
+    fragment: { module: orgModule, entryPoint: 'fs_main', targets: [{ format }] },
+    primitive: { topology: 'triangle-list', cullMode: 'none' },
+    depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
+    multisample: { count: sampleCount }
+  });
+
+  // 3. Semi-Transparent Membrane Pipelines (Back-Face then Front-Face two-pass rendering)
+  const blendState = {
+    color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+    alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' }
+  };
+
+  const transBackPipeline = device.createRenderPipeline({
+    layout: pipelineLayout,
+    vertex: { module: orgModule, entryPoint: 'vs_main', buffers: organelleVertexBuffers },
+    fragment: { module: orgModule, entryPoint: 'fs_main', targets: [{ format, blend: blendState }] },
+    primitive: { topology: 'triangle-list', cullMode: 'front' },
+    depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less' },
+    multisample: { count: sampleCount }
+  });
+
+  const transFrontPipeline = device.createRenderPipeline({
+    layout: pipelineLayout,
+    vertex: { module: orgModule, entryPoint: 'vs_main', buffers: organelleVertexBuffers },
+    fragment: { module: orgModule, entryPoint: 'fs_main', targets: [{ format, blend: blendState }] },
+    primitive: { topology: 'triangle-list', cullMode: 'back' },
+    depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less' },
+    multisample: { count: sampleCount }
+  });
+
+  // 4. Glowing Biochemical Particle Pipeline
+  const particlePipeline = device.createRenderPipeline({
+    layout: pipelineLayout,
+    vertex: {
+      module: ptModule,
+      entryPoint: 'vs_main',
+      buffers: [
+        {
+          arrayStride: 32,
+          stepMode: 'vertex',
+          attributes: [
+            { shaderLocation: 0, offset: 0, format: 'float32x3' },
+            { shaderLocation: 1, offset: 12, format: 'float32x3' }
+          ]
+        },
+        {
+          arrayStride: 32,
+          stepMode: 'instance',
+          attributes: [
+            { shaderLocation: 2, offset: 0, format: 'float32x4' },
+            { shaderLocation: 3, offset: 16, format: 'float32x4' }
+          ]
+        }
+      ]
+    },
+    fragment: {
+      module: ptModule,
+      entryPoint: 'fs_main',
+      targets: [{
+        format,
+        blend: {
+          color: { srcFactor: 'src-alpha', dstFactor: 'one', operation: 'add' },
+          alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' }
+        }
+      }]
+    },
+    primitive: { topology: 'triangle-list', cullMode: 'back' },
+    depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less' },
+    multisample: { count: sampleCount }
+  });
+
+  // Build Procedural Base Meshes & Instanced Batches
+  const sphereHi  = buildSphereMesh(36, 52);
+  const sphereLow = buildSphereMesh(10, 14);
+  const capsuleMesh  = buildCapsuleMesh(18, 24);
+  const cisternaMesh = buildCisternaMesh(16, 32);
+
+  const batches = {
+    opaqueSpheres:       new WebGPUBatch(device, sphereHi, 256),
+    opaqueCapsules:      new WebGPUBatch(device, capsuleMesh, 256),
+    opaqueCisternae:     new WebGPUBatch(device, cisternaMesh, 64),
+    transparentSpheres:  new WebGPUBatch(device, sphereHi, 48),
+    transparentCapsules: new WebGPUBatch(device, capsuleMesh, 32)
+  };
+
+  // Particle Geometry & Instance Buffers
+  const particleVBO = device.createBuffer({
+    size: sphereLow.vertices.byteLength,
+    usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+    mappedAtCreation: true
+  });
+  new Float32Array(particleVBO.getMappedRange()).set(sphereLow.vertices);
+  particleVBO.unmap();
+
+  const particleIBO = device.createBuffer({
+    size: sphereLow.indices.byteLength,
+    usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+    mappedAtCreation: true
+  });
+  new Uint32Array(particleIBO.getMappedRange()).set(sphereLow.indices);
+  particleIBO.unmap();
+  const particleIndexCount = sphereLow.indices.length;
+
+  const particleInstBuf = device.createBuffer({
+    size: particleGPUData.byteLength,
+    usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
+  });
+
+  // MSAA & Depth Render Targets
+  let msaaTexture = null;
+  let depthTexture = null;
+  let curW = 0, curH = 0;
+
+  function ensureRenderTargets() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = Math.max(1, Math.floor(window.innerWidth * dpr));
+    const h = Math.max(1, Math.floor(window.innerHeight * dpr));
+    if (w === curW && h === curH) return;
+    curW = w; curH = h;
+    canvas.width = w;
+    canvas.height = h;
+    context.configure({ device, format, alphaMode: 'opaque' });
+
+    if (msaaTexture) msaaTexture.destroy();
+    if (depthTexture) depthTexture.destroy();
+
+    msaaTexture = device.createTexture({
+      size: [w, h],
+      sampleCount,
+      format,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT
+    });
+    depthTexture = device.createTexture({
+      size: [w, h],
+      sampleCount,
+      format: 'depth24plus',
+      usage: GPUTextureUsage.RENDER_ATTACHMENT
+    });
+  }
+
+  initCellularUltrastructure();
+  initParticles();
+  initUI();
+
+  let lastTime = performance.now();
+
+  function frame(now) {
+    requestAnimationFrame(frame);
+    ensureRenderTargets();
+
+    const rawDt = clamp((now - lastTime) * 0.001, 0.001, 0.05);
+    lastTime = now;
+    const dt = simState.playing ? rawDt * simState.speed : 0.0;
+    simState.time += dt;
+
+    // Advance Mitosis Timeline automatically when in Mitosis mode & playing
+    if (simState.playing && simState.mode === 'mitosis') {
+      const prevStage = Math.floor(simState.mitosisProgress);
+      simState.mitosisProgress = (simState.mitosisProgress + dt * 0.22) % 6.0;
+      document.getElementById('sl-timeline').value = simState.mitosisProgress;
+      const curStage = Math.floor(simState.mitosisProgress);
+      if (curStage !== prevStage) {
+        updateStageHighlight(curStage);
+      }
+    }
+
+    // Update Camera & Assemble 3D Cell Scene
+    updateCameraMatrices(window.innerWidth, window.innerHeight);
+    buildCellScene(simState.time, dt, batches);
+    updateFloating3DLabels(window.innerWidth, window.innerHeight);
+
+    // Upload Global Uniforms
+    uniformData.set(viewProjMat, 0);
+    uniformData[32] = camera.eye[0];
+    uniformData[33] = camera.eye[1];
+    uniformData[34] = camera.eye[2];
+    uniformData[35] = 1.0;
+    // Directional light from upper-right-front
+    uniformData[36] = 0.52;
+    uniformData[37] = 0.74;
+    uniformData[38] = 0.42;
+    uniformData[39] = 0.0;
+    // params0: time, cleavagePinch, cellElongation, cutawayMode
+    uniformData[40] = simState.time;
+    uniformData[41] = simState.cleavagePinch;
+    uniformData[42] = simState.cellElongation;
+    uniformData[43] = simState.cutaway ? 1.0 : 0.0;
+    // params1: selectedOrgId, mitosisProgress, nuclearDissolve, hoveredOrgId
+    uniformData[44] = simState.selectedOrgId;
+    uniformData[45] = simState.mitosisProgress;
+    uniformData[46] = simState.nuclearDissolve;
+    uniformData[47] = simState.hoveredOrgId;
+
+    device.queue.writeBuffer(uniformBuffer, 0, uniformData);
+
+    // Upload Instanced Organelle & Particle Buffers
+    batches.opaqueSpheres.upload(device.queue);
+    batches.opaqueCapsules.upload(device.queue);
+    batches.opaqueCisternae.upload(device.queue);
+    batches.transparentSpheres.upload(device.queue);
+    batches.transparentCapsules.upload(device.queue);
+
+    if (activeParticleCount > 0) {
+      device.queue.writeBuffer(particleInstBuf, 0, particleGPUData, 0, activeParticleCount * 8);
+    }
+
+    // Encode WebGPU Render Pass
+    const encoder = device.createCommandEncoder();
+    const pass = encoder.beginRenderPass({
+      colorAttachments: [{
+        view: msaaTexture.createView(),
+        resolveTarget: context.getCurrentTexture().createView(),
+        clearValue: { r: 0.02, g: 0.04, b: 0.09, a: 1.0 },
+        loadOp: 'clear',
+        storeOp: 'store'
+      }],
+      depthStencilAttachment: {
+        view: depthTexture.createView(),
+        depthClearValue: 1.0,
+        depthLoadOp: 'clear',
+        depthStoreOp: 'store'
+      }
+    });
+
+    pass.setBindGroup(0, globalBindGroup);
+
+    // Pass 1: Microscope Cytosol Background
+    pass.setPipeline(bgPipeline);
+    pass.draw(3);
+
+    // Pass 2: Opaque / Subsurface-Scattered Internal Organelles
+    pass.setPipeline(opaquePipeline);
+    batches.opaqueSpheres.draw(pass);
+    batches.opaqueCapsules.draw(pass);
+    batches.opaqueCisternae.draw(pass);
+
+    // Pass 3: Glowing Biochemical Molecules (mRNA, Proteins, ATP, Motor Cargoes, Enzymes)
+    if (activeParticleCount > 0) {
+      pass.setPipeline(particlePipeline);
+      pass.setVertexBuffer(0, particleVBO);
+      pass.setVertexBuffer(1, particleInstBuf);
+      pass.setIndexBuffer(particleIBO, 'uint32');
+      pass.drawIndexed(particleIndexCount, activeParticleCount);
+    }
+
+    // Pass 4: Semi-Transparent Lipid Bilayer Membranes (Back-Faces then Front-Faces)
+    pass.setPipeline(transBackPipeline);
+    batches.transparentCapsules.draw(pass);
+    batches.transparentSpheres.draw(pass);
+
+    pass.setPipeline(transFrontPipeline);
+    batches.transparentCapsules.draw(pass);
+    batches.transparentSpheres.draw(pass);
+
+    pass.end();
+    device.queue.submit([encoder.finish()]);
+  }
+
+  requestAnimationFrame(frame);
+}
+
+initWebGPUSimulation();
+</script>
+</body>
+</html>

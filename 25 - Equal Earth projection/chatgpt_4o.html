@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Equal Earth Map</title>
+    <style>
+        html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }
+        #mapContainer { position: relative; width: 100%; height: 100%; }
+        #coordinates { position: absolute; top: 10px; left: 10px; background: white; padding: 5px; border-radius: 4px; }
+        svg { cursor: move; }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/@svgdotjs/svg.js@3.0.17/dist/svg.min.js"></script>
+</head>
+<body>
+<div id="mapContainer">
+    <div id="coordinates"></div>
+</div>
+<script>
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+    const svgCanvas = SVG().addTo('#mapContainer').size(width, height);
+    let zoomLevel = 1;
+    let offsetX = 0;
+    let offsetY = 0;
+
+    // Equal Earth Projection Constants
+    const A1 = 1.340264, A2 = -0.081106, A3 = 0.000893, A4 = 0.003796;
+    const widthHalf = width / 2;
+    const heightHalf = height / 2;
+
+    // World Map Outline (Can be replaced with precise geographic data)
+    const worldOutline = svgCanvas.path('M0,50 L50,0 L100,50 L50,100 Z').fill('#68b');
+
+    function equalEarthForward(lng, lat) {
+        const d = Math.PI / 180;
+        const phi = lat * d;
+        const lambda = lng * d;
+        const sinPhi = Math.sin(phi);
+        const sqrt3 = Math.sqrt(3);
+
+        const x = lambda * Math.cos(phi);
+        const y = phi * (A1 + sinPhi * (A2 + sinPhi * (A3 + sinPhi * A4)));
+        
+        return [x, y];
+    }
+
+    function forwardProjection(lng, lat) {
+        const [x, y] = equalEarthForward(lng, lat);
+        return [
+            widthHalf + x * widthHalf * zoomLevel + offsetX,
+            heightHalf - y * heightHalf * zoomLevel + offsetY
+        ];
+    }
+
+    function inverseProjection(x, y) {
+        const adjustedX = (x - widthHalf - offsetX) / (widthHalf * zoomLevel);
+        const adjustedY = (heightHalf - y - offsetY) / (heightHalf * zoomLevel);
+
+        let phi = adjustedY, dPhi;
+        const threshold = 1e-12;
+        do {
+            const yCalc = phi * (A1 + Math.sin(phi) * 
+                (A2 + Math.sin(phi) * (A3 + Math.sin(phi) * A4)));
+            dPhi = (adjustedY - yCalc) / (A1 + Math.sin(phi) * 
+                (2 * A2 + Math.sin(phi) * (3 * A3 + Math.sin(phi) * 4 * A4)));
+            phi += dPhi;
+        } while (Math.abs(dPhi) > threshold);
+
+        const lng = adjustedX / Math.cos(phi);
+        return [lng * (180 / Math.PI), phi * (180 / Math.PI)];
+    }
+
+    function drawMarker(lng, lat) {
+        const [x, y] = forwardProjection(lng, lat);
+        svgCanvas.circle(6).attr({ cx: x, cy: y, fill: 'red' });
+    }
+
+    function updateCoordinatesDisplay(lng, lat) {
+        document.getElementById('coordinates').textContent = `Lat: ${lat.toFixed(2)}, Lng: ${lng.toFixed(2)}`;
+    }
+
+    svgCanvas.on('click', event => {
+        const [lng, lat] = inverseProjection(event.offsetX, event.offsetY);
+        updateCoordinatesDisplay(lng, lat);
+        drawMarker(lng, lat);
+    });
+
+    function applyTransform() {
+        worldOutline.attr('transform', `translate(${offsetX}, ${offsetY}) scale(${zoomLevel})`);
+    }
+
+    svgCanvas.on('wheel', event => {
+        event.preventDefault();
+        const zoomIntensity = 0.05;
+        const direction = event.deltaY > 0 ? -1 : 1;
+        zoomLevel *= 1 + direction * zoomIntensity;
+        applyTransform();
+    });
+
+    let lastMouseX, lastMouseY;
+    svgCanvas.on('mousedown', event => {
+        lastMouseX = event.clientX;
+        lastMouseY = event.clientY;
+        svgCanvas.on('mousemove', dragMap);
+    });
+
+    function dragMap(event) {
+        offsetX += event.clientX - lastMouseX;
+        offsetY += event.clientY - lastMouseY;
+        lastMouseX = event.clientX;
+        lastMouseY = event.clientY;
+        applyTransform();
+    }
+
+    svgCanvas.on('mouseup', () => {
+        svgCanvas.off('mousemove', dragMap);
+    });
+
+    // Initial setup
+    applyTransform();
+</script>
+</body>
+</html>

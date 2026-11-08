@@ -1,0 +1,2260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Floating Kingdom — 3D Medieval Tabletop Diorama</title>
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #141824;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            color: #f4efe6;
+        }
+        #renderCanvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+            outline: none;
+            touch-action: none;
+        }
+        /* Tabletop UI Overlay */
+        .ui-header {
+            position: absolute;
+            top: 22px;
+            left: 26px;
+            pointer-events: none;
+            z-index: 10;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.55);
+        }
+        .ui-badge {
+            display: inline-block;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 2.5px;
+            text-transform: uppercase;
+            color: #f3c663;
+            background: rgba(20, 24, 34, 0.72);
+            border: 1px solid rgba(243, 198, 99, 0.35);
+            padding: 4px 10px;
+            border-radius: 99px;
+            margin-bottom: 6px;
+            backdrop-filter: blur(8px);
+        }
+        .ui-header h1 {
+            font-size: 26px;
+            font-weight: 800;
+            letter-spacing: 0.4px;
+            color: #fffdf9;
+        }
+        .ui-header p {
+            font-size: 13px;
+            color: rgba(244, 239, 230, 0.78);
+            margin-top: 2px;
+        }
+        .ui-controls {
+            position: absolute;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: center;
+            align-items: center;
+            background: rgba(18, 22, 32, 0.76);
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            padding: 8px 12px;
+            border-radius: 16px;
+            backdrop-filter: blur(12px);
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+            z-index: 10;
+            max-width: 94vw;
+        }
+        .ui-group {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+        }
+        .ui-divider {
+            width: 1px;
+            height: 24px;
+            background: rgba(255, 255, 255, 0.15);
+            margin: 0 4px;
+        }
+        .btn {
+            appearance: none;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: rgba(255, 255, 255, 0.06);
+            color: #f0ece1;
+            font-size: 12px;
+            font-weight: 600;
+            padding: 7px 13px;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+        .btn:hover {
+            background: rgba(243, 198, 99, 0.2);
+            border-color: rgba(243, 198, 99, 0.55);
+            color: #fff;
+            transform: translateY(-1px);
+        }
+        .btn.active {
+            background: linear-gradient(135deg, #e5b24c, #c98627);
+            border-color: #f7d47c;
+            color: #18140c;
+            box-shadow: 0 4px 14px rgba(229, 178, 76, 0.35);
+        }
+        .ui-hint {
+            position: absolute;
+            top: 24px;
+            right: 26px;
+            background: rgba(18, 22, 32, 0.68);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            padding: 10px 14px;
+            border-radius: 12px;
+            font-size: 12px;
+            color: rgba(244, 239, 230, 0.8);
+            backdrop-filter: blur(8px);
+            pointer-events: none;
+            line-height: 1.5;
+            z-index: 10;
+        }
+        #loadingOverlay {
+            position: fixed;
+            inset: 0;
+            background: radial-gradient(circle at center, #242b3d 0%, #10141f 100%);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            transition: opacity 0.65s ease;
+        }
+        .spinner {
+            width: 48px;
+            height: 48px;
+            border: 4px solid rgba(243, 198, 99, 0.2);
+            border-top-color: #f3c663;
+            border-radius: 50%;
+            animation: spin 0.9s linear infinite;
+            margin-bottom: 16px;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        @media (max-width: 760px) {
+            .ui-hint { display: none; }
+            .ui-header h1 { font-size: 20px; }
+        }
+    </style>
+</head>
+<body>
+    <div id="loadingOverlay">
+        <div class="spinner"></div>
+        <div style="font-size: 16px; font-weight: 700; letter-spacing: 1px; color: #f7d47c;">CRAFTING FLOATING KINGDOM...</div>
+        <div style="font-size: 12px; color: rgba(255,255,255,0.6); margin-top: 6px;">Sculpting cliffs, castle keep, watermill & timber village</div>
+    </div>
+
+    <div class="ui-header">
+        <span class="ui-badge">Tabletop Miniature Diorama</span>
+        <h1>Highland Keep &amp; Riverhaven</h1>
+        <p>Procedural High-Poly Floating Island &bull; Interactive 3D Scene</p>
+    </div>
+
+    <div class="ui-hint">
+        <strong>Left Drag</strong> Orbit &nbsp;|&nbsp; <strong>Right Drag</strong> Pan<br />
+        <strong>Scroll</strong> Zoom &nbsp;|&nbsp; Click presets below to tour
+    </div>
+
+    <div class="ui-controls">
+        <div class="ui-group" id="camGroup">
+            <button class="btn active" data-cam="overview">Full Diorama</button>
+            <button class="btn" data-cam="castle">Royal Castle</button>
+            <button class="btn" data-cam="village">Market &amp; Tavern</button>
+            <button class="btn" data-cam="mill">Watermill &amp; Falls</button>
+            <button class="btn" data-cam="ruins">Ruined Watchtower</button>
+        </div>
+        <div class="ui-divider"></div>
+        <div class="ui-group" id="moodGroup">
+            <button class="btn active" data-mood="day">Sunlit Day</button>
+            <button class="btn" data-mood="sunset">Golden Hour</button>
+            <button class="btn" data-mood="night">Cozy Night</button>
+        </div>
+        <div class="ui-divider"></div>
+        <div class="ui-group">
+            <button class="btn active" id="btnSpin">Turntable: ON</button>
+        </div>
+    </div>
+
+    <canvas id="renderCanvas"></canvas>
+
+    <script>
+    (function () {
+        const canvas = document.getElementById("renderCanvas");
+        const engine = new BABYLON.Engine(canvas, true, {
+            preserveDrawingBuffer: true,
+            stencil: true,
+            antialias: true
+        });
+        engine.setHardwareScalingLevel(1 / Math.min(window.devicePixelRatio || 1, 2));
+
+        // ============================================================================
+        // 1. DETERMINISTIC 3D NOISE & MATH HELPERS
+        // ============================================================================
+        const PERM = new Uint8Array(512);
+        (function initNoise() {
+            const p = new Uint8Array(256);
+            for (let i = 0; i < 256; i++) p[i] = i;
+            let seed = 133742;
+            for (let i = 255; i > 0; i--) {
+                seed = (seed * 16807) % 2147483647;
+                const j = seed % (i + 1);
+                const tmp = p[i]; p[i] = p[j]; p[j] = tmp;
+            }
+            for (let i = 0; i < 512; i++) PERM[i] = p[i & 255];
+        })();
+
+        function fade(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
+        function lerp(a, b, t) { return a + t * (b - a); }
+        function smoothstep(edge0, edge1, x) {
+            const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+            return t * t * (3 - 2 * t);
+        }
+        function grad(hash, x, y, z) {
+            const h = hash & 15;
+            const u = h < 8 ? x : y;
+            const v = h < 4 ? y : (h === 12 || h === 14 ? x : z);
+            return ((h & 1) === 0 ? u : -u) + ((h & 2) === 0 ? v : -v);
+        }
+        function noise3D(x, y, z) {
+            const X = Math.floor(x) & 255;
+            const Y = Math.floor(y) & 255;
+            const Z = Math.floor(z) & 255;
+            x -= Math.floor(x); y -= Math.floor(y); z -= Math.floor(z);
+            const u = fade(x), v = fade(y), w = fade(z);
+            const A = PERM[X] + Y, AA = PERM[A] + Z, AB = PERM[A + 1] + Z;
+            const B = PERM[X + 1] + Y, BA = PERM[B] + Z, BB = PERM[B + 1] + Z;
+            return lerp(
+                lerp(
+                    lerp(grad(PERM[AA], x, y, z), grad(PERM[BA], x - 1, y, z), u),
+                    lerp(grad(PERM[AB], x, y - 1, z), grad(PERM[BB], x - 1, y - 1, z), u),
+                    v
+                ),
+                lerp(
+                    lerp(grad(PERM[AA + 1], x, y, z - 1), grad(PERM[BA + 1], x - 1, y, z - 1), u),
+                    lerp(grad(PERM[AB + 1], x, y - 1, z - 1), grad(PERM[BB + 1], x - 1, y - 1, z - 1), u),
+                    v
+                ),
+                w
+            );
+        }
+        function fbm(x, y, z, octaves = 4) {
+            let val = 0, amp = 0.5, freq = 1.0;
+            for (let i = 0; i < octaves; i++) {
+                val += amp * noise3D(x * freq, y * freq, z * freq);
+                freq *= 2.05;
+                amp *= 0.48;
+            }
+            return val;
+        }
+
+        // ============================================================================
+        // 2. ISLAND TOPOLOGY, RIVER SPLINE & HEIGHTFIELD FUNCTIONS
+        // ============================================================================
+        const WATER_Y = 1.68;
+        const RIVER_PTS = [
+            { x: -16.5, z: 22.0 }, // Upper mountain cascade pool
+            { x: -7.5,  z: 13.0 }, // Foot of castle crag
+            { x: -0.5,  z: 4.5  }, // Bend near watermill
+            { x: 5.5,   z: -1.5 }, // Watermill channel
+            { x: 12.0,  z: -8.0 }, // Village central bridge
+            { x: 19.5,  z: -15.5}, // Lower tavern bridge
+            { x: 28.5,  z: -24.5}, // Waterfall cliff lip
+            { x: 34.0,  z: -30.0}  // Off edge
+        ];
+
+        function getRiverInfo(x, z) {
+            let minDist = 9999;
+            let bestT = 0;
+            const totalSegs = RIVER_PTS.length - 1;
+            for (let i = 0; i < totalSegs; i++) {
+                const A = RIVER_PTS[i], B = RIVER_PTS[i + 1];
+                const dx = B.x - A.x, dz = B.z - A.z;
+                const lenSq = dx * dx + dz * dz;
+                let t = ((x - A.x) * dx + (z - A.z) * dz) / lenSq;
+                t = Math.max(0, Math.min(1, t));
+                const px = A.x + t * dx, pz = A.z + t * dz;
+                const d = Math.hypot(x - px, z - pz);
+                if (d < minDist) {
+                    minDist = d;
+                    bestT = (i + t) / totalSegs;
+                }
+            }
+            // Smooth river width (wider at upper pond and mill, slightly narrower at bridges)
+            const width = 2.55 + 0.55 * Math.sin(bestT * Math.PI * 3.0);
+            return { dist: minDist, t: bestT, width };
+        }
+
+        function getIslandOuterRadius(angle) {
+            const cx = Math.cos(angle), cz = Math.sin(angle);
+            let r = 36.2
+                + 2.6 * Math.sin(angle * 3.0 + 0.5)
+                + 1.8 * Math.cos(angle * 5.0 - 0.8)
+                + 2.8 * fbm(cx * 1.8 + 5, 0, cz * 1.8 + 5, 3);
+
+            // Promontory jutting out for the Ruined Watchtower (around angle ~ -2.53 rad => x<0, z<0)
+            const towerAngle = Math.atan2(-15.5, -24.5);
+            let dTower = Math.abs(Math.atan2(Math.sin(angle - towerAngle), Math.cos(angle - towerAngle)));
+            if (dTower < 0.42) {
+                r += 4.2 * Math.cos((dTower / 0.42) * (Math.PI * 0.5));
+            }
+
+            // Slight cove indentation at the grand waterfall exit (around (28.5, -24.5))
+            const fallAngle = Math.atan2(-24.5, 28.5);
+            let dFall = Math.abs(Math.atan2(Math.sin(angle - fallAngle), Math.cos(angle - fallAngle)));
+            if (dFall < 0.25) {
+                r -= 1.6 * Math.cos((dFall / 0.25) * (Math.PI * 0.5));
+            }
+            return r;
+        }
+
+        function getTerrainHeight(x, z) {
+            // Base undulating meadow
+            let h = 2.4 + 1.15 * fbm(x * 0.045, 0, z * 0.045, 3);
+
+            // 1. Central-Rear Castle Plateau centered at (-11.5, 11.5)
+            const dCastle = Math.hypot(x - (-11.5), z - 11.5);
+            const castlePlateau = 1.0 - smoothstep(10.2, 16.5, dCastle);
+            const castleCragNoise = (1.0 - smoothstep(8.5, 17.5, dCastle)) * smoothstep(9.0, 12.5, dCastle) * fbm(x * 0.25, 1.3, z * 0.25, 3) * 3.2;
+            h = lerp(h, 9.2, castlePlateau) + castleCragNoise;
+
+            // 2. Castle Access Ramp descending from (-4.5, 7.2) to (2.5, 1.5)
+            const rx = 2.5 - (-4.5), rz = 1.5 - 7.2;
+            const rLenSq = rx * rx + rz * rz;
+            let rt = ((x - (-4.5)) * rx + (z - 7.2) * rz) / rLenSq;
+            rt = Math.max(0, Math.min(1, rt));
+            const rpx = -4.5 + rt * rx, rpz = 7.2 + rt * rz;
+            const dRamp = Math.hypot(x - rpx, z - rpz);
+            if (dRamp < 3.4) {
+                const rampBlend = 1.0 - smoothstep(1.3, 3.4, dRamp);
+                const rampTargetH = lerp(9.1, 2.55, smoothstep(0.0, 1.0, rt));
+                h = lerp(h, rampTargetH, rampBlend * 0.88);
+            }
+
+            // 3. High Mountain Peak behind Castle & River Headwaters at (-18.5, 24.5)
+            const dPeak = Math.hypot((x - (-18.5)) * 0.85, (z - 24.5) * 1.1);
+            if (dPeak < 14.5) {
+                const peakFactor = Math.pow(1.0 - smoothstep(0.0, 14.5, dPeak), 1.65);
+                const crags = Math.abs(fbm(x * 0.18, 2.5, z * 0.18, 4)) * 7.5;
+                h += peakFactor * (13.5 + crags);
+            }
+
+            // 4. Ruined Watchtower Rocky Promontory at (-24.5, -15.5)
+            const dRuins = Math.hypot(x - (-24.5), z - (-15.5));
+            const ruinPlateau = 1.0 - smoothstep(4.2, 10.5, dRuins);
+            h = lerp(h, 6.2, ruinPlateau);
+
+            // 5. Flatten Village Market & Tavern Plazas slightly for clean foundations
+            const dVillage = Math.hypot(x - 10.0, z - 0.0);
+            if (dVillage < 15.0) {
+                const vFlat = 1.0 - smoothstep(6.0, 15.0, dVillage);
+                h = lerp(h, 2.55 + 0.25 * noise3D(x * 0.08, 0, z * 0.08), vFlat * 0.65);
+            }
+
+            // 6. Carve the Winding River Canyon
+            const riv = getRiverInfo(x, z);
+            if (riv.dist < riv.width + 2.8) {
+                const bankFactor = 1.0 - smoothstep(riv.width * 0.55, riv.width + 2.5, riv.dist);
+                const bedDepth = WATER_Y - 1.35 + 0.2 * noise3D(x * 0.4, 0, z * 0.4);
+                // Keep mountain headwaters cliff steep behind t < 0.05
+                const headwaterMask = smoothstep(0.0, 0.06, riv.t);
+                h = lerp(h, bedDepth, bankFactor * headwaterMask);
+            }
+
+            // 7. Gentle raised rocky lip right at the island outer perimeter (except waterfall exit)
+            const angle = Math.atan2(z, x);
+            const maxR = getIslandOuterRadius(angle);
+            const curR = Math.hypot(x, z);
+            const rimProximity = smoothstep(maxR - 4.0, maxR, curR);
+            const rivMask = smoothstep(2.0, 5.2, riv.dist);
+            h += rimProximity * rivMask * (0.9 + 1.2 * Math.max(0, fbm(x * 0.16, 4.1, z * 0.16, 2)));
+
+            return h;
+        }
+
+        // ============================================================================
+        // 3. PROCEDURAL TEXTURE & MATERIAL STUDIO
+        // ============================================================================
+        function createProceduralTextures(scene) {
+            const textures = {};
+
+            // 1. Stone Wall Ashlar Texture
+            const stoneDT = new BABYLON.DynamicTexture("stoneDT", 512, scene, true);
+            const sCtx = stoneDT.getContext();
+            sCtx.fillStyle = "#6c7078";
+            sCtx.fillRect(0, 0, 512, 512);
+            const rows = 16;
+            const rowH = 512 / rows;
+            let seed = 91;
+            const rand = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
+            for (let r = 0; r < rows; r++) {
+                let x = (r % 2) * -28;
+                while (x < 512) {
+                    const w = 44 + Math.floor(rand() * 36);
+                    const shade = 118 + Math.floor((rand() - 0.5) * 42);
+                    const warm = Math.floor((rand() - 0.5) * 14);
+                    sCtx.fillStyle = `rgb(${shade + warm}, ${shade}, ${shade - warm * 0.5})`;
+                    sCtx.fillRect(x + 2, r * rowH + 2, w - 4, rowH - 4);
+                    // Highlight top edge
+                    sCtx.fillStyle = "rgba(255,255,255,0.12)";
+                    sCtx.fillRect(x + 2, r * rowH + 2, w - 4, 3);
+                    // Shadow bottom edge
+                    sCtx.fillStyle = "rgba(0,0,0,0.22)";
+                    sCtx.fillRect(x + 2, (r + 1) * rowH - 5, w - 4, 3);
+                    x += w;
+                }
+            }
+            stoneDT.update();
+            stoneDT.wrapU = stoneDT.wrapV = BABYLON.Texture.WRAP_ADDRESSMODE;
+            textures.stone = stoneDT;
+
+            // 2. Scalloped Roof Shingles Texture (Neutral grayscale/warm tintable)
+            const roofDT = new BABYLON.DynamicTexture("roofDT", 256, scene, true);
+            const rCtx = roofDT.getContext();
+            rCtx.fillStyle = "#b8b8b8";
+            rCtx.fillRect(0, 0, 256, 256);
+            const rRows = 12, rH = 256 / rRows;
+            for (let r = 0; r < rRows; r++) {
+                for (let c = -1; c < 12; c++) {
+                    const x = c * 24 + (r % 2) * 12;
+                    const y = r * rH;
+                    const v = 185 + Math.floor((rand() - 0.5) * 45);
+                    rCtx.fillStyle = `rgb(${v},${v},${v})`;
+                    rCtx.fillRect(x + 1, y + 1, 22, rH - 2);
+                    rCtx.fillStyle = "rgba(0,0,0,0.28)";
+                    rCtx.fillRect(x, y + rH - 3, 24, 3);
+                }
+            }
+            roofDT.update();
+            roofDT.wrapU = roofDT.wrapV = BABYLON.Texture.WRAP_ADDRESSMODE;
+            textures.roof = roofDT;
+
+            // 3. Half-Timber Plaster & Framing Texture
+            const timberDT = new BABYLON.DynamicTexture("timberDT", 256, scene, true);
+            const tCtx = timberDT.getContext();
+            tCtx.fillStyle = "#f2e5ce";
+            tCtx.fillRect(0, 0, 256, 256);
+            // Subtle plaster grain
+            for (let i = 0; i < 600; i++) {
+                tCtx.fillStyle = rand() > 0.5 ? "rgba(255,255,255,0.08)" : "rgba(160,130,95,0.08)";
+                tCtx.fillRect(rand() * 256, rand() * 256, 6, 6);
+            }
+            // Dark oak beams
+            tCtx.fillStyle = "#4a3020";
+            tCtx.fillRect(0, 0, 256, 16);
+            tCtx.fillRect(0, 120, 256, 14);
+            tCtx.fillRect(0, 240, 256, 16);
+            for (let x = 0; x <= 256; x += 64) {
+                tCtx.fillRect(x - 7, 0, 14, 256);
+            }
+            // Diagonal braces
+            tCtx.strokeStyle = "#4a3020";
+            tCtx.lineWidth = 11;
+            tCtx.beginPath();
+            tCtx.moveTo(7, 120); tCtx.lineTo(57, 14);
+            tCtx.moveTo(199, 14); tCtx.lineTo(249, 120);
+            tCtx.stroke();
+            timberDT.update();
+            timberDT.wrapU = timberDT.wrapV = BABYLON.Texture.WRAP_ADDRESSMODE;
+            textures.timber = timberDT;
+
+            // 4. Striped Market Awning Fabrics
+            function makeStripeTex(name, c1, c2) {
+                const dt = new BABYLON.DynamicTexture(name, 128, scene, true);
+                const ctx = dt.getContext();
+                for (let i = 0; i < 8; i++) {
+                    ctx.fillStyle = i % 2 === 0 ? c1 : c2;
+                    ctx.fillRect(i * 16, 0, 16, 128);
+                }
+                ctx.fillStyle = "rgba(0,0,0,0.12)";
+                ctx.fillRect(0, 116, 128, 12);
+                dt.update();
+                return dt;
+            }
+            textures.stripeRed = makeStripeTex("stripeRed", "#d93b34", "#f8f1e1");
+            textures.stripeBlue = makeStripeTex("stripeBlue", "#286fb4", "#f8f1e1");
+            textures.stripeGreen = makeStripeTex("stripeGreen", "#3a8f52", "#f9e398");
+            textures.stripeGold = makeStripeTex("stripeGold", "#e09124", "#fff4dc");
+
+            // 5. Animated Turquoise Water & Waterfall Foam Texture
+            const waterDT = new BABYLON.DynamicTexture("waterDT", 256, scene, true);
+            const wCtx = waterDT.getContext();
+            wCtx.fillStyle = "#19b5b8";
+            wCtx.fillRect(0, 0, 256, 256);
+            for (let i = 0; i < 140; i++) {
+                const x = rand() * 256, y = rand() * 256;
+                const w = 8 + rand() * 18, h = 40 + rand() * 80;
+                wCtx.fillStyle = rand() > 0.35 ? "rgba(255,255,255,0.22)" : "rgba(12,115,135,0.28)";
+                wCtx.beginPath();
+                wCtx.ellipse(x, y, w * 0.5, h * 0.5, 0, 0, Math.PI * 2);
+                wCtx.fill();
+            }
+            waterDT.update();
+            waterDT.wrapU = waterDT.wrapV = BABYLON.Texture.WRAP_ADDRESSMODE;
+            textures.water = waterDT;
+
+            // 6. Soft Particle Radial Glow Texture
+            const partDT = new BABYLON.DynamicTexture("partDT", 64, scene, true);
+            const pCtx = partDT.getContext();
+            const grad = pCtx.createRadialGradient(32, 32, 2, 32, 32, 30);
+            grad.addColorStop(0, "rgba(255, 255, 255, 1)");
+            grad.addColorStop(0.5, "rgba(255, 255, 255, 0.45)");
+            grad.addColorStop(1, "rgba(255, 255, 255, 0)");
+            pCtx.fillStyle = grad;
+            pCtx.fillRect(0, 0, 64, 64);
+            partDT.update();
+            textures.particle = partDT;
+
+            return textures;
+        }
+
+        // ============================================================================
+        // 4. MAIN SCENE CONSTRUCTION
+        // ============================================================================
+        const scene = new BABYLON.Scene(engine);
+        scene.clearColor = new BABYLON.Color4(0.11, 0.14, 0.22, 1.0);
+
+        // Camera with smooth inertial tabletop orbit controls
+        const camera = new BABYLON.ArcRotateCamera(
+            "dioramaCam",
+            -Math.PI * 0.32,
+            Math.PI * 0.33,
+            88,
+            new BABYLON.Vector3(0, 3.5, 0),
+            scene
+        );
+        camera.lowerRadiusLimit = 22;
+        camera.upperRadiusLimit = 145;
+        camera.lowerBetaLimit = 0.18;
+        camera.upperBetaLimit = Math.PI * 0.52;
+        camera.inertia = 0.88;
+        camera.panningInertia = 0.85;
+        camera.panningSensibility = 65;
+        camera.wheelPrecision = 14;
+        camera.attachControl(canvas, true);
+
+        // Lighting Setup
+        const hemiLight = new BABYLON.HemisphericLight("hemiLight", new BABYLON.Vector3(0.2, 1, 0.1), scene);
+        hemiLight.diffuse = new BABYLON.Color3(0.86, 0.92, 1.0);
+        hemiLight.groundColor = new BABYLON.Color3(0.28, 0.25, 0.34);
+        hemiLight.intensity = 0.72;
+
+        const sunLight = new BABYLON.DirectionalLight("sunLight", new BABYLON.Vector3(-0.62, -0.82, -0.45).normalize(), scene);
+        sunLight.position = new BABYLON.Vector3(48, 68, 38);
+        sunLight.diffuse = new BABYLON.Color3(1.0, 0.95, 0.84);
+        sunLight.specular = new BABYLON.Color3(1.0, 0.94, 0.82);
+        sunLight.intensity = 2.15;
+
+        // Warm Village & Castle Accent Point Light
+        const villageWarmLight = new BABYLON.PointLight("villageWarmLight", new BABYLON.Vector3(11, 6.5, -3), scene);
+        villageWarmLight.diffuse = new BABYLON.Color3(1.0, 0.68, 0.32);
+        villageWarmLight.intensity = 0.65;
+        villageWarmLight.range = 34;
+
+        // Soft Shadows
+        const shadowGen = new BABYLON.ShadowGenerator(2048, sunLight);
+        shadowGen.usePercentageCloserFiltering = true;
+        shadowGen.filteringQuality = BABYLON.ShadowGenerator.QUALITY_MEDIUM;
+        shadowGen.bias = 0.00065;
+        shadowGen.normalBias = 0.015;
+        shadowGen.darkness = 0.28;
+
+        const tex = createProceduralTextures(scene);
+
+        // Shared Materials Dictionary
+        const mats = {};
+        function makeMat(name, hexColor, roughness = 0.8, metallic = 0.0, texture = null, uScale = 1, vScale = 1) {
+            const m = new BABYLON.PBRMaterial(name, scene);
+            m.albedoColor = BABYLON.Color3.FromHexString(hexColor);
+            m.roughness = roughness;
+            m.metallic = metallic;
+            if (texture) {
+                const clonedTex = texture.clone();
+                clonedTex.uScale = uScale;
+                clonedTex.vScale = vScale;
+                m.albedoTexture = clonedTex;
+            }
+            return m;
+        }
+
+        mats.castleStone = makeMat("castleStone", "#d4d2cc", 0.85, 0.04, tex.stone, 2.5, 2.5);
+        mats.castleTrim  = makeMat("castleTrim", "#8d929c", 0.78, 0.08);
+        mats.darkSlate   = makeMat("darkSlate", "#37566e", 0.65, 0.1, tex.roof, 3, 3);
+        mats.royalBlue   = makeMat("royalBlue", "#2d648f", 0.62, 0.08, tex.roof, 2.5, 2.5);
+        mats.terracotta  = makeMat("terracotta", "#c85a3b", 0.72, 0.05, tex.roof, 2.5, 2.5);
+        mats.ochreRoof   = makeMat("ochreRoof", "#c98538", 0.74, 0.05, tex.roof, 2.5, 2.5);
+        mats.mossRoof    = makeMat("mossRoof", "#4f6d4a", 0.78, 0.04, tex.roof, 2.5, 2.5);
+        mats.timberWall  = makeMat("timberWall", "#ffffff", 0.82, 0.02, tex.timber, 1, 1);
+        mats.warmPlaster = makeMat("warmPlaster", "#f6ebd4", 0.85, 0.02);
+        mats.darkWood    = makeMat("darkWood", "#543824", 0.82, 0.04);
+        mats.medWood     = makeMat("medWood", "#865936", 0.78, 0.04);
+        mats.lightWood   = makeMat("lightWood", "#b88454", 0.75, 0.04);
+        mats.cobble      = makeMat("cobble", "#8b8e94", 0.86, 0.05);
+        mats.rockGrey    = makeMat("rockGrey", "#6b737e", 0.88, 0.05);
+        mats.mossRock    = makeMat("mossRock", "#5c7552", 0.88, 0.03);
+        mats.pineDark    = makeMat("pineDark", "#255939", 0.82, 0.02);
+        mats.pineMid     = makeMat("pineMid", "#357844", 0.80, 0.02);
+        mats.pineBright  = makeMat("pineBright", "#4c964d", 0.78, 0.02);
+        mats.leafGreen   = makeMat("leafGreen", "#5ea847", 0.78, 0.02);
+        mats.leafAutumn  = makeMat("leafAutumn", "#e08734", 0.78, 0.02);
+        mats.leafBlossom = makeMat("leafBlossom", "#eb8291", 0.76, 0.02);
+        mats.gold        = makeMat("gold", "#f2c14e", 0.32, 0.82);
+        mats.iron        = makeMat("iron", "#353942", 0.45, 0.75);
+        mats.bannerRed   = makeMat("bannerRed", "#c9302c", 0.7, 0.05);
+        mats.bannerRed.backFaceCulling = false;
+
+        mats.stripeRed   = makeMat("mStripeRed", "#ffffff", 0.8, 0.0, tex.stripeRed, 1, 1);
+        mats.stripeBlue  = makeMat("mStripeBlue", "#ffffff", 0.8, 0.0, tex.stripeBlue, 1, 1);
+        mats.stripeGreen = makeMat("mStripeGreen", "#ffffff", 0.8, 0.0, tex.stripeGreen, 1, 1);
+        mats.stripeGold  = makeMat("mStripeGold", "#ffffff", 0.8, 0.0, tex.stripeGold, 1, 1);
+        mats.stripeRed.backFaceCulling = mats.stripeBlue.backFaceCulling =
+            mats.stripeGreen.backFaceCulling = mats.stripeGold.backFaceCulling = false;
+
+        // Glowing Window & Lantern Material
+        mats.windowGlow = new BABYLON.StandardMaterial("windowGlow", scene);
+        mats.windowGlow.diffuseColor = new BABYLON.Color3(1.0, 0.82, 0.45);
+        mats.windowGlow.emissiveColor = new BABYLON.Color3(0.95, 0.65, 0.22);
+        mats.windowGlow.specularColor = BABYLON.Color3.Black();
+
+        // Vertex-Colored Terrain & Cliff Material
+        mats.vertexTerrain = new BABYLON.PBRMaterial("vertexTerrain", scene);
+        mats.vertexTerrain.albedoColor = BABYLON.Color3.White();
+        mats.vertexTerrain.roughness = 0.88;
+        mats.vertexTerrain.metallic = 0.02;
+
+        // Turquoise Animated Water Material
+        mats.water = new BABYLON.StandardMaterial("waterMat", scene);
+        mats.water.diffuseColor = new BABYLON.Color3(0.08, 0.74, 0.78);
+        mats.water.emissiveColor = new BABYLON.Color3(0.03, 0.24, 0.28);
+        mats.water.specularColor = new BABYLON.Color3(0.85, 0.96, 1.0);
+        mats.water.specularPower = 64;
+        mats.water.diffuseTexture = tex.water;
+        mats.water.diffuseTexture.uScale = 3.0;
+        mats.water.diffuseTexture.vScale = 6.0;
+        mats.water.alpha = 0.86;
+        mats.water.backFaceCulling = false;
+
+        mats.foam = new BABYLON.StandardMaterial("foamMat", scene);
+        mats.foam.diffuseColor = new BABYLON.Color3(0.88, 0.98, 1.0);
+        mats.foam.emissiveColor = new BABYLON.Color3(0.35, 0.55, 0.62);
+        mats.foam.alpha = 0.78;
+
+        // Cloud Material
+        mats.cloud = new BABYLON.PBRMaterial("cloudMat", scene);
+        mats.cloud.albedoColor = new BABYLON.Color3(0.96, 0.97, 1.0);
+        mats.cloud.emissiveColor = new BABYLON.Color3(0.14, 0.16, 0.22);
+        mats.cloud.roughness = 0.95;
+        mats.cloud.metallic = 0.0;
+        mats.cloud.alpha = 0.88;
+
+        // ============================================================================
+        // 5. HIGH-POLY FLOATING ISLAND MESH (TOP PLATEAU + ROCKY UNDERBELLY)
+        // ============================================================================
+        function buildFloatingIsland() {
+            // --- A. Upper Lush Terrain Surface (128x128 High-Res Sculpted Grid) ---
+            const N = 128;
+            const span = 84;
+            const positions = [];
+            const indices = [];
+            const colors = [];
+            const normals = [];
+
+            for (let iz = 0; iz <= N; iz++) {
+                const gz = (iz / N - 0.5) * span;
+                for (let ix = 0; ix <= N; ix++) {
+                    const gx = (ix / N - 0.5) * span;
+                    const angle = Math.atan2(gz, gx);
+                    const maxR = getIslandOuterRadius(angle);
+                    const r = Math.hypot(gx, gz);
+
+                    let vx = gx, vz = gz, vy = 0;
+                    if (r <= maxR) {
+                        vy = getTerrainHeight(vx, vz);
+                    } else {
+                        // Clamp outside grid points cleanly to the cliff rim & tuck down slightly
+                        const over = Math.min(1.0, (r - maxR) / 4.5);
+                        const clampedR = maxR - 0.08 - over * 1.4;
+                        vx = Math.cos(angle) * clampedR;
+                        vz = Math.sin(angle) * clampedR;
+                        vy = getTerrainHeight(Math.cos(angle) * maxR, Math.sin(angle) * maxR) - 0.35 - over * 3.8;
+                    }
+                    positions.push(vx, vy, vz);
+                }
+            }
+
+            for (let iz = 0; iz < N; iz++) {
+                for (let ix = 0; ix < N; ix++) {
+                    const row1 = iz * (N + 1) + ix;
+                    const row2 = (iz + 1) * (N + 1) + ix;
+
+                    // Skip triangles completely outside the island rim
+                    const p0x = positions[row1 * 3], p0z = positions[row1 * 3 + 2];
+                    const p3x = positions[(row2 + 1) * 3], p3z = positions[(row2 + 1) * 3 + 2];
+                    const ang0 = Math.atan2(p0z, p0x);
+                    if (Math.hypot(p0x, p0z) > getIslandOuterRadius(ang0) + 0.5 &&
+                        Math.hypot(p3x, p3z) > getIslandOuterRadius(Math.atan2(p3z, p3x)) + 0.5) {
+                        continue;
+                    }
+                    indices.push(row1, row1 + 1, row2);
+                    indices.push(row1 + 1, row2 + 1, row2);
+                }
+            }
+
+            BABYLON.VertexData.ComputeNormals(positions, indices, normals);
+
+            // Paint rich vertex colors based on elevation, slope, river proximity & village paths
+            for (let i = 0; i < positions.length / 3; i++) {
+                const vx = positions[i * 3], vy = positions[i * 3 + 1], vz = positions[i * 3 + 2];
+                const ny = Math.abs(normals[i * 3 + 1]);
+                const riv = getRiverInfo(vx, vz);
+                const angle = Math.atan2(vz, vx);
+                const maxR = getIslandOuterRadius(angle);
+                const distRim = maxR - Math.hypot(vx, vz);
+
+                // Default lush stylized grass
+                const nVal = fbm(vx * 0.14, 0, vz * 0.14, 2);
+                let r = 0.28 + nVal * 0.12;
+                let g = 0.62 + nVal * 0.14;
+                let b = 0.24 + nVal * 0.06;
+
+                // Golden sunlit meadow highlights
+                if (vy > 2.6 && vy < 5.5 && ny > 0.88) {
+                    r += 0.06; g += 0.07;
+                }
+
+                // Sandy/pebbly riverbanks & deep teal riverbed
+                if (riv.dist < riv.width + 1.8) {
+                    const tRiv = 1.0 - smoothstep(riv.width * 0.5, riv.width + 1.8, riv.dist);
+                    r = lerp(r, 0.18, tRiv);
+                    g = lerp(g, 0.42, tRiv);
+                    b = lerp(b, 0.44, tRiv);
+                }
+
+                // Earthy village paths & castle courtyard stone
+                const dCastle = Math.hypot(vx - (-11.5), vz - 11.5);
+                if (dCastle < 10.5 && vy > 8.6) {
+                    const tCourt = 1.0 - smoothstep(7.8, 10.5, dCastle);
+                    r = lerp(r, 0.52, tCourt * 0.7);
+                    g = lerp(g, 0.54, tCourt * 0.7);
+                    b = lerp(b, 0.50, tCourt * 0.7);
+                }
+
+                // Steep rocky slopes, mountain peak & cliff rim
+                if (ny < 0.74 || distRim < 1.8 || vy > 11.5) {
+                    const rockBlend = Math.max(
+                        1.0 - smoothstep(0.52, 0.78, ny),
+                        1.0 - smoothstep(0.4, 1.9, distRim),
+                        smoothstep(11.0, 14.5, vy)
+                    );
+                    const strata = 0.06 * Math.sin(vy * 2.2 + nVal * 3.0);
+                    r = lerp(r, 0.42 + strata, rockBlend);
+                    g = lerp(g, 0.44 + strata, rockBlend);
+                    b = lerp(b, 0.48 + strata, rockBlend);
+                }
+
+                // Snow-dusted high peak behind castle
+                if (vy > 17.5 && ny > 0.55) {
+                    const snow = smoothstep(17.5, 20.5, vy);
+                    r = lerp(r, 0.92, snow);
+                    g = lerp(g, 0.95, snow);
+                    b = lerp(b, 0.98, snow);
+                }
+
+                colors.push(r, g, b, 1.0);
+            }
+
+            const topMesh = new BABYLON.Mesh("islandTop", scene);
+            const topVD = new BABYLON.VertexData();
+            topVD.positions = positions;
+            topVD.indices = indices;
+            topVD.normals = normals;
+            topVD.colors = colors;
+            topVD.applyToMesh(topMesh);
+            topMesh.material = mats.vertexTerrain;
+            topMesh.receiveShadows = true;
+
+            // --- B. Craggy Steep Rocky Cliff & Inverted Underbelly Cone ---
+            const slices = 180;
+            const rings = 52;
+            const cPos = [];
+            const cInd = [];
+            const cCol = [];
+
+            for (let ir = 0; ir <= rings; ir++) {
+                const v = ir / rings; // 0 = top rim, 1 = bottom tip
+                for (let is = 0; is <= slices; is++) {
+                    const u = is / slices;
+                    const angle = u * Math.PI * 2.0;
+                    const cx = Math.cos(angle), cz = Math.sin(angle);
+                    const rimR = getIslandOuterRadius(angle);
+                    const rimX = cx * rimR, rimZ = cz * rimR;
+                    const rimY = getTerrainHeight(rimX, rimZ);
+
+                    // Vertical drop down to y = -37
+                    const dropCurve = Math.pow(v, 1.15);
+                    let y = lerp(rimY + 0.08, -37.0, dropCurve);
+
+                    // Taper profile with craggy rock ledges, overhangs, and stalactites
+                    let radiusFactor = Math.pow(1.0 - v, 0.62);
+                    // Slight dramatic cliff bulge right below the rim
+                    if (v < 0.25) {
+                        radiusFactor += Math.sin((v / 0.25) * Math.PI) * 0.055;
+                    }
+
+                    const strataShelf = Math.sin(v * 28.0 + fbm(cx * 3, v * 4, cz * 3, 2) * 3.5) * 0.035 * (1.0 - v);
+                    const cragNoise = fbm(cx * 4.2 + 2.1, v * 6.5, cz * 4.2 - 1.7, 4);
+                    const spireNoise = Math.pow(Math.max(0, noise3D(cx * 7, v * 3, cz * 7)), 2.0);
+
+                    let r = rimR * Math.max(0, radiusFactor + strataShelf + cragNoise * 0.22 * (1.0 - v * 0.5));
+                    if (v > 0.35 && v < 0.95) {
+                        y -= spireNoise * 5.5 * (1.0 - v);
+                    }
+                    if (ir === rings) {
+                        r = 0; y = -38.5;
+                    }
+
+                    const px = cx * r, pz = cz * r;
+                    cPos.push(px, y, pz);
+
+                    // Rich stylized cliff strata vertex colors (warm slate, deep indigo shadows, mossy top lip)
+                    const shade = 0.34 - v * 0.14 + cragNoise * 0.12 + strataShelf * 0.8;
+                    let cr = shade * 1.02;
+                    let cg = shade * 1.04;
+                    let cb = shade * 1.14;
+
+                    // Mossy rim overhang
+                    if (v < 0.07) {
+                        const m = 1.0 - v / 0.07;
+                        cr = lerp(cr, 0.26, m * 0.65);
+                        cg = lerp(cg, 0.52, m * 0.65);
+                        cb = lerp(cb, 0.25, m * 0.65);
+                    }
+                    // Wet dark teal rock down the waterfall chute
+                    const fallAngle = Math.atan2(-24.5, 28.5);
+                    const dFall = Math.abs(Math.atan2(Math.sin(angle - fallAngle), Math.cos(angle - fallAngle)));
+                    if (dFall < 0.14) {
+                        const wMask = 1.0 - dFall / 0.14;
+                        cr = lerp(cr, 0.12, wMask * 0.7);
+                        cg = lerp(cg, 0.38, wMask * 0.7);
+                        cb = lerp(cb, 0.44, wMask * 0.7);
+                    }
+
+                    cCol.push(cr, cg, cb, 1.0);
+                }
+            }
+
+            for (let ir = 0; ir < rings; ir++) {
+                for (let is = 0; is < slices; is++) {
+                    const a = ir * (slices + 1) + is;
+                    const b = (ir + 1) * (slices + 1) + is;
+                    cInd.push(a, b, a + 1);
+                    cInd.push(a + 1, b, b + 1);
+                }
+            }
+
+            // Convert to flat-shaded faceted rock for crisp handcrafted miniature cliff planes
+            const cliffMesh = new BABYLON.Mesh("islandCliff", scene);
+            const cNorm = [];
+            BABYLON.VertexData.ComputeNormals(cPos, cInd, cNorm);
+            const cliffVD = new BABYLON.VertexData();
+            cliffVD.positions = cPos;
+            cliffVD.indices = cInd;
+            cliffVD.normals = cNorm;
+            cliffVD.colors = cCol;
+            cliffVD.applyToMesh(cliffMesh);
+            cliffMesh.convertToFlatShadedMesh();
+            cliffMesh.material = mats.vertexTerrain;
+            cliffMesh.receiveShadows = true;
+            shadowGen.addShadowCaster(cliffMesh);
+        }
+
+        // ============================================================================
+        // 6. TURQUOISE RIVER, PONDS & GRAND WATERFALLS
+        // ============================================================================
+        const animatedWaterMeshes = [];
+        function buildWaterSystem() {
+            // 1. Main River Surface Ribbon
+            const pathLeft = [];
+            const pathRight = [];
+            const steps = 65;
+            for (let i = 0; i <= steps; i++) {
+                const t = i / steps;
+                const segFloat = t * (RIVER_PTS.length - 2);
+                const idx = Math.min(RIVER_PTS.length - 2, Math.floor(segFloat));
+                const frac = segFloat - idx;
+                const A = RIVER_PTS[idx], B = RIVER_PTS[idx + 1];
+                const cx = lerp(A.x, B.x, frac);
+                const cz = lerp(A.z, B.z, frac);
+                const dx = B.x - A.x, dz = B.z - A.z;
+                const len = Math.hypot(dx, dz) || 1;
+                const nx = -dz / len, nz = dx / len;
+                const w = 3.1 + 0.5 * Math.sin(t * Math.PI * 3.0);
+
+                // Curve gently down right at the waterfall lip (t > 0.92)
+                let wy = WATER_Y;
+                if (t > 0.90) {
+                    wy -= Math.pow((t - 0.90) / 0.10, 2.0) * 1.4;
+                }
+                pathLeft.push(new BABYLON.Vector3(cx + nx * w, wy, cz + nz * w));
+                pathRight.push(new BABYLON.Vector3(cx - nx * w, wy, cz - nz * w));
+            }
+
+            const riverRibbon = BABYLON.MeshBuilder.CreateRibbon("riverRibbon", {
+                pathArray: [pathLeft, pathRight],
+                closeArray: false,
+                closePath: false,
+                sideOrientation: BABYLON.Mesh.DOUBLESIDE
+            }, scene);
+            riverRibbon.material = mats.water;
+            animatedWaterMeshes.push(riverRibbon);
+
+            // 2. Upper Mountain Cascade Waterfall (Behind Castle from y=16.5 down to WATER_Y)
+            const upperLeft = [], upperRight = [];
+            for (let i = 0; i <= 20; i++) {
+                const v = i / 20;
+                const wy = lerp(16.2, WATER_Y, v);
+                const forward = Math.sin(v * Math.PI * 0.5) * 3.2;
+                const cx = -18.2 + forward * 0.55;
+                const cz = 24.2 - forward * 0.75;
+                const w = 1.3 + v * 0.9;
+                upperLeft.push(new BABYLON.Vector3(cx - w, wy, cz - w * 0.5));
+                upperRight.push(new BABYLON.Vector3(cx + w, wy, cz + w * 0.5));
+            }
+            const upperFall = BABYLON.MeshBuilder.CreateRibbon("upperFall", {
+                pathArray: [upperLeft, upperRight],
+                sideOrientation: BABYLON.Mesh.DOUBLESIDE
+            }, scene);
+            upperFall.material = mats.water;
+            animatedWaterMeshes.push(upperFall);
+
+            // 3. Grand Cliff-Edge Waterfall Plunging Into the Void (y = WATER_Y down to y = -36)
+            const fallLeft = [], fallCenter = [], fallRight = [];
+            const lipX = 28.5, lipZ = -24.5;
+            const dirX = 0.74, dirZ = -0.67;
+            const perpX = 0.67, perpZ = 0.74;
+
+            for (let i = 0; i <= 36; i++) {
+                const v = i / 36;
+                // Parabolic trajectory over the cliff edge
+                const out = Math.pow(v, 0.68) * 6.2;
+                const drop = Math.pow(v, 1.35) * 39.0;
+                const wy = WATER_Y - 0.3 - drop;
+                const cx = lipX + dirX * out;
+                const cz = lipZ + dirZ * out;
+                const spread = 2.6 + v * 1.8 + Math.sin(v * 14) * 0.2;
+
+                fallLeft.push(new BABYLON.Vector3(cx + perpX * spread, wy, cz + perpZ * spread));
+                fallCenter.push(new BABYLON.Vector3(cx + dirX * 0.45, wy, cz + dirZ * 0.45));
+                fallRight.push(new BABYLON.Vector3(cx - perpX * spread, wy, cz - perpZ * spread));
+            }
+            const grandFall = BABYLON.MeshBuilder.CreateRibbon("grandFall", {
+                pathArray: [fallLeft, fallCenter, fallRight],
+                sideOrientation: BABYLON.Mesh.DOUBLESIDE
+            }, scene);
+            grandFall.material = mats.water;
+            animatedWaterMeshes.push(grandFall);
+
+            // Foam crest rings at both waterfalls
+            const upperFoam = BABYLON.MeshBuilder.CreateDisc("upperFoam", { radius: 2.6, tessellation: 24 }, scene);
+            upperFoam.rotation.x = Math.PI * 0.5;
+            upperFoam.position.set(-16.5, WATER_Y + 0.04, 22.0);
+            upperFoam.material = mats.foam;
+
+            for (let i = 0; i < 7; i++) {
+                const puff = BABYLON.MeshBuilder.CreateSphere("fallPuff" + i, { diameter: 1.6 + Math.random() * 1.2, segments: 8 }, scene);
+                const s = (i - 3) * 0.75;
+                puff.position.set(lipX + perpX * s, WATER_Y - 0.1, lipZ + perpZ * s);
+                puff.scaling.set(1.2, 0.55, 1.2);
+                puff.material = mats.foam;
+            }
+
+            // Mist Particle System at the Grand Waterfall
+            const mistPS = new BABYLON.ParticleSystem("waterfallMist", 350, scene);
+            mistPS.particleTexture = tex.particle;
+            mistPS.emitter = new BABYLON.Vector3(lipX + 1.8, WATER_Y - 3.5, lipZ - 1.6);
+            mistPS.minEmitBox = new BABYLON.Vector3(-2.5, -18, -2.5);
+            mistPS.maxEmitBox = new BABYLON.Vector3(2.5, 3.0, 2.5);
+            mistPS.color1 = new BABYLON.Color4(0.85, 0.97, 1.0, 0.38);
+            mistPS.color2 = new BABYLON.Color4(0.65, 0.92, 0.98, 0.25);
+            mistPS.colorDead = new BABYLON.Color4(0.8, 0.95, 1.0, 0.0);
+            mistPS.minSize = 1.8;
+            mistPS.maxSize = 4.8;
+            mistPS.minLifeTime = 1.8;
+            mistPS.maxLifeTime = 3.4;
+            mistPS.emitRate = 85;
+            mistPS.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
+            mistPS.gravity = new BABYLON.Vector3(0.4, -1.8, -0.4);
+            mistPS.direction1 = new BABYLON.Vector3(-0.8, 0.5, -0.8);
+            mistPS.direction2 = new BABYLON.Vector3(1.2, 1.8, 1.2);
+            mistPS.start();
+        }
+
+        // ============================================================================
+        // 7. CENTRAL MEDIEVAL STONE CASTLE
+        // ============================================================================
+        const wavingBanners = [];
+        function buildCastle() {
+            const cx = -11.5, cz = 11.5, baseY = 9.15;
+            const castleRoot = new BABYLON.TransformNode("castleRoot", scene);
+            castleRoot.position.set(cx, baseY, cz);
+            // Face the gatehouse toward the village (+X, -Z)
+            castleRoot.rotation.y = Math.PI * 0.25;
+
+            const stoneMeshes = [];
+            const trimMeshes = [];
+            const roofMeshes = [];
+            const glowMeshes = [];
+
+            function addCrenellations(w, d, yTop, parentPos) {
+                const merlonSize = 0.52, merlonH = 0.55, step = 0.95;
+                for (let x = -w * 0.5 + 0.3; x <= w * 0.5 - 0.3; x += step) {
+                    for (const zSide of [-d * 0.5 + 0.22, d * 0.5 - 0.22]) {
+                        const m = BABYLON.MeshBuilder.CreateBox("merlon", { width: merlonSize, height: merlonH, depth: 0.42 }, scene);
+                        m.position.set(parentPos.x + x, yTop + merlonH * 0.5, parentPos.z + zSide);
+                        m.parent = castleRoot;
+                        trimMeshes.push(m);
+                    }
+                }
+                for (let z = -d * 0.5 + 0.3; z <= d * 0.5 - 0.3; z += step) {
+                    for (const xSide of [-w * 0.5 + 0.22, w * 0.5 - 0.22]) {
+                        const m = BABYLON.MeshBuilder.CreateBox("merlon", { width: 0.42, height: merlonH, depth: merlonSize }, scene);
+                        m.position.set(parentPos.x + xSide, yTop + merlonH * 0.5, parentPos.z + z);
+                        m.parent = castleRoot;
+                        trimMeshes.push(m);
+                    }
+                }
+            }
+
+            function addRoundTower(tx, tz, radius, height, roofH, hasBanner = true) {
+                const cyl = BABYLON.MeshBuilder.CreateCylinder("tower", { diameter: radius * 2, height, tessellation: 20 }, scene);
+                cyl.position.set(tx, height * 0.5, tz);
+                cyl.parent = castleRoot;
+                stoneMeshes.push(cyl);
+
+                // Base plinth & upper corbel ring
+                const plinth = BABYLON.MeshBuilder.CreateCylinder("plinth", { diameterTop: radius * 2.04, diameterBottom: radius * 2.25, height: 1.4, tessellation: 20 }, scene);
+                plinth.position.set(tx, 0.7, tz);
+                plinth.parent = castleRoot;
+                trimMeshes.push(plinth);
+
+                const corbel = BABYLON.MeshBuilder.CreateCylinder("corbel", { diameterTop: radius * 2.24, diameterBottom: radius * 2.0, height: 0.85, tessellation: 20 }, scene);
+                corbel.position.set(tx, height - 0.35, tz);
+                corbel.parent = castleRoot;
+                trimMeshes.push(corbel);
+
+                // Conical slate roof
+                const roof = BABYLON.MeshBuilder.CreateCylinder("tRoof", { diameterTop: 0, diameterBottom: radius * 2.52, height: roofH, tessellation: 20 }, scene);
+                roof.position.set(tx, height + roofH * 0.5, tz);
+                roof.parent = castleRoot;
+                roofMeshes.push(roof);
+
+                // Glowing slit windows
+                for (let a = 0; a < 4; a++) {
+                    const ang = a * Math.PI * 0.5 + 0.4;
+                    const win = BABYLON.MeshBuilder.CreateBox("tWin", { width: 0.28, height: 0.85, depth: 0.2 }, scene);
+                    win.position.set(tx + Math.cos(ang) * (radius + 0.02), height * 0.65, tz + Math.sin(ang) * (radius + 0.02));
+                    win.rotation.y = -ang + Math.PI * 0.5;
+                    win.parent = castleRoot;
+                    glowMeshes.push(win);
+                }
+
+                if (hasBanner) {
+                    const pole = BABYLON.MeshBuilder.CreateCylinder("pole", { diameter: 0.1, height: 2.2 }, scene);
+                    pole.position.set(tx, height + roofH + 0.9, tz);
+                    pole.parent = castleRoot;
+                    pole.material = mats.gold;
+
+                    const flag = BABYLON.MeshBuilder.CreatePlane("flag", { width: 1.45, height: 0.65, sideOrientation: BABYLON.Mesh.DOUBLESIDE }, scene);
+                    flag.position.set(tx + 0.72, height + roofH + 1.55, tz);
+                    flag.parent = castleRoot;
+                    flag.material = mats.bannerRed;
+                    wavingBanners.push({ mesh: flag, baseX: tx + 0.72, phase: Math.random() * 6.28 });
+                }
+            }
+
+            // 1. Grand Central Keep
+            const keepW = 6.6, keepH = 10.5, keepD = 6.2;
+            const keep = BABYLON.MeshBuilder.CreateBox("keep", { width: keepW, height: keepH, depth: keepD }, scene);
+            keep.position.set(0, keepH * 0.5, -1.2);
+            keep.parent = castleRoot;
+            stoneMeshes.push(keep);
+            addCrenellations(keepW + 0.3, keepD + 0.3, keepH, new BABYLON.Vector3(0, 0, -1.2));
+
+            // Keep Corner Buttresses
+            for (const bx of [-keepW * 0.5, keepW * 0.5]) {
+                for (const bz of [-1.2 - keepD * 0.5, -1.2 + keepD * 0.5]) {
+                    const butt = BABYLON.MeshBuilder.CreateBox("butt", { width: 0.95, height: keepH + 0.6, depth: 0.95 }, scene);
+                    butt.position.set(bx, (keepH + 0.6) * 0.5, bz);
+                    butt.parent = castleRoot;
+                    trimMeshes.push(butt);
+                }
+            }
+
+            // Keep Pitched Slate Roof & Royal Spire
+            const keepRoof = BABYLON.MeshBuilder.CreateCylinder("keepRoof", { diameterTop: 0.2, diameterBottom: 7.4, height: 4.5, tessellation: 4 }, scene);
+            keepRoof.rotation.y = Math.PI * 0.25;
+            keepRoof.position.set(0, keepH + 2.25, -1.2);
+            keepRoof.parent = castleRoot;
+            roofMeshes.push(keepRoof);
+
+            // Tall Royal Watch Spire attached to Keep
+            addRoundTower(-2.4, -3.2, 1.85, 14.2, 4.4, true);
+
+            // Keep Grand Arched Windows
+            for (const wx of [-1.6, 0, 1.6]) {
+                for (const wy of [4.8, 7.8]) {
+                    const win = BABYLON.MeshBuilder.CreateBox("kWin", { width: 0.65, height: 1.35, depth: 0.25 }, scene);
+                    win.position.set(wx, wy, -1.2 + keepD * 0.5 + 0.02);
+                    win.parent = castleRoot;
+                    glowMeshes.push(win);
+                }
+            }
+
+            // 2. Four Outer Curtain Wall Corner Towers
+            const wallSpan = 7.4;
+            addRoundTower(-wallSpan, -wallSpan, 1.9, 8.2, 3.4, true);
+            addRoundTower( wallSpan, -wallSpan, 1.9, 8.2, 3.4, true);
+            addRoundTower(-wallSpan,  wallSpan, 1.85, 7.6, 3.2, false);
+            addRoundTower( wallSpan,  wallSpan, 1.85, 7.6, 3.2, false);
+
+            // 3. Curtain Walls with Battlements
+            const wallH = 5.2, wallThick = 1.25;
+            // Left, Right, Back walls
+            const backWall = BABYLON.MeshBuilder.CreateBox("backWall", { width: wallSpan * 2, height: wallH, depth: wallThick }, scene);
+            backWall.position.set(0, wallH * 0.5, -wallSpan);
+            backWall.parent = castleRoot;
+            stoneMeshes.push(backWall);
+            addCrenellations(wallSpan * 2 - 2.5, wallThick, wallH, new BABYLON.Vector3(0, 0, -wallSpan));
+
+            for (const sideX of [-wallSpan, wallSpan]) {
+                const sWall = BABYLON.MeshBuilder.CreateBox("sWall", { width: wallThick, height: wallH, depth: wallSpan * 2 }, scene);
+                sWall.position.set(sideX, wallH * 0.5, 0);
+                sWall.parent = castleRoot;
+                stoneMeshes.push(sWall);
+                addCrenellations(wallThick, wallSpan * 2 - 2.5, wallH, new BABYLON.Vector3(sideX, 0, 0));
+            }
+
+            // Front wall flanking the twin-tower Gatehouse
+            for (const fx of [-4.6, 4.6]) {
+                const fWall = BABYLON.MeshBuilder.CreateBox("fWall", { width: 5.2, height: wallH, depth: wallThick }, scene);
+                fWall.position.set(fx, wallH * 0.5, wallSpan);
+                fWall.parent = castleRoot;
+                stoneMeshes.push(fWall);
+            }
+
+            // 4. Twin-Tower Gatehouse & Portcullis Arch
+            addRoundTower(-2.3, wallSpan + 0.4, 1.55, 7.2, 2.9, true);
+            addRoundTower( 2.3, wallSpan + 0.4, 1.55, 7.2, 2.9, true);
+
+            const gateLintel = BABYLON.MeshBuilder.CreateBox("gateLintel", { width: 3.4, height: 2.6, depth: 1.8 }, scene);
+            gateLintel.position.set(0, 4.5, wallSpan + 0.3);
+            gateLintel.parent = castleRoot;
+            stoneMeshes.push(gateLintel);
+            addCrenellations(3.4, 1.8, 5.8, new BABYLON.Vector3(0, 0, wallSpan + 0.3));
+
+            // Dark Gate Interior & Iron Portcullis Grate
+            const gateVoid = BABYLON.MeshBuilder.CreateBox("gateVoid", { width: 2.2, height: 3.2, depth: 1.5 }, scene);
+            gateVoid.position.set(0, 1.6, wallSpan + 0.25);
+            gateVoid.parent = castleRoot;
+            gateVoid.material = mats.iron;
+
+            // Merge Castle Sub-Meshes by Material for High Performance
+            const mergedStone = BABYLON.Mesh.MergeMeshes(stoneMeshes, true, true);
+            mergedStone.name = "castleStoneMerged";
+            mergedStone.material = mats.castleStone;
+            mergedStone.receiveShadows = true;
+            shadowGen.addShadowCaster(mergedStone);
+
+            const mergedTrim = BABYLON.Mesh.MergeMeshes(trimMeshes, true, true);
+            mergedTrim.name = "castleTrimMerged";
+            mergedTrim.material = mats.castleTrim;
+            mergedTrim.receiveShadows = true;
+            shadowGen.addShadowCaster(mergedTrim);
+
+            const mergedRoof = BABYLON.Mesh.MergeMeshes(roofMeshes, true, true);
+            mergedRoof.name = "castleRoofMerged";
+            mergedRoof.material = mats.royalBlue;
+            shadowGen.addShadowCaster(mergedRoof);
+
+            const mergedGlow = BABYLON.Mesh.MergeMeshes(glowMeshes, true, true);
+            mergedGlow.name = "castleWindowsMerged";
+            mergedGlow.material = mats.windowGlow;
+        }
+
+        // ============================================================================
+        // 8. COZY MEDIEVAL VILLAGE, TAVERN, MARKET STALLS & RIVERSIDE WATERMILL
+        // ============================================================================
+        let waterwheelMesh = null;
+        const chimneyLocations = [];
+
+        function buildVillageAndMill() {
+            const woodMeshes = [];
+            const plasterMeshes = [];
+            const stoneBaseMeshes = [];
+            const glowMeshes = [];
+
+            // Helper to build a handcrafted half-timbered medieval house
+            function createHouse(x, z, rotY, w, h, d, roofMat, stories = 1, hasChimney = true) {
+                const y0 = getTerrainHeight(x, z);
+                const root = new BABYLON.TransformNode("house", scene);
+                root.position.set(x, y0, z);
+                root.rotation.y = rotY;
+
+                // Stone foundation
+                const found = BABYLON.MeshBuilder.CreateBox("found", { width: w + 0.25, height: 1.2, depth: d + 0.25 }, scene);
+                found.position.y = 0.25;
+                found.parent = root;
+                stoneBaseMeshes.push(found);
+
+                // First floor timber body
+                const h1 = h * 0.58;
+                const body1 = BABYLON.MeshBuilder.CreateBox("body1", { width: w, height: h1, depth: d }, scene);
+                body1.position.y = 0.85 + h1 * 0.5;
+                body1.parent = root;
+                plasterMeshes.push(body1);
+
+                let topY = 0.85 + h1;
+                let upperW = w, upperD = d;
+
+                // Overhanging second story jetty if 2 stories
+                if (stories > 1) {
+                    upperW = w + 0.38;
+                    upperD = d + 0.38;
+                    const h2 = h * 0.52;
+                    const body2 = BABYLON.MeshBuilder.CreateBox("body2", { width: upperW, height: h2, depth: upperD }, scene);
+                    body2.position.y = topY + h2 * 0.5;
+                    body2.parent = root;
+                    plasterMeshes.push(body2);
+
+                    // Timber jetty beam band
+                    const beam = BABYLON.MeshBuilder.CreateBox("beam", { width: upperW + 0.12, height: 0.24, depth: upperD + 0.12 }, scene);
+                    beam.position.y = topY;
+                    beam.parent = root;
+                    woodMeshes.push(beam);
+                    topY += h2;
+                }
+
+                // Pitched Gable Roof (triangular prism via 3-sided cylinder rotated)
+                const roofH = 1.65 + w * 0.22;
+                const roof = BABYLON.MeshBuilder.CreateCylinder("hRoof", {
+                    diameter: upperW * 1.48,
+                    height: upperD + 0.65,
+                    tessellation: 3
+                }, scene);
+                roof.rotation.z = Math.PI * 0.5;
+                roof.rotation.y = Math.PI * 0.5;
+                roof.scaling.x = (roofH / (upperW * 1.1));
+                roof.position.y = topY + roofH * 0.34;
+                roof.parent = root;
+                roof.material = roofMat;
+                shadowGen.addShadowCaster(roof);
+
+                // Gable timber ridge beam
+                const ridge = BABYLON.MeshBuilder.CreateBox("ridge", { width: 0.22, height: 0.25, depth: upperD + 0.85 }, scene);
+                ridge.position.y = topY + roofH * 0.72;
+                ridge.parent = root;
+                woodMeshes.push(ridge);
+
+                // Wooden Door & Warm Glowing Windows
+                const door = BABYLON.MeshBuilder.CreateBox("door", { width: 0.68, height: 1.25, depth: 0.16 }, scene);
+                door.position.set(0, 1.45, d * 0.5 + 0.04);
+                door.parent = root;
+                woodMeshes.push(door);
+
+                for (const sideX of [-w * 0.28, w * 0.28]) {
+                    const win = BABYLON.MeshBuilder.CreateBox("win", { width: 0.52, height: 0.58, depth: upperD + 0.14 }, scene);
+                    win.position.set(sideX, stories > 1 ? topY - 0.85 : 1.75, 0);
+                    win.parent = root;
+                    glowMeshes.push(win);
+                }
+
+                if (hasChimney) {
+                    const chim = BABYLON.MeshBuilder.CreateBox("chim", { width: 0.62, height: roofH + 1.5, depth: 0.62 }, scene);
+                    chim.position.set(w * 0.32, topY + roofH * 0.35, -d * 0.2);
+                    chim.parent = root;
+                    stoneBaseMeshes.push(chim);
+
+                    // Compute world position for chimney smoke wisp
+                    const cosR = Math.cos(rotY), sinR = Math.sin(rotY);
+                    const lx = w * 0.32, lz = -d * 0.2;
+                    chimneyLocations.push(new BABYLON.Vector3(
+                        x + lx * cosR + lz * sinR,
+                        y0 + topY + roofH + 0.8,
+                        z - lx * sinR + lz * cosR
+                    ));
+                }
+
+                return root;
+            }
+
+            // 1. Place Cozy Village Houses Around the Winding Paths
+            createHouse(10.5, 9.5,  -0.65, 3.4, 3.2, 4.2, mats.terracotta, 2, true);
+            createHouse(16.8, 7.2,  -1.10, 3.2, 2.8, 3.8, mats.ochreRoof,  1, true);
+            createHouse(22.5, 0.5,  -1.65, 3.5, 3.4, 4.4, mats.darkSlate,  2, true);
+            createHouse(23.8, -7.2, -2.15, 3.1, 2.7, 3.7, mats.terracotta, 1, false);
+            createHouse(3.8, -11.5,  0.55, 3.6, 3.3, 4.1, mats.mossRoof,   2, true);
+            createHouse(-3.8, -8.5,  0.85, 3.2, 2.8, 3.8, mats.ochreRoof,  1, true);
+            createHouse(-9.5, -3.2,  0.35, 3.3, 3.1, 4.0, mats.terracotta, 2, false);
+
+            // 2. THE GRAND VILLAGE TAVERN ("The Golden Stag Inn" at (17.5, -2.5))
+            const tavMain = createHouse(17.5, -2.5, -1.35, 4.4, 3.8, 5.8, mats.terracotta, 2, true);
+            const tavWing = createHouse(15.2, -4.6, -1.35 + Math.PI * 0.5, 3.6, 3.3, 4.2, mats.terracotta, 2, false);
+
+            // Hanging Tavern Signboard & Outdoor Barrels / Tables
+            const signPost = BABYLON.MeshBuilder.CreateBox("signPost", { width: 0.16, height: 2.8, depth: 0.16 }, scene);
+            const ty = getTerrainHeight(14.0, -1.2);
+            signPost.position.set(14.0, ty + 1.4, -1.2);
+            woodMeshes.push(signPost);
+
+            const signArm = BABYLON.MeshBuilder.CreateBox("signArm", { width: 1.4, height: 0.14, depth: 0.14 }, scene);
+            signArm.position.set(13.5, ty + 2.65, -1.2);
+            woodMeshes.push(signArm);
+
+            const signBoard = BABYLON.MeshBuilder.CreateBox("signBoard", { width: 0.95, height: 0.72, depth: 0.12 }, scene);
+            signBoard.position.set(13.2, ty + 2.15, -1.2);
+            signBoard.material = mats.gold;
+
+            // Outdoor Tavern Picnic Tables & Ale Barrels
+            for (const [bx, bz] of [[13.2, -3.2], [14.5, -5.2], [15.5, 0.8]]) {
+                const by = getTerrainHeight(bx, bz);
+                const barrel = BABYLON.MeshBuilder.CreateCylinder("barrel", { diameterTop: 0.52, diameterBottom: 0.52, height: 0.72, tessellation: 10 }, scene);
+                barrel.position.set(bx, by + 0.36, bz);
+                woodMeshes.push(barrel);
+            }
+
+            // 3. RIVERSIDE WATERMILL (Nestled right along the river bend at (1.5, 2.2))
+            const mx = 1.2, mz = 2.6;
+            const millRoot = createHouse(mx, mz, -0.78, 3.8, 3.5, 4.8, mats.mossRoof, 2, true);
+
+            // Waterwheel Axle & Rotating Paddle Wheel dipping into the turquoise river
+            const wheelPivot = new BABYLON.TransformNode("wheelPivot", scene);
+            wheelPivot.position.set(mx + 1.65, WATER_Y + 0.65, mz - 1.45);
+            wheelPivot.rotation.y = -0.78;
+            waterwheelMesh = wheelPivot;
+
+            const wheelParts = [];
+            const hub = BABYLON.MeshBuilder.CreateCylinder("hub", { diameter: 0.65, height: 1.4, tessellation: 12 }, scene);
+            hub.rotation.z = Math.PI * 0.5;
+            hub.parent = wheelPivot;
+            wheelParts.push(hub);
+
+            for (const sideX of [-0.42, 0.42]) {
+                const rim = BABYLON.MeshBuilder.CreateTorus("rim", { diameter: 3.6, thickness: 0.18, tessellation: 24 }, scene);
+                rim.rotation.z = Math.PI * 0.5;
+                rim.position.x = sideX;
+                rim.parent = wheelPivot;
+                wheelParts.push(rim);
+            }
+            for (let i = 0; i < 12; i++) {
+                const ang = (i / 12) * Math.PI * 2;
+                const spoke = BABYLON.MeshBuilder.CreateBox("spoke", { width: 0.75, height: 3.5, depth: 0.14 }, scene);
+                spoke.rotation.x = ang;
+                spoke.parent = wheelPivot;
+                wheelParts.push(spoke);
+
+                const paddle = BABYLON.MeshBuilder.CreateBox("paddle", { width: 1.05, height: 0.42, depth: 0.12 }, scene);
+                paddle.position.set(0, Math.cos(ang) * 1.78, Math.sin(ang) * 1.78);
+                paddle.rotation.x = ang;
+                paddle.parent = wheelPivot;
+                wheelParts.push(paddle);
+            }
+            wheelParts.forEach(p => { p.material = mats.darkWood; shadowGen.addShadowCaster(p); });
+
+            // Wooden Riverside Dock next to the Watermill
+            const dockX = 3.2, dockZ = -0.2;
+            for (let p = 0; p < 6; p++) {
+                const plank = BABYLON.MeshBuilder.CreateBox("dockPlank", { width: 2.2, height: 0.14, depth: 0.36 }, scene);
+                plank.position.set(dockX + p * 0.32, WATER_Y + 0.28, dockZ - p * 0.32);
+                plank.rotation.y = -0.78;
+                woodMeshes.push(plank);
+            }
+
+            // 4. MARKET SQUARE STALLS & CENTRAL WELL (Plaza around (7.5, -5.5))
+            const stallConfigs = [
+                { x: 6.2, z: -5.8, rot: 0.4,  mat: mats.stripeRed },
+                { x: 8.8, z: -3.2, rot: -0.9, mat: mats.stripeBlue },
+                { x: 4.5, z: -3.0, rot: 1.1,  mat: mats.stripeGreen },
+                { x: 9.8, z: -7.5, rot: -2.2, mat: mats.stripeGold }
+            ];
+
+            stallConfigs.forEach((sc, idx) => {
+                const sy = getTerrainHeight(sc.x, sc.z);
+                const sRoot = new BABYLON.TransformNode("stall" + idx, scene);
+                sRoot.position.set(sc.x, sy, sc.z);
+                sRoot.rotation.y = sc.rot;
+
+                // Counter table
+                const counter = BABYLON.MeshBuilder.CreateBox("counter", { width: 2.1, height: 0.85, depth: 1.15 }, scene);
+                counter.position.y = 0.42;
+                counter.parent = sRoot;
+                woodMeshes.push(counter);
+
+                // 4 corner posts
+                for (const px of [-0.95, 0.95]) {
+                    for (const pz of [-0.48, 0.48]) {
+                        const post = BABYLON.MeshBuilder.CreateBox("post", { width: 0.12, height: 2.1, depth: 0.12 }, scene);
+                        post.position.set(px, 1.05, pz);
+                        post.parent = sRoot;
+                        woodMeshes.push(post);
+                    }
+                }
+
+                // Slanted Striped Fabric Canopy
+                const canopy = BABYLON.MeshBuilder.CreateBox("canopy", { width: 2.35, height: 0.12, depth: 1.55 }, scene);
+                canopy.position.set(0, 2.08, 0.05);
+                canopy.rotation.x = 0.22;
+                canopy.parent = sRoot;
+                canopy.material = sc.mat;
+                shadowGen.addShadowCaster(canopy);
+
+                // Tiny Crates & Produce on Stall Counter
+                for (const gx of [-0.55, 0, 0.55]) {
+                    const crate = BABYLON.MeshBuilder.CreateBox("crate", { width: 0.42, height: 0.26, depth: 0.42 }, scene);
+                    crate.position.set(gx, 0.96, 0);
+                    crate.parent = sRoot;
+                    woodMeshes.push(crate);
+                }
+            });
+
+            // Central Stone Village Well at (7.2, -5.2)
+            const wx = 7.4, wz = -5.4, wy = getTerrainHeight(wx, wz);
+            const wellWall = BABYLON.MeshBuilder.CreateCylinder("wellWall", { diameter: 1.65, height: 0.95, tessellation: 14 }, scene);
+            wellWall.position.set(wx, wy + 0.45, wz);
+            stoneBaseMeshes.push(wellWall);
+
+            const wellWater = BABYLON.MeshBuilder.CreateDisc("wellWater", { radius: 0.65, tessellation: 12 }, scene);
+            wellWater.rotation.x = Math.PI * 0.5;
+            wellWater.position.set(wx, wy + 0.82, wz);
+            wellWater.material = mats.water;
+
+            for (const px of [-0.68, 0.68]) {
+                const wPost = BABYLON.MeshBuilder.CreateBox("wPost", { width: 0.14, height: 1.8, depth: 0.14 }, scene);
+                wPost.position.set(wx + px, wy + 1.2, wz);
+                woodMeshes.push(wPost);
+            }
+            const wellRoof = BABYLON.MeshBuilder.CreateCylinder("wellRoof", { diameter: 2.1, height: 1.8, tessellation: 3 }, scene);
+            wellRoof.rotation.z = Math.PI * 0.5;
+            wellRoof.position.set(wx, wy + 2.25, wz);
+            wellRoof.material = mats.terracotta;
+
+            // 5. TWO ARCHED WOODEN BRIDGES SPANNING THE TURQUOISE RIVER
+            function createArchedBridge(bx, bz, rotY, spanLen = 7.6, width = 2.4) {
+                const bRoot = new BABYLON.TransformNode("bridge", scene);
+                bRoot.position.set(bx, WATER_Y + 0.15, bz);
+                bRoot.rotation.y = rotY;
+
+                const numPlanks = 16;
+                for (let i = 0; i <= numPlanks; i++) {
+                    const u = (i / numPlanks) - 0.5; // -0.5 to 0.5
+                    const zPos = u * spanLen;
+                    const archY = Math.cos(u * Math.PI) * 1.15;
+                    const tilt = Math.sin(u * Math.PI) * 0.34;
+
+                    const plank = BABYLON.MeshBuilder.CreateBox("bPlank", { width, height: 0.16, depth: (spanLen / numPlanks) * 0.88 }, scene);
+                    plank.position.set(0, archY, zPos);
+                    plank.rotation.x = tilt;
+                    plank.parent = bRoot;
+                    woodMeshes.push(plank);
+
+                    // Bridge Side Posts & Railings
+                    if (i % 3 === 0) {
+                        for (const sx of [-width * 0.46, width * 0.46]) {
+                            const post = BABYLON.MeshBuilder.CreateBox("bPost", { width: 0.16, height: 1.05, depth: 0.16 }, scene);
+                            post.position.set(sx, archY + 0.52, zPos);
+                            post.parent = bRoot;
+                            woodMeshes.push(post);
+
+                            // Warm bridge lantern on center posts
+                            if (i === numPlanks / 2) {
+                                const lant = BABYLON.MeshBuilder.CreateBox("bLant", { width: 0.26, height: 0.34, depth: 0.26 }, scene);
+                                lant.position.set(sx, archY + 1.15, zPos);
+                                lant.parent = bRoot;
+                                glowMeshes.push(lant);
+                            }
+                        }
+                    }
+                }
+
+                // Stone Bridge Abutments on Both Riverbanks
+                for (const endZ of [-spanLen * 0.48, spanLen * 0.48]) {
+                    const pier = BABYLON.MeshBuilder.CreateBox("bPier", { width: width + 0.5, height: 1.8, depth: 1.2 }, scene);
+                    pier.position.set(0, -0.4, endZ);
+                    pier.parent = bRoot;
+                    stoneBaseMeshes.push(pier);
+                }
+            }
+
+            // Main Village Bridge & Lower Tavern Bridge
+            createArchedBridge(11.8, -7.8, Math.PI * 0.24, 7.8, 2.5);
+            createArchedBridge(19.5, -15.5, Math.PI * 0.24, 7.4, 2.2);
+
+            // Merge Village Meshes for Fast Rendering
+            const mWood = BABYLON.Mesh.MergeMeshes(woodMeshes, true, true);
+            mWood.material = mats.darkWood;
+            mWood.receiveShadows = true;
+            shadowGen.addShadowCaster(mWood);
+
+            const mPlaster = BABYLON.Mesh.MergeMeshes(plasterMeshes, true, true);
+            mPlaster.material = mats.timberWall;
+            mPlaster.receiveShadows = true;
+            shadowGen.addShadowCaster(mPlaster);
+
+            const mStone = BABYLON.Mesh.MergeMeshes(stoneBaseMeshes, true, true);
+            mStone.material = mats.castleTrim;
+            mStone.receiveShadows = true;
+            shadowGen.addShadowCaster(mStone);
+
+            const mGlow = BABYLON.Mesh.MergeMeshes(glowMeshes, true, true);
+            mGlow.material = mats.windowGlow;
+
+            // Gentle Chimney Smoke Wisps
+            chimneyLocations.forEach((loc, idx) => {
+                const smokePS = new BABYLON.ParticleSystem("smoke" + idx, 45, scene);
+                smokePS.particleTexture = tex.particle;
+                smokePS.emitter = loc;
+                smokePS.minEmitBox = new BABYLON.Vector3(-0.1, 0, -0.1);
+                smokePS.maxEmitBox = new BABYLON.Vector3(0.1, 0.1, 0.1);
+                smokePS.color1 = new BABYLON.Color4(0.85, 0.85, 0.88, 0.28);
+                smokePS.color2 = new BABYLON.Color4(0.75, 0.78, 0.82, 0.16);
+                smokePS.colorDead = new BABYLON.Color4(0.7, 0.7, 0.75, 0.0);
+                smokePS.minSize = 0.45;
+                smokePS.maxSize = 1.65;
+                smokePS.minLifeTime = 2.4;
+                smokePS.maxLifeTime = 4.2;
+                smokePS.emitRate = 10;
+                smokePS.direction1 = new BABYLON.Vector3(-0.25, 0.9, -0.25);
+                smokePS.direction2 = new BABYLON.Vector3(0.35, 1.4, 0.35);
+                smokePS.start();
+            });
+        }
+
+        // ============================================================================
+        // 9. RUINED WATCHTOWER AT THE CLIFF EDGE
+        // ============================================================================
+        function buildRuinedWatchtower() {
+            const rx = -24.5, rz = -15.5, ry = getTerrainHeight(rx, rz);
+            const ruinParts = [];
+            const mossParts = [];
+
+            const numSegs = 18;
+            const numTiers = 11;
+            const radius = 2.65;
+            const tierH = 0.72;
+
+            // Build cylindrical tower block-by-block so the southwest side crumbles away organically
+            for (let t = 0; t < numTiers; t++) {
+                for (let s = 0; s < numSegs; s++) {
+                    const ang = (s / numSegs) * Math.PI * 2 + (t % 2) * (Math.PI / numSegs);
+                    // Crumble profile: lower intactness on one side, taller jagged peak on the other
+                    const maxTierForAngle = 5.5 + 4.8 * Math.sin(ang + 0.8) + 1.6 * Math.cos(ang * 3.0);
+                    if (t > maxTierForAngle) continue;
+
+                    // Leave arched doorway at bottom facing the village
+                    if (t < 3 && Math.abs(Math.atan2(Math.sin(ang - 0.6), Math.cos(ang - 0.6))) < 0.38) continue;
+
+                    const bx = rx + Math.cos(ang) * radius;
+                    const bz = rz + Math.sin(ang) * radius;
+                    const by = ry + t * tierH + tierH * 0.5;
+
+                    const block = BABYLON.MeshBuilder.CreateBox("rBlock", {
+                        width: (2 * Math.PI * radius) / numSegs * 0.94,
+                        height: tierH * 0.92,
+                        depth: 0.78
+                    }, scene);
+                    block.position.set(bx, by, bz);
+                    block.rotation.y = -ang + Math.PI * 0.5 + (Math.random() - 0.5) * 0.06;
+                    if (Math.random() < 0.25) {
+                        mossParts.push(block);
+                    } else {
+                        ruinParts.push(block);
+                    }
+                }
+            }
+
+            // Broken wooden floor beams inside the ruin
+            for (let b = 0; b < 4; b++) {
+                const beam = BABYLON.MeshBuilder.CreateBox("rBeam", { width: 4.4, height: 0.24, depth: 0.28 }, scene);
+                beam.position.set(rx, ry + 3.2 + b * 0.1, rz + (b - 1.5) * 0.85);
+                beam.rotation.z = (b - 1.5) * 0.14;
+                beam.rotation.y = 0.5;
+                beam.material = mats.darkWood;
+            }
+
+            // Fallen stone rubble blocks scattered around the base & Broken Stone Archway
+            for (let i = 0; i < 24; i++) {
+                const ang = Math.random() * Math.PI * 2;
+                const dist = 2.8 + Math.random() * 3.5;
+                const sx = rx + Math.cos(ang) * dist;
+                const sz = rz + Math.sin(ang) * dist;
+                const sy = getTerrainHeight(sx, sz);
+                const rub = BABYLON.MeshBuilder.CreateBox("rub", {
+                    width: 0.5 + Math.random() * 0.5,
+                    height: 0.4 + Math.random() * 0.4,
+                    depth: 0.5 + Math.random() * 0.5
+                }, scene);
+                rub.position.set(sx, sy + 0.18, sz);
+                rub.rotation.set(Math.random(), Math.random(), Math.random());
+                (i % 3 === 0 ? mossParts : ruinParts).push(rub);
+            }
+
+            // Glowing Watchfire Brazier atop the highest intact parapet
+            const brazierX = rx + Math.cos(0.75) * 1.9;
+            const brazierZ = rz + Math.sin(0.75) * 1.9;
+            const brazierY = ry + 4.2;
+            const brazierBowl = BABYLON.MeshBuilder.CreateCylinder("brazier", { diameterTop: 0.85, diameterBottom: 0.4, height: 0.65, tessellation: 10 }, scene);
+            brazierBowl.position.set(brazierX, brazierY, brazierZ);
+            brazierBowl.material = mats.iron;
+
+            const fireEmber = BABYLON.MeshBuilder.CreateSphere("ember", { diameter: 0.65, segments: 8 }, scene);
+            fireEmber.position.set(brazierX, brazierY + 0.35, brazierZ);
+            fireEmber.material = mats.windowGlow;
+
+            const firePS = new BABYLON.ParticleSystem("watchFire", 60, scene);
+            firePS.particleTexture = tex.particle;
+            firePS.emitter = new BABYLON.Vector3(brazierX, brazierY + 0.45, brazierZ);
+            firePS.minEmitBox = new BABYLON.Vector3(-0.2, 0, -0.2);
+            firePS.maxEmitBox = new BABYLON.Vector3(0.2, 0.2, 0.2);
+            firePS.color1 = new BABYLON.Color4(1.0, 0.78, 0.22, 0.9);
+            firePS.color2 = new BABYLON.Color4(1.0, 0.32, 0.08, 0.75);
+            firePS.colorDead = new BABYLON.Color4(0.2, 0.1, 0.05, 0.0);
+            firePS.minSize = 0.25;
+            firePS.maxSize = 0.72;
+            firePS.minLifeTime = 0.35;
+            firePS.maxLifeTime = 0.85;
+            firePS.emitRate = 45;
+            firePS.blendMode = BABYLON.ParticleSystem.BLENDMODE_ONEONE;
+            firePS.direction1 = new BABYLON.Vector3(-0.2, 1.4, -0.2);
+            firePS.direction2 = new BABYLON.Vector3(0.2, 2.4, 0.2);
+            firePS.start();
+
+            const mRuin = BABYLON.Mesh.MergeMeshes(ruinParts, true, true);
+            mRuin.material = mats.castleStone;
+            mRuin.receiveShadows = true;
+            shadowGen.addShadowCaster(mRuin);
+
+            const mMoss = BABYLON.Mesh.MergeMeshes(mossParts, true, true);
+            mMoss.material = mats.mossRock;
+            mMoss.receiveShadows = true;
+            shadowGen.addShadowCaster(mMoss);
+        }
+
+        // ============================================================================
+        // 10. LUSH PINE TREES, DECIDUOUS TREES, COBBLESTONE PATHS & DETAILS
+        // ============================================================================
+        function buildFoliageAndDetails() {
+            const trunks = [];
+            const pineDarkList = [];
+            const pineMidList = [];
+            const pineBrightList = [];
+            const leafGreenList = [];
+            const leafAutumnList = [];
+            const leafBlossomList = [];
+            const cobbleList = [];
+            const rockList = [];
+            const lanternPosts = [];
+            const lanternGlows = [];
+
+            // 1. Cobblestone Stepping Paths & Lanterns
+            const pathSegments = [
+                // Castle gate ramp down to village square
+                { ax: -4.5, az: 7.2, bx: 2.5, bz: 1.5, count: 16 },
+                // Village square to Main Bridge
+                { ax: 2.5, az: 1.5, bx: 11.8, bz: -7.8, count: 18 },
+                // Main Bridge to Tavern & Upper Village
+                { ax: 11.8, az: -7.8, bx: 15.5, bz: 3.5, count: 16 },
+                // Main Bridge to Lower Bridge
+                { ax: 11.8, az: -7.8, bx: 19.5, bz: -15.5, count: 14 },
+                // Path out to Ruined Watchtower
+                { ax: 3.5, az: -3.5, bx: -21.5, bz: -14.2, count: 32 }
+            ];
+
+            pathSegments.forEach(seg => {
+                for (let i = 0; i <= seg.count; i++) {
+                    const t = i / seg.count;
+                    const px = lerp(seg.ax, seg.bx, t) + (Math.random() - 0.5) * 0.45;
+                    const pz = lerp(seg.az, seg.bz, t) + (Math.random() - 0.5) * 0.45;
+                    const riv = getRiverInfo(px, pz);
+                    if (riv.dist < riv.width + 0.5) continue; // Don't place cobbles in water
+
+                    const py = getTerrainHeight(px, pz);
+                    const stone = BABYLON.MeshBuilder.CreateCylinder("cobble", {
+                        diameterTop: 0.72 + Math.random() * 0.45,
+                        diameterBottom: 0.85 + Math.random() * 0.45,
+                        height: 0.22,
+                        tessellation: 7
+                    }, scene);
+                    stone.position.set(px, py + 0.03, pz);
+                    stone.rotation.y = Math.random() * Math.PI;
+                    cobbleList.push(stone);
+                }
+            });
+
+            // Warm Village Street Lanterns along paths
+            const lanternCoords = [
+                [0.8, 3.8], [6.5, -1.8], [9.2, -5.2], [14.2, -5.8],
+                [13.8, 1.5], [18.5, -11.5], [-4.5, -6.2], [-14.5, -11.2]
+            ];
+            lanternCoords.forEach(([lx, lz]) => {
+                const ly = getTerrainHeight(lx, lz);
+                const post = BABYLON.MeshBuilder.CreateBox("lPost", { width: 0.15, height: 2.1, depth: 0.15 }, scene);
+                post.position.set(lx, ly + 1.05, lz);
+                lanternPosts.push(post);
+
+                const arm = BABYLON.MeshBuilder.CreateBox("lArm", { width: 0.5, height: 0.12, depth: 0.12 }, scene);
+                arm.position.set(lx + 0.18, ly + 2.02, lz);
+                lanternPosts.push(arm);
+
+                const lamp = BABYLON.MeshBuilder.CreateBox("lGlow", { width: 0.26, height: 0.34, depth: 0.26 }, scene);
+                lamp.position.set(lx + 0.35, ly + 1.8, lz);
+                lanternGlows.push(lamp);
+            });
+
+            // 2. Stylized Multi-Tiered Pine Tree Generator
+            function addPineTree(x, z, scale = 1.0) {
+                const y = getTerrainHeight(x, z);
+                const trunkH = 1.5 * scale;
+                const trunk = BABYLON.MeshBuilder.CreateCylinder("pTrunk", {
+                    diameterTop: 0.22 * scale,
+                    diameterBottom: 0.42 * scale,
+                    height: trunkH,
+                    tessellation: 7
+                }, scene);
+                trunk.position.set(x, y + trunkH * 0.45, z);
+                trunks.push(trunk);
+
+                const tiers = 4;
+                for (let t = 0; t < tiers; t++) {
+                    const tf = t / (tiers - 1);
+                    const coneR = lerp(1.45, 0.58, tf) * scale;
+                    const coneH = lerp(1.75, 1.25, tf) * scale;
+                    const cone = BABYLON.MeshBuilder.CreateCylinder("pCone", {
+                        diameterTop: 0.04,
+                        diameterBottom: coneR * 2,
+                        height: coneH,
+                        tessellation: 8
+                    }, scene);
+                    cone.position.set(
+                        x + (Math.random() - 0.5) * 0.08,
+                        y + trunkH * 0.75 + t * (0.92 * scale) + coneH * 0.4,
+                        z + (Math.random() - 0.5) * 0.08
+                    );
+                    cone.rotation.y = t * 0.6 + Math.random();
+                    cone.rotation.z = (Math.random() - 0.5) * 0.07;
+
+                    if (t === 0) pineDarkList.push(cone);
+                    else if (t < 3) pineMidList.push(cone);
+                    else pineBrightList.push(cone);
+                }
+            }
+
+            // 3. Fluffy Stylized Deciduous Tree Generator
+            function addDeciduousTree(x, z, scale = 1.0, style = "green") {
+                const y = getTerrainHeight(x, z);
+                const trunkH = 1.7 * scale;
+                const trunk = BABYLON.MeshBuilder.CreateCylinder("dTrunk", {
+                    diameterTop: 0.25 * scale,
+                    diameterBottom: 0.46 * scale,
+                    height: trunkH,
+                    tessellation: 7
+                }, scene);
+                trunk.position.set(x, y + trunkH * 0.45, z);
+                trunks.push(trunk);
+
+                const targetList = style === "autumn" ? leafAutumnList : (style === "blossom" ? leafBlossomList : leafGreenList);
+                const puffs = [
+                    [0, trunkH + 0.85 * scale, 0, 1.95 * scale],
+                    [0.65 * scale, trunkH + 0.55 * scale, 0.4 * scale, 1.45 * scale],
+                    [-0.6 * scale, trunkH + 0.6 * scale, -0.45 * scale, 1.5 * scale],
+                    [0.2 * scale, trunkH + 1.35 * scale, -0.3 * scale, 1.35 * scale]
+                ];
+                puffs.forEach(([ox, oy, oz, diam]) => {
+                    const puff = BABYLON.MeshBuilder.CreateSphere("puff", { diameter: diam, segments: 5 }, scene);
+                    puff.position.set(x + ox, y + oy, z + oz);
+                    puff.convertToFlatShadedMesh();
+                    targetList.push(puff);
+                });
+            }
+
+            // Exclusion check so trees never spawn inside buildings, castle, or river
+            const buildingCentroids = [
+                { x: -11.5, z: 11.5, r: 12.2 }, // Castle
+                { x: -24.5, z: -15.5, r: 4.8 }, // Ruined Watchtower
+                { x: 10.5, z: 9.5, r: 3.6 },
+                { x: 16.8, z: 7.2, r: 3.4 },
+                { x: 22.5, z: 0.5, r: 3.8 },
+                { x: 23.8, z: -7.2, r: 3.4 },
+                { x: 3.8, z: -11.5, r: 3.8 },
+                { x: -3.8, z: -8.5, r: 3.5 },
+                { x: -9.5, z: -3.2, r: 3.5 },
+                { x: 16.5, z: -3.5, r: 5.5 },   // Tavern
+                { x: 1.2, z: 2.6, r: 4.2 },     // Watermill
+                { x: 7.4, z: -5.4, r: 5.2 }     // Market Plaza
+            ];
+
+            function isClearSpot(x, z, minRiverDist = 3.8) {
+                const ang = Math.atan2(z, x);
+                const maxR = getIslandOuterRadius(ang);
+                if (Math.hypot(x, z) > maxR - 2.2) return false;
+                const riv = getRiverInfo(x, z);
+                if (riv.dist < riv.width + minRiverDist) return false;
+                for (const b of buildingCentroids) {
+                    if (Math.hypot(x - b.x, z - b.z) < b.r) return false;
+                }
+                return true;
+            }
+
+            // Curated Forest Groves + Procedural Scatter
+            let tSeed = 404;
+            const sRand = () => { tSeed = (tSeed * 16807) % 2147483647; return (tSeed - 1) / 2147483646; };
+
+            for (let i = 0; i < 240; i++) {
+                const r = 6.0 + Math.sqrt(sRand()) * 31.0;
+                const ang = sRand() * Math.PI * 2;
+                const tx = Math.cos(ang) * r;
+                const tz = Math.sin(ang) * r;
+
+                if (!isClearSpot(tx, tz, 1.5)) continue;
+                const ty = getTerrainHeight(tx, tz);
+                if (ty > 14.5) continue; // Keep highest snow crag clear
+
+                // Ensure minimum spacing from existing trunks
+                let tooClose = false;
+                for (const tr of trunks) {
+                    if (Math.hypot(tx - tr.position.x, tz - tr.position.z) < 2.2) {
+                        tooClose = true; break;
+                    }
+                }
+                if (tooClose) continue;
+
+                const scale = 0.72 + sRand() * 0.58;
+                // Pines dominate the western highlands & castle cliffs; deciduous accents in the village
+                if (tx < 2.0 || tz > 12.0 || sRand() < 0.68) {
+                    addPineTree(tx, tz, scale);
+                } else {
+                    const roll = sRand();
+                    const style = roll < 0.55 ? "green" : (roll < 0.82 ? "autumn" : "blossom");
+                    addDeciduousTree(tx, tz, scale * 0.92, style);
+                }
+            }
+
+            // 4. Boulders along Riverbanks, Cliffs & Castle Crags
+            for (let i = 0; i < 85; i++) {
+                const r = 5.0 + sRand() * 32.0;
+                const ang = sRand() * Math.PI * 2;
+                const rx = Math.cos(ang) * r;
+                const rz = Math.sin(ang) * r;
+                if (!isClearSpot(rx, rz, -0.4)) continue;
+
+                const ry = getTerrainHeight(rx, rz);
+                const rock = BABYLON.MeshBuilder.CreatePolyhedron("boulder", {
+                    type: i % 3,
+                    size: 0.35 + sRand() * 0.65
+                }, scene);
+                rock.position.set(rx, ry + 0.15, rz);
+                rock.scaling.set(1.0 + sRand() * 0.6, 0.65 + sRand() * 0.5, 1.0 + sRand() * 0.6);
+                rock.rotation.set(sRand() * 3, sRand() * 3, sRand() * 3);
+                rock.convertToFlatShadedMesh();
+                rockList.push(rock);
+            }
+
+            // Merge All Nature & Detail Batches
+            function mergeBatch(list, mat, castShadow = true) {
+                if (!list.length) return;
+                const m = BABYLON.Mesh.MergeMeshes(list, true, true);
+                m.material = mat;
+                m.receiveShadows = true;
+                if (castShadow) shadowGen.addShadowCaster(m);
+            }
+
+            mergeBatch(trunks, mats.darkWood, true);
+            mergeBatch(pineDarkList, mats.pineDark, true);
+            mergeBatch(pineMidList, mats.pineMid, true);
+            mergeBatch(pineBrightList, mats.pineBright, true);
+            mergeBatch(leafGreenList, mats.leafGreen, true);
+            mergeBatch(leafAutumnList, mats.leafAutumn, true);
+            mergeBatch(leafBlossomList, mats.leafBlossom, true);
+            mergeBatch(cobbleList, mats.cobble, false);
+            mergeBatch(rockList, mats.rockGrey, true);
+            mergeBatch(lanternPosts, mats.iron, true);
+            mergeBatch(lanternGlows, mats.windowGlow, false);
+        }
+
+        // ============================================================================
+        // 11. FLOATING SATELLITE ROCK SHARDS, CLOUDS, BIRDS & TURNTABLE RING
+        // ============================================================================
+        const floatingSatellites = [];
+        const driftingClouds = [];
+        const birdFlock = [];
+
+        function buildAtmosphereAndSatellites() {
+            // 1. Smaller Floating Satellite Rock Islands with Mini Pines
+            const satConfigs = [
+                { x: -42, y: -4,  z: 18,  scale: 3.4, hasPine: true },
+                { x: 43,  y: -11, z: -26, scale: 2.8, hasPine: true },
+                { x: -34, y: -15, z: -34, scale: 2.5, hasPine: false },
+                { x: 26,  y: -22, z: 32,  scale: 3.1, hasPine: true },
+                { x: -8,  y: -31, z: -40, scale: 2.1, hasPine: false },
+                { x: 35,  y: -26, z: -18, scale: 1.8, hasPine: false }
+            ];
+
+            satConfigs.forEach((sc, idx) => {
+                const root = new BABYLON.TransformNode("sat" + idx, scene);
+                root.position.set(sc.x, sc.y, sc.z);
+
+                const shard = BABYLON.MeshBuilder.CreateCylinder("shard", {
+                    diameterTop: sc.scale * 2.2,
+                    diameterBottom: 0.15,
+                    height: sc.scale * 2.8,
+                    tessellation: 7
+                }, scene);
+                shard.convertToFlatShadedMesh();
+                shard.material = mats.rockGrey;
+                shard.parent = root;
+
+                const cap = BABYLON.MeshBuilder.CreateCylinder("cap", {
+                    diameterTop: sc.scale * 1.9,
+                    diameterBottom: sc.scale * 2.25,
+                    height: sc.scale * 0.45,
+                    tessellation: 7
+                }, scene);
+                cap.position.y = sc.scale * 1.45;
+                cap.convertToFlatShadedMesh();
+                cap.material = mats.pineMid;
+                cap.parent = root;
+
+                if (sc.hasPine) {
+                    const miniCone = BABYLON.MeshBuilder.CreateCylinder("miniPine", {
+                        diameterTop: 0,
+                        diameterBottom: sc.scale * 0.95,
+                        height: sc.scale * 1.6,
+                        tessellation: 7
+                    }, scene);
+                    miniCone.position.y = sc.scale * 2.3;
+                    miniCone.material = mats.pineBright;
+                    miniCone.parent = root;
+                }
+
+                floatingSatellites.push({ node: root, baseY: sc.y, phase: idx * 1.35, speed: 0.8 + (idx % 3) * 0.25 });
+            });
+
+            // 2. Stylized Fluffy Low-Hanging Clouds Drifting Around the Underbelly
+            const cloudConfigs = [
+                { x: 34,  y: -18, z: -28, scale: 1.45 }, // Waterfall mist cloud
+                { x: 26,  y: -29, z: -22, scale: 1.75 }, // Deep waterfall pool cloud
+                { x: -38, y: -12, z: 4,   scale: 1.35 },
+                { x: 8,   y: -24, z: 38,  scale: 1.50 },
+                { x: -22, y: -28, z: -35, scale: 1.30 },
+                { x: 42,  y: -6,  z: 14,  scale: 1.25 }
+            ];
+
+            cloudConfigs.forEach((cc, idx) => {
+                const cNode = new BABYLON.TransformNode("cloud" + idx, scene);
+                cNode.position.set(cc.x, cc.y, cc.z);
+                const puffs = [];
+                const offsets = [
+                    [0, 0, 0, 5.2], [3.2, -0.4, 0.8, 3.8], [-3.1, -0.5, -0.6, 4.0],
+                    [1.4, 1.1, -1.2, 3.5], [-1.2, 0.8, 1.4, 3.3]
+                ];
+                offsets.forEach(([ox, oy, oz, d]) => {
+                    const s = BABYLON.MeshBuilder.CreateSphere("cPuff", { diameter: d * cc.scale, segments: 6 }, scene);
+                    s.position.set(ox * cc.scale, oy * cc.scale, oz * cc.scale);
+                    s.scaling.y = 0.62;
+                    s.convertToFlatShadedMesh();
+                    puffs.push(s);
+                });
+                const mergedCloud = BABYLON.Mesh.MergeMeshes(puffs, true, true);
+                mergedCloud.material = mats.cloud;
+                mergedCloud.parent = cNode;
+                driftingClouds.push({
+                    node: cNode,
+                    angle: Math.atan2(cc.z, cc.x),
+                    radius: Math.hypot(cc.x, cc.z),
+                    baseY: cc.y,
+                    speed: 0.025 + (idx % 3) * 0.008,
+                    phase: idx * 2.1
+                });
+            });
+
+            // 3. Circling Flock of Stylized Birds Above the Castle Spires
+            for (let b = 0; b < 9; b++) {
+                const birdRoot = new BABYLON.TransformNode("bird" + b, scene);
+                const wingL = BABYLON.MeshBuilder.CreateBox("wL", { width: 0.48, height: 0.05, depth: 0.18 }, scene);
+                wingL.position.x = -0.22;
+                wingL.parent = birdRoot;
+                wingL.material = mats.warmPlaster;
+
+                const wingR = BABYLON.MeshBuilder.CreateBox("wR", { width: 0.48, height: 0.05, depth: 0.18 }, scene);
+                wingR.position.x = 0.22;
+                wingR.parent = birdRoot;
+                wingR.material = mats.warmPlaster;
+
+                birdFlock.push({
+                    root: birdRoot,
+                    wingL,
+                    wingR,
+                    angle: (b / 9) * Math.PI * 2,
+                    radius: 14 + (b % 3) * 3.5,
+                    height: 23.5 + (b % 4) * 1.4,
+                    speed: 0.32 + (b % 3) * 0.04,
+                    flapPhase: b * 0.9
+                });
+            }
+
+            // 4. Subtle Tabletop Miniature Brass Compass Ring Below the Island
+            const brassRing = BABYLON.MeshBuilder.CreateTorus("brassRing", {
+                diameter: 76,
+                thickness: 0.45,
+                tessellation: 96
+            }, scene);
+            brassRing.position.y = -39.5;
+            brassRing.scaling.y = 0.35;
+            brassRing.material = mats.gold;
+
+            const innerRing = BABYLON.MeshBuilder.CreateTorus("innerRing", {
+                diameter: 72.5,
+                thickness: 0.22,
+                tessellation: 96
+            }, scene);
+            innerRing.position.y = -39.5;
+            innerRing.scaling.y = 0.35;
+            innerRing.material = mats.gold;
+        }
+
+        // ============================================================================
+        // 12. POST-PROCESSING PIPELINE (TABLETOP MINIATURE BLOOM & TONE MAPPING)
+        // ============================================================================
+        function setupPostProcessing() {
+            const pipeline = new BABYLON.DefaultRenderingPipeline("dioramaPipeline", true, scene, [camera]);
+            pipeline.samples = 4;
+            pipeline.fxaaEnabled = true;
+
+            // Subtle warm bloom on glowing windows, lanterns & sunlit water
+            pipeline.bloomEnabled = true;
+            pipeline.bloomThreshold = 0.72;
+            pipeline.bloomWeight = 0.35;
+            pipeline.bloomKernel = 64;
+            pipeline.bloomScale = 0.5;
+
+            // Handcrafted miniature color grading & vignette
+            pipeline.imageProcessingEnabled = true;
+            pipeline.imageProcessing.contrast = 1.16;
+            pipeline.imageProcessing.exposure = 1.05;
+            pipeline.imageProcessing.toneMappingEnabled = true;
+            pipeline.imageProcessing.toneMappingType = BABYLON.ImageProcessingConfiguration.TONEMAPPING_ACES;
+            pipeline.imageProcessing.vignetteEnabled = true;
+            pipeline.imageProcessing.vignetteWeight = 1.65;
+            pipeline.imageProcessing.vignetteColor = new BABYLON.Color4(0.05, 0.07, 0.12, 1.0);
+        }
+
+        // ============================================================================
+        // 13. BUILD ALL DIORAMA LAYERS
+        // ============================================================================
+        buildFloatingIsland();
+        buildWaterSystem();
+        buildCastle();
+        buildVillageAndMill();
+        buildRuinedWatchtower();
+        buildFoliageAndDetails();
+        buildAtmosphereAndSatellites();
+        setupPostProcessing();
+
+        // Hide Loading Screen Once Ready
+        scene.executeWhenReady(() => {
+            const loader = document.getElementById("loadingOverlay");
+            loader.style.opacity = "0";
+            setTimeout(() => loader.remove(), 650);
+        });
+
+        // ============================================================================
+        // 14. INTERACTIVE CAMERA BOOKMARKS, MOODS & ANIMATION LOOP
+        // ============================================================================
+        let autoRotate = true;
+        let userInteracting = false;
+
+        scene.onPointerObservable.add((pointerInfo) => {
+            if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERDOWN) {
+                userInteracting = true;
+            } else if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERUP) {
+                userInteracting = false;
+            }
+        });
+
+        const camPresets = {
+            overview: { alpha: -Math.PI * 0.32, beta: Math.PI * 0.33, radius: 88, target: new BABYLON.Vector3(0, 3.5, 0) },
+            castle:   { alpha: -Math.PI * 0.18, beta: Math.PI * 0.34, radius: 38, target: new BABYLON.Vector3(-11.5, 14.5, 11.5) },
+            village:  { alpha: -Math.PI * 0.38, beta: Math.PI * 0.33, radius: 34, target: new BABYLON.Vector3(11.5, 4.2, -3.5) },
+            mill:     { alpha: -Math.PI * 0.24, beta: Math.PI * 0.36, radius: 38, target: new BABYLON.Vector3(14.0, 2.2, -11.0) },
+            ruins:    { alpha: -Math.PI * 0.72, beta: Math.PI * 0.35, radius: 32, target: new BABYLON.Vector3(-24.5, 8.2, -15.5) }
+        };
+
+        function flyToCameraPreset(key) {
+            const p = camPresets[key];
+            if (!p) return;
+            const fps = 60, frames = 55;
+            const ease = new BABYLON.CubicEase();
+            ease.setEasingMode(BABYLON.EasingFunction.EASINGMODE_EASEINOUT);
+
+            BABYLON.Animation.CreateAndStartAnimation("camAlpha", camera, "alpha", fps, frames, camera.alpha, p.alpha, 0, ease);
+            BABYLON.Animation.CreateAndStartAnimation("camBeta", camera, "beta", fps, frames, camera.beta, p.beta, 0, ease);
+            BABYLON.Animation.CreateAndStartAnimation("camRadius", camera, "radius", fps, frames, camera.radius, p.radius, 0, ease);
+            BABYLON.Animation.CreateAndStartAnimation("camTarget", camera, "target", fps, frames, camera.target.clone(), p.target.clone(), 0, ease);
+        }
+
+        document.querySelectorAll("#camGroup .btn").forEach(btn => {
+            btn.addEventListener("click", () => {
+                document.querySelectorAll("#camGroup .btn").forEach(b => b.classList.remove("active"));
+                btn.classList.add("active");
+                flyToCameraPreset(btn.dataset.cam);
+            });
+        });
+
+        // Lighting Mood Switcher (Sunlit Day, Golden Hour, Cozy Night)
+        const moods = {
+            day: {
+                bg: new BABYLON.Color4(0.11, 0.14, 0.22, 1.0),
+                hemiDiff: new BABYLON.Color3(0.86, 0.92, 1.0),
+                hemiGround: new BABYLON.Color3(0.28, 0.25, 0.34),
+                hemiInt: 0.72,
+                sunDir: new BABYLON.Vector3(-0.62, -0.82, -0.45).normalize(),
+                sunDiff: new BABYLON.Color3(1.0, 0.95, 0.84),
+                sunInt: 2.15,
+                warmInt: 0.65,
+                winEmissive: new BABYLON.Color3(0.95, 0.65, 0.22)
+            },
+            sunset: {
+                bg: new BABYLON.Color4(0.16, 0.10, 0.18, 1.0),
+                hemiDiff: new BABYLON.Color3(0.98, 0.68, 0.56),
+                hemiGround: new BABYLON.Color3(0.26, 0.16, 0.28),
+                hemiInt: 0.62,
+                sunDir: new BABYLON.Vector3(-0.84, -0.42, -0.35).normalize(),
+                sunDiff: new BABYLON.Color3(1.0, 0.62, 0.32),
+                sunInt: 2.45,
+                warmInt: 1.55,
+                winEmissive: new BABYLON.Color3(1.0, 0.74, 0.28)
+            },
+            night: {
+                bg: new BABYLON.Color4(0.04, 0.06, 0.12, 1.0),
+                hemiDiff: new BABYLON.Color3(0.32, 0.45, 0.75),
+                hemiGround: new BABYLON.Color3(0.10, 0.12, 0.22),
+                hemiInt: 0.42,
+                sunDir: new BABYLON.Vector3(0.55, -0.78, 0.32).normalize(),
+                sunDiff: new BABYLON.Color3(0.45, 0.62, 0.95),
+                sunInt: 0.85,
+                warmInt: 2.75,
+                winEmissive: new BABYLON.Color3(1.0, 0.82, 0.36)
+            }
+        };
+
+        document.querySelectorAll("#moodGroup .btn").forEach(btn => {
+            btn.addEventListener("click", () => {
+                document.querySelectorAll("#moodGroup .btn").forEach(b => b.classList.remove("active"));
+                btn.classList.add("active");
+                const m = moods[btn.dataset.mood];
+                if (!m) return;
+                scene.clearColor = m.bg;
+                hemiLight.diffuse = m.hemiDiff;
+                hemiLight.groundColor = m.hemiGround;
+                hemiLight.intensity = m.hemiInt;
+                sunLight.direction = m.sunDir;
+                sunLight.diffuse = m.sunDiff;
+                sunLight.intensity = m.sunInt;
+                villageWarmLight.intensity = m.warmInt;
+                mats.windowGlow.emissiveColor = m.winEmissive;
+            });
+        });
+
+        const btnSpin = document.getElementById("btnSpin");
+        btnSpin.addEventListener("click", () => {
+            autoRotate = !autoRotate;
+            btnSpin.classList.toggle("active", autoRotate);
+            btnSpin.textContent = autoRotate ? "Turntable: ON" : "Turntable: OFF";
+        });
+
+        // Main Animation Loop
+        let elapsed = 0;
+        scene.registerBeforeRender(() => {
+            const dt = engine.getDeltaTime() * 0.001;
+            elapsed += dt;
+
+            // 1. Gentle Turntable Orbit
+            if (autoRotate && !userInteracting) {
+                camera.alpha += dt * 0.095;
+            }
+
+            // 2. Scroll Turquoise River & Waterfall Textures
+            tex.water.vOffset -= dt * 0.65;
+            tex.water.uOffset = Math.sin(elapsed * 1.4) * 0.04;
+
+            // 3. Rotate the Riverside Watermill Wheel
+            if (waterwheelMesh) {
+                waterwheelMesh.rotation.x += dt * 1.15;
+            }
+
+            // 4. Flutter Castle Banners in the Wind
+            for (const b of wavingBanners) {
+                b.mesh.rotation.y = Math.sin(elapsed * 4.5 + b.phase) * 0.18;
+            }
+
+            // 5. Bob Floating Satellite Rock Shards
+            for (const sat of floatingSatellites) {
+                sat.node.position.y = sat.baseY + Math.sin(elapsed * sat.speed + sat.phase) * 0.65;
+                sat.node.rotation.y += dt * 0.06;
+            }
+
+            // 6. Drift Fluffy Low Clouds Around the Island Underbelly
+            for (const cl of driftingClouds) {
+                cl.angle += dt * cl.speed;
+                cl.node.position.x = Math.cos(cl.angle) * cl.radius;
+                cl.node.position.z = Math.sin(cl.angle) * cl.radius;
+                cl.node.position.y = cl.baseY + Math.sin(elapsed * 0.7 + cl.phase) * 0.55;
+                cl.node.rotation.y = -cl.angle;
+            }
+
+            // 7. Soaring Birds High Above the Royal Keep
+            for (const bird of birdFlock) {
+                bird.angle += dt * bird.speed;
+                const bx = -11.5 + Math.cos(bird.angle) * bird.radius;
+                const bz = 11.5 + Math.sin(bird.angle) * bird.radius;
+                const by = bird.height + Math.sin(elapsed * 1.8 + bird.flapPhase) * 0.6;
+                bird.root.position.set(bx, by, bz);
+                bird.root.rotation.y = -bird.angle;
+                const flap = Math.sin(elapsed * 9.5 + bird.flapPhase) * 0.45;
+                bird.wingL.rotation.z = flap;
+                bird.wingR.rotation.z = -flap;
+            }
+        });
+
+        engine.runRenderLoop(() => {
+            scene.render();
+        });
+
+        window.addEventListener("resize", () => {
+            engine.resize();
+        });
+    })();
+    </script>
+</body>
+</html>

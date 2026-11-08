@@ -1,0 +1,1488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Highkeep — A Floating Fief · Babylon.js Diorama</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.babylonjs.com/babylon.js"></script>
+<style>
+  :root{
+    --void:#14100C;
+    --void-2:#241A12;
+    --ink:#F4EADA;
+    --dim:#B9A992;
+    --gold:#E7B24C;
+    --turq:#3FD3C6;
+    --rule:rgba(231,178,76,.28);
+    --rule-soft:rgba(244,234,218,.14);
+    --mono:"JetBrains Mono", ui-monospace, monospace;
+    --disp:"Cinzel", "Times New Roman", serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:var(--void);
+    color:var(--ink);
+    font-family:var(--mono);
+    overflow:hidden;
+    -webkit-font-smoothing:antialiased;
+  }
+  #scene{
+    position:fixed; inset:0;
+    width:100vw; height:100vh;
+    display:block;
+    touch-action:none;
+    outline:none;
+  }
+  /* warm lamp falloff + case grain */
+  .lamp{
+    position:fixed; inset:0; pointer-events:none; z-index:2;
+    background:
+      radial-gradient(120% 90% at 72% 18%, rgba(231,178,76,.16), rgba(231,178,76,0) 55%),
+      radial-gradient(140% 120% at 20% 110%, rgba(20,16,12,.86), rgba(20,16,12,0) 62%);
+    mix-blend-mode:screen;
+  }
+  .grain{
+    position:fixed; inset:0; pointer-events:none; z-index:3; opacity:.16;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='.55'/%3E%3C/svg%3E");
+    mix-blend-mode:overlay;
+  }
+  .case{
+    position:fixed; inset:14px; z-index:4; pointer-events:none;
+    border:1px solid var(--rule-soft);
+    box-shadow:inset 0 0 120px rgba(0,0,0,.55);
+  }
+  .ui{position:fixed; inset:0; z-index:6; pointer-events:none}
+  .ui button, .ui a{pointer-events:auto}
+
+  /* ---------- catalogue header ---------- */
+  .topbar{
+    position:absolute; top:0; left:0; right:0;
+    padding:30px 40px 14px;
+    display:flex; align-items:flex-start; justify-content:space-between; gap:24px;
+    border-bottom:1px solid var(--rule-soft);
+  }
+  .wordmark{
+    font-family:var(--disp); font-weight:700;
+    letter-spacing:.34em; font-size:13px; color:var(--ink);
+    text-transform:uppercase; white-space:nowrap;
+  }
+  .wordmark i{color:var(--gold); font-style:normal; padding:0 .5em; letter-spacing:0}
+  .meta{
+    font-size:9.5px; letter-spacing:.22em; text-transform:uppercase;
+    color:var(--dim); font-weight:300; text-align:center; line-height:1.9;
+    flex:1 1 auto;
+  }
+  .meta b{color:var(--gold); font-weight:500}
+  .readout{
+    font-size:9.5px; letter-spacing:.2em; text-transform:uppercase;
+    color:var(--dim); text-align:right; line-height:1.9; white-space:nowrap;
+    font-variant-numeric:tabular-nums;
+  }
+  .readout .v{color:var(--turq); font-weight:500}
+
+  /* ---------- left index rail ---------- */
+  .rail{
+    position:absolute; left:40px; top:120px; width:296px;
+    display:flex; flex-direction:column;
+  }
+  .rail-head{
+    font-size:9px; letter-spacing:.32em; text-transform:uppercase;
+    color:var(--dim); padding-bottom:12px; border-bottom:1px solid var(--rule);
+    margin-bottom:4px;
+  }
+  .lk{
+    display:grid; grid-template-columns:44px 1fr; align-items:baseline;
+    gap:0 12px; text-align:left; background:none; border:0;
+    border-bottom:1px solid var(--rule-soft);
+    padding:13px 8px 13px 0; cursor:pointer; color:inherit;
+    transition:padding-left .45s cubic-bezier(.2,.7,.2,1), background .45s;
+    position:relative;
+  }
+  .lk .num{
+    font-family:var(--mono); font-size:11px; font-weight:500;
+    letter-spacing:.12em; color:var(--gold); opacity:.72;
+    font-variant-numeric:tabular-nums;
+    transition:opacity .4s, transform .5s cubic-bezier(.2,.7,.2,1);
+  }
+  .lk .lk-t{
+    font-family:var(--disp); font-size:16px; font-weight:600;
+    letter-spacing:.06em; text-transform:uppercase; color:var(--ink);
+    transition:color .35s;
+  }
+  .lk .lk-d{
+    grid-column:2; font-size:9.5px; letter-spacing:.13em; line-height:1.7;
+    text-transform:uppercase; color:var(--dim); font-weight:300; margin-top:5px;
+    max-width:230px;
+  }
+  .lk::before{
+    content:""; position:absolute; left:0; bottom:-1px; height:1px; width:0;
+    background:var(--turq); transition:width .55s cubic-bezier(.2,.7,.2,1);
+  }
+  .lk:hover{padding-left:10px}
+  .lk:hover .num{opacity:1; transform:translateX(2px)}
+  .lk:hover .lk-t{color:var(--gold)}
+  .lk:hover::before{width:100%}
+  .lk.active .num{opacity:1; color:var(--turq)}
+  .lk.active .lk-t{color:var(--turq)}
+  .lk.active::before{width:100%}
+  .lk:focus-visible{outline:1px solid var(--gold); outline-offset:3px}
+
+  /* ---------- title block ---------- */
+  .titleblock{
+    position:absolute; left:40px; bottom:38px; right:40px;
+    display:flex; align-items:flex-end; justify-content:space-between; gap:40px;
+    border-top:1px solid var(--rule); padding-top:18px;
+  }
+  .eyebrow{
+    font-size:9px; letter-spacing:.36em; text-transform:uppercase;
+    color:var(--gold); margin-bottom:6px; font-weight:500;
+  }
+  h1{
+    font-family:var(--disp); font-weight:700;
+    font-size:clamp(3.1rem, 10.2vw, 9.6rem);
+    line-height:.82; letter-spacing:-.012em; text-transform:uppercase;
+    margin-left:-.055em; color:var(--ink);
+    text-shadow:0 24px 60px rgba(0,0,0,.55);
+  }
+  h1 span{color:var(--gold)}
+  .lede{
+    max-width:36ch; font-size:11px; line-height:2.05; letter-spacing:.085em;
+    color:var(--dim); text-transform:uppercase; font-weight:300;
+    border-left:1px solid var(--rule); padding-left:18px;
+  }
+  .lede em{color:var(--ink); font-style:normal}
+  .controls{
+    display:flex; flex-direction:column; gap:10px; align-items:flex-end;
+    padding-bottom:6px;
+  }
+  .ctl{
+    display:flex; align-items:center; gap:10px;
+    background:none; border:0; cursor:pointer; color:var(--dim);
+    font-family:var(--mono); font-size:9.5px; letter-spacing:.22em;
+    text-transform:uppercase; padding:4px 0; transition:color .35s;
+  }
+  .ctl .dot{
+    width:7px; height:7px; border:1px solid var(--dim); border-radius:50%;
+    transition:background .35s, border-color .35s, box-shadow .35s;
+  }
+  .ctl .lab{min-width:104px; text-align:right}
+  .ctl:hover{color:var(--ink)}
+  .ctl:hover .dot{border-color:var(--gold)}
+  .ctl.on{color:var(--ink)}
+  .ctl.on .dot{background:var(--turq); border-color:var(--turq); box-shadow:0 0 10px rgba(63,211,198,.7)}
+  .ctl:focus-visible{outline:1px solid var(--gold); outline-offset:4px}
+
+  /* ---------- loader ---------- */
+  .loader{
+    position:fixed; inset:0; z-index:20; background:var(--void);
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:22px;
+    transition:opacity .9s ease .15s, visibility .9s ease .15s;
+  }
+  .loader.hide{opacity:0; visibility:hidden}
+  .loader .l-title{
+    font-family:var(--disp); font-size:clamp(2rem,6vw,4.4rem);
+    letter-spacing:.16em; text-transform:uppercase; color:var(--ink);
+  }
+  .loader .l-bar{width:min(320px,60vw); height:1px; background:var(--rule-soft); overflow:hidden}
+  .loader .l-bar i{display:block; height:100%; width:38%; background:var(--gold); animation:slide 1.25s cubic-bezier(.6,0,.35,1) infinite}
+  @keyframes slide{0%{transform:translateX(-110%)}100%{transform:translateX(320%)}}
+  .loader .l-note{font-size:9px; letter-spacing:.34em; text-transform:uppercase; color:var(--dim)}
+
+  .hint{
+    position:absolute; right:40px; top:112px;
+    font-size:9px; letter-spacing:.28em; text-transform:uppercase; color:var(--dim);
+    opacity:.55; text-align:right; line-height:2.1; max-width:280px;
+  }
+  .hint b{color:var(--gold); font-weight:400}
+
+  @media (max-height:820px){
+    .rail{top:104px}
+    .lk{padding:10px 8px 10px 0}
+    .lk .lk-t{font-size:14px}
+    .lk .lk-d{font-size:9px; line-height:1.6}
+    .titleblock{bottom:28px}
+  }
+
+  @media (max-width:1180px){
+    .rail{width:250px}
+    .meta{display:none}
+  }
+  @media (max-width:900px){
+    .topbar{padding:20px 20px 12px}
+    .rail{
+      left:20px; right:20px; top:auto; bottom:222px; width:auto;
+      flex-direction:row; gap:0; overflow-x:auto; overflow-y:hidden;
+      border-top:1px solid var(--rule); padding-top:2px;
+      scrollbar-width:none;
+    }
+    .rail::-webkit-scrollbar{display:none}
+    .rail-head{display:none}
+    .lk{
+      grid-template-columns:1fr; min-width:170px; border-bottom:0;
+      border-right:1px solid var(--rule-soft); padding:12px 14px 12px 0;
+    }
+    .lk .lk-d{display:none}
+    .titleblock{
+      left:20px; right:20px; bottom:22px; flex-direction:column;
+      align-items:flex-start; gap:16px;
+    }
+    .lede{display:none}
+    .controls{flex-direction:row; gap:20px; align-items:flex-start; flex-wrap:wrap}
+    .ctl .lab{min-width:0}
+    .hint{display:none}
+    .readout{font-size:8.5px}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *{animation-duration:.01ms !important; transition-duration:.01ms !important}
+  }
+</style>
+</head>
+<body>
+
+<canvas id="scene"></canvas>
+<div class="lamp"></div>
+<div class="grain"></div>
+<div class="case"></div>
+
+<div class="ui">
+  <header class="topbar">
+    <div class="wordmark">Highkeep<i>／</i>Diorama</div>
+    <div class="meta">
+      Scale <b>1:220</b> &nbsp;·&nbsp; Handcrafted from primitives &nbsp;·&nbsp; Engine <b>Babylon.js</b> &nbsp;·&nbsp; Shadow map <b>PCF 2048</b>
+    </div>
+    <div class="readout" id="readout">
+      Orbit <span class="v" id="r-orbit">000°</span> · Elev <span class="v" id="r-elev">00°</span> · Range <span class="v" id="r-range">000</span><br>
+      Frame <span class="v" id="r-fps">--</span> fps · Meshes <span class="v" id="r-mesh">0</span>
+    </div>
+  </header>
+
+  <nav class="rail" id="rail" aria-label="Index of landmarks">
+    <div class="rail-head">Index of Landmarks</div>
+    <button class="lk active" data-i="0"><span class="num">01</span><span class="lk-t">Highkeep Castle</span><span class="lk-d">Curtain wall, four towers, inner keep on the plateau</span></button>
+    <button class="lk" data-i="1"><span class="num">02</span><span class="lk-t">Millbrook Mill</span><span class="lk-d">Overshot wheel turning on the mill pond</span></button>
+    <button class="lk" data-i="2"><span class="num">03</span><span class="lk-t">Market Square</span><span class="lk-d">Striped awnings, stalls and the Gilded Stag tavern</span></button>
+    <button class="lk" data-i="3"><span class="num">04</span><span class="lk-t">The Old Watchtower</span><span class="lk-d">Ruined keep on the west rim, rubble at its foot</span></button>
+    <button class="lk" data-i="4"><span class="num">05</span><span class="lk-t">The Falls</span><span class="lk-d">Where the river leaves the island and falls to mist</span></button>
+  </nav>
+
+  <section class="titleblock">
+    <div>
+      <div class="eyebrow">Scene 01 — A Floating Fief</div>
+      <h1>High<span>keep</span></h1>
+    </div>
+    <p class="lede">
+      A tabletop diorama of a river fief: <em>stone castle</em>, timber village,
+      market and mill — set on a shard of rock with a <em>turquoise river</em>
+      spilling off its edge. Drag to orbit, scroll to close in.
+    </p>
+    <div class="controls">
+      <button class="ctl on" id="c-orbit"><span class="lab">Auto orbit</span><span class="dot"></span></button>
+      <button class="ctl" id="c-dusk"><span class="lab">Lamp · day</span><span class="dot"></span></button>
+      <button class="ctl on" id="c-mist"><span class="lab">Mist &amp; motes</span><span class="dot"></span></button>
+      <button class="ctl" id="c-overview"><span class="lab">Full diorama</span><span class="dot"></span></button>
+    </div>
+  </section>
+
+  <div class="hint"><b>Drag</b> to orbit &nbsp;·&nbsp; <b>Scroll</b> to close in<br>Select an index entry to travel</div>
+</div>
+
+<div class="loader" id="loader">
+  <div class="l-title">Highkeep</div>
+  <div class="l-bar"><i></i></div>
+  <div class="l-note" id="l-note">Building the island…</div>
+</div>
+
+<script>
+(function(){
+"use strict";
+
+/* ============================================================
+   0 · Small math helpers
+   ============================================================ */
+const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+const mix   = (a,b,t)=>a+(b-a)*t;
+function smoothstep(e0,e1,x){ const t = clamp((x-e0)/(e1-e0),0,1); return t*t*(3-2*t); }
+function mulberry32(a){ return function(){ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+const rnd = mulberry32(20240711);
+const C3 = (r,g,b)=>new BABYLON.Color3(r,g,b);
+const hex = h=>BABYLON.Color3.FromHexString(h);
+
+const loader   = document.getElementById('loader');
+const lNote    = document.getElementById('l-note');
+const canvas   = document.getElementById('scene');
+
+if (typeof BABYLON === 'undefined'){
+  lNote.textContent = 'Babylon.js could not be loaded — check your connection.';
+  loader.querySelector('.l-bar').style.display = 'none';
+  return;
+}
+
+/* ============================================================
+   1 · Engine / Scene / Camera / Lights
+   ============================================================ */
+const engine = new BABYLON.Engine(canvas, true, {preserveDrawingBuffer:true, stencil:true});
+engine.setHardwareScalingLevel(1/Math.min(window.devicePixelRatio||1, 1.6));
+
+const scene = new BABYLON.Scene(engine);
+scene.clearColor = new BABYLON.Color4(0.055,0.045,0.035,1);
+scene.ambientColor = C3(0.35,0.32,0.28);
+
+const IPC = scene.imageProcessingConfiguration;
+IPC.contrast = 1.16; IPC.exposure = 1.12;
+IPC.toneMappingEnabled = true;
+IPC.toneMappingType = BABYLON.ImageProcessingConfiguration.TONEMAPPING_ACES;
+IPC.vignetteEnabled = true; IPC.vignetteWeight = 2.4;
+IPC.vignetteColor = new BABYLON.Color4(0,0,0,0);
+
+const camera = new BABYLON.ArcRotateCamera("cam", -1.18, 1.04, 104, new BABYLON.Vector3(0,1,0), scene);
+camera.attachControl(canvas, true);
+camera.lowerRadiusLimit = 22; camera.upperRadiusLimit = 165;
+camera.lowerBetaLimit = 0.30; camera.upperBetaLimit = 1.47;
+camera.wheelDeltaPercentage = 0.012;
+camera.panningSensibility = 180;
+camera.panningDistanceLimit = 42;
+camera.minZ = 1; camera.maxZ = 700;
+
+const hemi = new BABYLON.HemisphericLight("hemi", new BABYLON.Vector3(0.2,1,0.1), scene);
+hemi.intensity = 0.62;
+hemi.diffuse = C3(1.0,0.92,0.80);
+hemi.groundColor = C3(0.26,0.20,0.15);
+
+const sun = new BABYLON.DirectionalLight("sun", new BABYLON.Vector3(-0.52,-0.82,0.42), scene);
+sun.position = new BABYLON.Vector3(-70,110,58);
+sun.intensity = 1.42;
+sun.diffuse = C3(1.0,0.93,0.78);
+
+const rim = new BABYLON.DirectionalLight("rim", new BABYLON.Vector3(0.62,-0.34,-0.72), scene);
+rim.intensity = 0.30;
+rim.diffuse = C3(0.44,0.62,0.86);
+
+const shadow = new BABYLON.ShadowGenerator(2048, sun);
+shadow.useBlurExponentialShadowMap = true;
+shadow.useKernelBlur = true;
+shadow.blurKernel = 20;
+shadow.depthScale = 60;
+shadow.bias = 0.0038;
+shadow.normalBias = 0.055;
+shadow.setDarkness(0.42);
+
+/* ============================================================
+   2 · Procedural textures (painted from the same height field)
+   ============================================================ */
+function dynTexture(name, w, h){
+  const t = new BABYLON.DynamicTexture(name, {width:w, height:h}, scene, true);
+  t.wrapU = BABYLON.Texture.WRAP_ADDRESSMODE;
+  t.wrapV = BABYLON.Texture.WRAP_ADDRESSMODE;
+  t.anisotropicFilteringLevel = 8;
+  return t;
+}
+
+/* --- sky gradient --- */
+const skyTex = dynTexture("skyTex", 32, 256);
+(function(){
+  const ctx = skyTex.getContext();
+  const g = ctx.createLinearGradient(0,0,0,256);
+  g.addColorStop(0.00, "#20406B");
+  g.addColorStop(0.34, "#4E7FA8");
+  g.addColorStop(0.58, "#9CC0D4");
+  g.addColorStop(0.76, "#E9CFA4");
+  g.addColorStop(1.00, "#F2D9AE");
+  ctx.fillStyle = g; ctx.fillRect(0,0,32,256);
+  skyTex.update(false);
+})();
+
+/* --- terrain colour map, sampled from the height function --- */
+const TEX = 512;
+const terrainTex = dynTexture("terrainTex", TEX, TEX);
+const rockTex = dynTexture("rockTex", 512, 512);
+
+/* --- water + waterfall --- */
+const waterTex = dynTexture("waterTex", 256, 256);
+(function(){
+  const ctx = waterTex.getContext();
+  ctx.fillStyle = "#2FBFC4"; ctx.fillRect(0,0,256,256);
+  for(let i=0;i<150;i++){
+    const y = Math.random()*256, w = 20+Math.random()*150, h = 1+Math.random()*3.4;
+    ctx.globalAlpha = 0.10 + Math.random()*0.26;
+    ctx.fillStyle = Math.random()>0.42 ? "#8FF0E6" : "#1B8C99";
+    ctx.fillRect(Math.random()*256-40, y, w, h);
+  }
+  ctx.globalAlpha = 0.16; ctx.fillStyle = "#DFFAF3";
+  for(let i=0;i<28;i++){ ctx.fillRect(0, Math.random()*256, 256, 1); }
+  ctx.globalAlpha = 1;
+  waterTex.update(false);
+})();
+
+const fallsTex = dynTexture("fallsTex", 256, 256);
+(function(){
+  const ctx = fallsTex.getContext();
+  ctx.clearRect(0,0,256,256);
+  for(let i=0;i<180;i++){
+    const x = Math.random()*256, w = 1+Math.random()*7;
+    const grad = ctx.createLinearGradient(0,0,0,256);
+    grad.addColorStop(0,"rgba(255,255,255,0.05)");
+    grad.addColorStop(0.32,"rgba(226,250,250,"+(0.22+Math.random()*0.5)+")");
+    grad.addColorStop(1,"rgba(190,238,242,0.02)");
+    ctx.fillStyle = grad; ctx.fillRect(x, 0, w, 256);
+  }
+  for(let i=0;i<60;i++){
+    ctx.globalAlpha = 0.10+Math.random()*0.22;
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fillRect(0, Math.random()*256, 256, 1+Math.random()*4);
+  }
+  ctx.globalAlpha = 1;
+  fallsTex.update(false);
+})();
+
+/* --- striped awning cloth --- */
+function stripeTexture(name, a, b){
+  const t = dynTexture(name, 64, 64);
+  const ctx = t.getContext();
+  for(let i=0;i<8;i++){ ctx.fillStyle = i%2 ? a : b; ctx.fillRect(i*8,0,8,64); }
+  t.update(false); return t;
+}
+
+/* --- soft round sprite for particles --- */
+const softTex = dynTexture("softTex", 64, 64);
+(function(){
+  const ctx = softTex.getContext();
+  const g = ctx.createRadialGradient(32,32,0,32,32,32);
+  g.addColorStop(0,"rgba(255,255,255,1)");
+  g.addColorStop(0.35,"rgba(255,255,255,0.42)");
+  g.addColorStop(1,"rgba(255,255,255,0)");
+  ctx.clearRect(0,0,64,64); ctx.fillStyle=g; ctx.fillRect(0,0,64,64);
+  softTex.update(false);
+})();
+
+/* ============================================================
+   3 · The height field
+   ============================================================ */
+function riverX(z){ return 12 + 6*Math.sin(z*0.045) + 2.2*Math.sin(z*0.017 + 1.4); }
+function bedY(z){
+  // the stream sinks into a rocky gorge at its head, and runs level to the falls
+  return (5.4 - 0.028*(z+42)) - smoothstep(-14,-36,z)*4.2;
+}
+function waterY(z){ return bedY(z) + 1.45; }
+function riverHalfWidth(z){
+  return (4.3 + 3.2*Math.exp(-Math.pow((z-8)/11,2))) * smoothstep(-45,-31,z);
+}
+
+function noise2(x,z){
+  return Math.sin(x*0.9)*Math.cos(z*0.8)
+       + 0.52*Math.sin(x*1.9+1.3)*Math.cos(z*1.6-0.7)
+       + 0.26*Math.sin(x*3.7-0.4)*Math.cos(z*3.1+2.1)
+       + 0.13*Math.sin(x*7.3+2.2)*Math.cos(z*6.4-1.1);
+}
+
+function heightAt(x,z){
+  const d = Math.sqrt(x*x + z*z);
+  // island dome
+  let h = 9.6*smoothstep(47,26,d) + 1.15*noise2(x*0.055, z*0.055)*smoothstep(50,16,d);
+  // rocky rim ridges
+  h += 1.9*smoothstep(26,42,d)*(0.6+0.4*noise2(x*0.13,z*0.13));
+  // castle plateau
+  const dc = Math.hypot(x-2, z+2);
+  h = mix(h, 12.1, smoothstep(17,10.5,dc));
+  // market / village green
+  const dm = Math.hypot(x+6, z-12);
+  h = mix(h, 8.5, smoothstep(13,7,dm));
+  // river channel
+  const rx = riverX(z);
+  const dr = Math.abs(x-rx);
+  const bank = smoothstep(11.5,5.0,dr);
+  h = mix(h, bedY(z), bank*0.94);
+  // small plateau shelf for the watchtower
+  const dw = Math.hypot(x+33, z+2);
+  h = mix(h, 7.2, smoothstep(11,5.5,dw));
+  return h;
+}
+
+function slopeAt(x,z){
+  const e = 1.4;
+  const dx = heightAt(x+e,z)-heightAt(x-e,z);
+  const dz = heightAt(x,z+e)-heightAt(x,z-e);
+  return Math.sqrt(dx*dx+dz*dz)/(2*e);
+}
+
+/* ============================================================
+   4 · Island geometry (top shell + rock skirt, seam-matched)
+   ============================================================ */
+const SEGS = 168, RINGS = 46, RADIUS = 45;
+
+function buildIsland(){
+  // ---- painted terrain map ----
+  const ctx = terrainTex.getContext();
+  const img = ctx.createImageData(TEX,TEX);
+  const grid = new Float32Array(TEX*TEX);
+  for(let j=0;j<TEX;j++){
+    for(let i=0;i<TEX;i++){
+      const x = (i/(TEX-1))*110-55, z = (j/(TEX-1))*110-55;
+      grid[j*TEX+i] = heightAt(x,z);
+    }
+  }
+  for(let j=0;j<TEX;j++){
+    for(let i=0;i<TEX;i++){
+      const x = (i/(TEX-1))*110-55, z = (j/(TEX-1))*110-55;
+      const h = grid[j*TEX+i];
+      const gx = grid[j*TEX+Math.min(i+2,TEX-1)] - grid[j*TEX+Math.max(i-2,0)];
+      const gz = grid[Math.min(j+2,TEX-1)*TEX+i] - grid[Math.max(j-2,0)*TEX+i];
+      const slope = Math.sqrt(gx*gx+gz*gz)/4;
+      const d = Math.sqrt(x*x+z*z);
+      const n = noise2(x*0.42,z*0.42)*0.5+0.5;
+      let r,g,b;
+      const wet = waterY(z);
+      if (h < wet + 0.55 && Math.abs(x-riverX(z)) < 12){
+        r = mix(198,168,n); g = mix(177,150,n); b = mix(131,112,n);      // sand / shingle
+      } else if (slope > 0.95 || d > 41){
+        r = mix(126,104,n); g = mix(112,92,n);  b = mix(94,80,n);        // exposed rock
+      } else if (slope > 0.55){
+        r = mix(140,112,n); g = mix(124,104,n); b = mix(100,82,n);       // stony grass
+      } else {
+        const forest = noise2(x*0.13+3.1, z*0.13-1.7);
+        const t = clamp(0.5 + forest*0.42, 0, 1);
+        r = mix(126, 62, t); g = mix(176, 108, t); b = mix(74, 50, t);   // meadow → forest floor
+        r += n*22-11; g += n*18-9; b += n*12-6;
+      }
+      const k = (j*TEX+i)*4;
+      img.data[k]   = clamp(r,0,255);
+      img.data[k+1] = clamp(g,0,255);
+      img.data[k+2] = clamp(b,0,255);
+      img.data[k+3] = 255;
+    }
+  }
+  ctx.putImageData(img,0,0);
+  terrainTex.update(false);
+
+  // ---- rock strata map ----
+  const rctx = rockTex.getContext();
+  const rimg = rctx.createImageData(512,512);
+  for(let j=0;j<512;j++){
+    for(let i=0;i<512;i++){
+      const u = i/512, v = j/512;
+      const band = 0.5+0.5*Math.sin(v*46 + Math.sin(u*13)*1.8 + noise2(u*7,v*7)*0.7);
+      const crack = Math.pow(Math.abs(Math.sin(v*17 + noise2(u*11,v*11)*1.4)),12);
+      const n2 = noise2(u*22,v*22)*0.5+0.5;
+      const base = mix(0.36,0.60,band*0.7+n2*0.4);
+      const k=(j*512+i)*4;
+      rimg.data[k]   = clamp(base*255*1.06 - crack*120,0,255);
+      rimg.data[k+1] = clamp(base*255*0.93 - crack*110,0,255);
+      rimg.data[k+2] = clamp(base*255*0.80 - crack*96,0,255);
+      rimg.data[k+3] = 255;
+    }
+  }
+  rctx.putImageData(rimg,0,0);
+  rockTex.update(false);
+
+  // ---- top shell ----
+  const pos=[], idx=[], nor=[], uvs=[];
+  const index = (r,a)=> r*(SEGS+1)+a;
+  for(let r=0;r<=RINGS;r++){
+    const t = r/RINGS, rad = t*RADIUS;
+    for(let a=0;a<=SEGS;a++){
+      const ang = a/SEGS*Math.PI*2;
+      const x = Math.cos(ang)*rad, z = Math.sin(ang)*rad;
+      pos.push(x, heightAt(x,z), z);
+      uvs.push((x+55)/110, (z+55)/110);
+    }
+  }
+  for(let r=0;r<RINGS;r++){
+    for(let a=0;a<SEGS;a++){
+      const i00=index(r,a), i01=i00+1, i10=i00+(SEGS+1), i11=i10+1;
+      idx.push(i00,i01,i11, i00,i11,i10);
+    }
+  }
+  const vd = new BABYLON.VertexData();
+  vd.positions = pos; vd.indices = idx; vd.uvs = uvs;
+  const normals = new Float32Array(pos.length);
+  BABYLON.VertexData.ComputeNormals(pos, idx, normals);
+  vd.normals = normals;
+  const top = new BABYLON.Mesh("islandTop", scene);
+  vd.applyToMesh(top, true);
+
+  // ---- rock skirt (seam ring + tapering jagged underside) ----
+  const UR = 15;
+  const rp=[], ri=[], ru=[];
+  const rindex = (r,a)=> r*(SEGS+1)+a;
+  for(let r=0;r<=UR;r++){
+    const k = r/UR;
+    for(let a=0;a<=SEGS;a++){
+      const ang = a/SEGS*Math.PI*2;
+      const ca = Math.cos(ang), sa = Math.sin(ang);
+      const edgeH = heightAt(ca*RADIUS, sa*RADIUS);
+      const jag = 1
+        + 0.115*Math.sin(ang*5.0 + 1.2)*(1-k*0.4)
+        + 0.085*Math.sin(ang*11.0 - 0.6)*(1-k*0.5)
+        + 0.06*Math.sin(ang*23.0 + k*7.0)
+        + 0.10*Math.sin(k*9.0 + ang*2.0);
+      const rad = r===0 ? RADIUS : RADIUS*(1-Math.pow(k,0.86)*0.88)*jag;
+      const y = (r===0)
+        ? edgeH
+        : edgeH - Math.pow(k,1.28)*40 + 1.4*Math.sin(ang*3.0+k*5.0)*(1-k);
+      rp.push(ca*rad, y, sa*rad);
+      ru.push(a/SEGS*4, k*2.6);
+    }
+  }
+  for(let r=0;r<UR;r++){
+    for(let a=0;a<SEGS;a++){
+      const i00=rindex(r,a), i01=i00+1, i10=i00+(SEGS+1), i11=i10+1;
+      ri.push(i00,i01,i11, i00,i11,i10);
+    }
+  }
+  // bottom cap
+  const capIndex = rp.length/3;
+  rp.push(0,-46,0); ru.push(0.5,2.7);
+  for(let a=0;a<SEGS;a++){
+    const i0 = rindex(UR,a), i1 = i0+1;
+    ri.push(capIndex, i0, i1);
+  }
+  const rvd = new BABYLON.VertexData();
+  rvd.positions = rp; rvd.indices = ri; rvd.uvs = ru;
+  const rnor = new Float32Array(rp.length);
+  BABYLON.VertexData.ComputeNormals(rp, ri, rnor);
+  rvd.normals = rnor;
+  const rock = new BABYLON.Mesh("islandRock", scene);
+  rvd.applyToMesh(rock, true);
+
+  return {top, rock};
+}
+
+lNote.textContent = "Raising the cliffs…";
+const island = buildIsland();
+
+const matGround = new BABYLON.StandardMaterial("matGround", scene);
+matGround.diffuseTexture = terrainTex;
+matGround.specularColor = C3(0.06,0.06,0.055);
+matGround.specularPower = 28;
+island.top.material = matGround;
+island.top.receiveShadows = true;
+
+const matRock = new BABYLON.StandardMaterial("matRock", scene);
+matRock.diffuseTexture = rockTex;
+matRock.diffuseColor = C3(0.92,0.86,0.80);
+matRock.specularColor = C3(0.05,0.05,0.05);
+island.rock.material = matRock;
+island.rock.receiveShadows = true;
+
+/* sky dome */
+const sky = BABYLON.MeshBuilder.CreateSphere("sky", {diameter:900, segments:24, sideOrientation:BABYLON.Mesh.BACKSIDE}, scene);
+sky.infiniteDistance = true;
+sky.applyFog = false;
+const matSky = new BABYLON.StandardMaterial("matSky", scene);
+matSky.emissiveTexture = skyTex;
+matSky.emissiveColor = C3(1,1,1);
+matSky.diffuseColor = C3(0,0,0);
+matSky.specularColor = C3(0,0,0);
+matSky.disableLighting = true;
+matSky.backFaceCulling = false;
+sky.material = matSky;
+
+/* ============================================================
+   5 · Water: river ribbon, mill pond, waterfall, mist
+   ============================================================ */
+lNote.textContent = "Filling the river…";
+
+function ribbon(name, leftPath, rightPath, mat){
+  const m = BABYLON.MeshBuilder.CreateRibbon(name, {
+    pathArray:[leftPath, rightPath],
+    sideOrientation: BABYLON.Mesh.DOUBLESIDE,
+    updatable:false
+  }, scene);
+  m.material = mat;
+  return m;
+}
+
+const matWater = new BABYLON.StandardMaterial("matWater", scene);
+matWater.diffuseTexture = waterTex;
+matWater.diffuseColor = C3(0.72,1,1);
+matWater.emissiveColor = C3(0.045,0.185,0.215);
+matWater.specularColor = C3(1,1,1);
+matWater.specularPower = 128;
+matWater.alpha = 0.93;
+matWater.backFaceCulling = false;
+
+const Z0=-45, Z1=41, N=190;
+const leftP=[], rightP=[], midP=[];
+for(let i=0;i<N;i++){
+  const z = Z0 + (Z1-Z0)*i/(N-1);
+  const cx = riverX(z), hw = riverHalfWidth(z), y = waterY(z);
+  leftP.push(new BABYLON.Vector3(cx-hw, y, z));
+  rightP.push(new BABYLON.Vector3(cx+hw, y, z));
+  midP.push(new BABYLON.Vector3(cx, y, z));
+}
+const river = ribbon("river", leftP, rightP, matWater);
+
+/* waterfall */
+const fLeft=[], fRight=[];
+const FN = 60;
+const FZ = 40.5;
+for(let i=0;i<FN;i++){
+  const t = i/(FN-1);
+  const z = FZ + t*7.2;
+  const cx = riverX(FZ) + t*2.4;
+  const y = waterY(FZ) - Math.pow(t,1.32)*40;
+  const hw = riverHalfWidth(FZ)*(1+t*0.34);
+  fLeft.push(new BABYLON.Vector3(cx-hw, y, z));
+  fRight.push(new BABYLON.Vector3(cx+hw, y, z));
+}
+const matFalls = new BABYLON.StandardMaterial("matFalls", scene);
+matFalls.diffuseTexture = fallsTex;
+matFalls.useAlphaFromDiffuseTexture = true;
+matFalls.emissiveColor = C3(0.30,0.44,0.46);
+matFalls.diffuseColor = C3(0.85,0.98,1);
+matFalls.specularColor = C3(0.6,0.7,0.7);
+matFalls.alpha = 0.92;
+matFalls.backFaceCulling = false;
+const falls = ribbon("falls", fLeft, fRight, matFalls);
+
+/* plunge pool shimmer */
+const pool = BABYLON.MeshBuilder.CreateDisc("pool", {radius:11, tessellation:36}, scene);
+pool.rotation.x = Math.PI/2;
+pool.position.set(riverX(FZ)+2.4, -36.6, 48.6);
+pool.material = matWater;
+
+/* particles */
+function makeParticles(name, count){
+  return new BABYLON.ParticleSystem(name, count, scene);
+}
+const mist = makeParticles("mist", 320);
+mist.particleTexture = softTex;
+mist.emitter = new BABYLON.Vector3(riverX(FZ)+2.4, -19, 49);
+mist.minEmitBox = new BABYLON.Vector3(-11,-4,-7);
+mist.maxEmitBox = new BABYLON.Vector3(11,4,7);
+mist.color1 = new BABYLON.Color4(0.86,0.97,1,0.62);
+mist.color2 = new BABYLON.Color4(0.52,0.86,0.92,0.30);
+mist.colorDead = new BABYLON.Color4(0.7,0.9,0.95,0);
+mist.minSize = 5; mist.maxSize = 17;
+mist.minLifeTime = 2.2; mist.maxLifeTime = 5.4;
+mist.emitRate = 46;
+mist.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
+mist.direction1 = new BABYLON.Vector3(-2,3,-2);
+mist.direction2 = new BABYLON.Vector3(2,7,2);
+mist.minEmitPower = 0.35; mist.maxEmitPower = 1.05;
+mist.gravity = new BABYLON.Vector3(0,0.16,0);
+mist.start();
+
+const motes = makeParticles("motes", 220);
+motes.particleTexture = softTex;
+motes.emitter = new BABYLON.Vector3(0,6,0);
+motes.minEmitBox = new BABYLON.Vector3(-42,2,-42);
+motes.maxEmitBox = new BABYLON.Vector3(42,26,42);
+motes.color1 = new BABYLON.Color4(1,0.86,0.55,0.55);
+motes.color2 = new BABYLON.Color4(0.95,0.72,0.34,0.30);
+motes.colorDead = new BABYLON.Color4(1,0.8,0.4,0);
+motes.minSize = 0.32; motes.maxSize = 1.05;
+motes.minLifeTime = 5; motes.maxLifeTime = 11;
+motes.emitRate = 22;
+motes.blendMode = BABYLON.ParticleSystem.BLENDMODE_ADD;
+motes.direction1 = new BABYLON.Vector3(-0.35,0.18,-0.35);
+motes.direction2 = new BABYLON.Vector3(0.35,0.5,0.35);
+motes.minEmitPower = 0.12; motes.maxEmitPower = 0.34;
+motes.start();
+
+/* ============================================================
+   6 · Materials for the built world
+   ============================================================ */
+lNote.textContent = "Raising the castle…";
+
+function mat(name, color, opts){
+  const m = new BABYLON.StandardMaterial(name, scene);
+  m.diffuseColor = hex(color);
+  m.specularColor = (opts && opts.spec) ? hex(opts.spec) : C3(0.07,0.07,0.07);
+  m.specularPower = (opts && opts.power) || 24;
+  if (opts && opts.emissive) m.emissiveColor = hex(opts.emissive);
+  if (opts && opts.alpha !== undefined) m.alpha = opts.alpha;
+  return m;
+}
+const M = {
+  stone:     mat("stone","#B3A48F",{spec:"#2A2622",power:18}),
+  stoneDark: mat("stoneDark","#8C7D69",{spec:"#241F1B",power:14}),
+  slate:     mat("slate","#4E5C6B",{spec:"#2B3138",power:30}),
+  plaster:   mat("plaster","#E8D6B4",{spec:"#2C2419",power:22}),
+  plaster2:  mat("plaster2","#D7BE97",{spec:"#2C2419",power:22}),
+  timber:    mat("timber","#6B4529",{spec:"#231710",power:16}),
+  timberLit: mat("timberLit","#8A5A34",{spec:"#231710",power:16}),
+  clay:      mat("clay","#B4553C",{spec:"#2C1610",power:26}),
+  clayDark:  mat("clayDark","#8E3F2E",{spec:"#2C1610",power:26}),
+  thatch:    mat("thatch","#C09B58",{spec:"#2A2015",power:14}),
+  window:    mat("window","#3B2A1C",{spec:"#000000",power:8, emissive:"#E8A63F"}),
+  door:      mat("door","#4B2F1D",{spec:"#1C1209",power:12}),
+  gold:      mat("gold","#E7B24C",{spec:"#FFF0C0",power:64}),
+  clothA:    mat("clothA","#C6453C",{spec:"#2A100C",power:18}),
+  clothB:    mat("clothB","#2F7FA8",{spec:"#0C2430",power:18}),
+  clothC:    mat("clothC","#E7B24C",{spec:"#3A2A0C",power:18}),
+  foliage:   mat("foliage","#37663A",{spec:"#12240F",power:12}),
+  foliage2:  mat("foliage2","#4B7E3C",{spec:"#12240F",power:12}),
+  foliage3:  mat("foliage3","#2B5232",{spec:"#12240F",power:12}),
+  bark:      mat("bark","#5A3D26",{spec:"#1B1209",power:12}),
+  iron:      mat("iron","#2E2A28",{spec:"#4A4642",power:48}),
+  boulder:   mat("boulder","#8A7C6C",{spec:"#221E1A",power:14})
+};
+
+/* helper builders */
+function box(name, w,h,d, x,y,z, m, parent, rx,ry,rz){
+  const b = BABYLON.MeshBuilder.CreateBox(name, {width:w, height:h, depth:d}, scene);
+  b.position.set(x,y,z);
+  if(rx||ry||rz) b.rotation.set(rx||0, ry||0, rz||0);
+  b.material = m;
+  if(parent) b.parent = parent;
+  return b;
+}
+function cyl(name, d, h, tess, x,y,z, m, parent, dTop){
+  const c = BABYLON.MeshBuilder.CreateCylinder(name, {
+    diameter:d, height:h, tessellation:tess,
+    diameterTop: (dTop===undefined? d : dTop)
+  }, scene);
+  c.position.set(x,y,z); c.material = m;
+  if(parent) c.parent = parent;
+  return c;
+}
+function cone(name, d, h, tess, x,y,z, m, parent){
+  const c = BABYLON.MeshBuilder.CreateCylinder(name, {diameter:d, diameterTop:0, height:h, tessellation:tess}, scene);
+  c.position.set(x,y,z); c.material = m;
+  if(parent) c.parent = parent;
+  return c;
+}
+
+/* crenellations around a rectangular parapet */
+function crenelRect(parent, name, cx, cy, cz, w, d, m){
+  const parts = [];
+  const n = Math.max(3, Math.round(w/1.9));
+  const step = w/n;
+  for(let s=-1;s<=1;s+=2){
+    for(let i=0;i<n;i++){
+      if(i%2) continue;
+      const px = cx - w/2 + step*0.5 + i*step;
+      parts.push(box(name+"_c", step*0.68, 1.25, 0.85, px, cy, cz + s*d/2, m, parent));
+    }
+  }
+  const n2 = Math.max(3, Math.round(d/1.9));
+  const step2 = d/n2;
+  for(let s=-1;s<=1;s+=2){
+    for(let i=0;i<n2;i++){
+      if(i%2) continue;
+      const pz = cz - d/2 + step2*0.5 + i*step2;
+      parts.push(box(name+"_c", 0.85, 1.25, step2*0.68, cx + s*w/2, cy, pz, m, parent));
+    }
+  }
+  return parts;
+}
+
+/* ============================================================
+   7 · Highkeep Castle
+   ============================================================ */
+const castle = new BABYLON.TransformNode("castle", scene);
+castle.position.set(2, 11.9, -2);
+
+(function buildCastle(){
+  const g = castle;
+  const baseY = -4.2;              // sunk into the plateau
+  const wallH = 7.4, wallT = 2.1, R = 15;
+
+  // curtain walls (north/south along X, east/west along Z)
+  const walls = [
+    box("wallS", R*2, wallH, wallT, 0, baseY+wallH/2, R, M.stone, g),
+    box("wallN", R*2, wallH, wallT, 0, baseY+wallH/2, -R, M.stone, g),
+    box("wallE", wallT, wallH, R*2, R, baseY+wallH/2, 0, M.stone, g),
+    box("wallW", wallT, wallH, R*2, -R, baseY+wallH/2, 0, M.stone, g)
+  ];
+  // walkway lip
+  for(let s=-1;s<=1;s+=2){
+    box("lip", R*2+1.2, 0.55, 1.0, 0, baseY+wallH+0.25, s*(R-1.2), M.stoneDark, g);
+    box("lip", 1.0, 0.55, R*2+1.2, s*(R-1.2), baseY+wallH+0.25, 0, M.stoneDark, g);
+  }
+  crenelRect(g, "cw", 0, baseY+wallH+1.0, R, R*2, wallT+0.4, M.stone);
+  crenelRect(g, "cw", 0, baseY+wallH+1.0, -R, R*2, wallT+0.4, M.stone);
+  crenelRect(g, "cw", R, baseY+wallH+1.0, 0, wallT+0.4, R*2, M.stone);
+  crenelRect(g, "cw", -R, baseY+wallH+1.0, 0, wallT+0.4, R*2, M.stone);
+
+  // corner towers
+  const corner = [[R,R],[R,-R],[-R,R],[-R,-R]];
+  corner.forEach((p,i)=>{
+    cyl("tower"+i, 6.2, 15.5, 22, p[0], baseY+7.2, p[1], M.stone, g);
+    cyl("towerBand"+i, 7.0, 1.1, 22, p[0], baseY+14.2, p[1], M.stoneDark, g);
+    cone("towerRoof"+i, 8.4, 6.2, 22, p[0], baseY+18.0, p[1], M.slate, g);
+    cyl("finial"+i, 0.34, 2.4, 8, p[0], baseY+22.2, p[1], M.gold, g);
+    // arrow slits
+    for(let k=0;k<5;k++){
+      const a = k/5*Math.PI*2;
+      box("slit"+i, 0.32, 1.5, 0.28, p[0]+Math.cos(a)*3.12, baseY+9.2, p[1]+Math.sin(a)*3.12, M.window, g, 0, -a, 0);
+    }
+  });
+
+  // gatehouse (south wall)
+  const gz = R;
+  [[-4.6],[4.6]].forEach((p,i)=>{
+    cyl("gate"+i, 5.0, 13.5, 18, p[0], baseY+6.2, gz+1.4, M.stone, g);
+    cone("gateRoof"+i, 6.6, 5.4, 18, p[0], baseY+15.0, gz+1.4, M.slate, g);
+  });
+  box("gateArch", 6.2, 8.0, 3.0, 0, baseY+5.0, gz+1.2, M.stoneDark, g);
+  box("gateOpen", 3.4, 5.6, 3.6, 0, baseY+3.4, gz+1.0, M.door, g);
+  box("gateBridge", 3.4, 0.5, 7.0, 0, baseY+1.0, gz+5.0, M.timber, g);
+
+  // inner keep
+  const kY = baseY;
+  box("keep", 15, 19, 15, 0, kY+9.5, 0, M.stone, g);
+  box("keepBand", 16.2, 1.0, 16.2, 0, kY+18.2, 0, M.stoneDark, g);
+  crenelRect(g, "kp", 0, kY+19.6, 0, 15.4, 15.4, M.stone);
+  [[7.6,7.6],[7.6,-7.6],[-7.6,7.6],[-7.6,-7.6]].forEach((p,i)=>{
+    cyl("keepT"+i, 4.2, 24, 16, p[0], kY+11.5, p[1], M.stone, g);
+    cone("keepTR"+i, 5.6, 6.6, 16, p[0], kY+26.2, p[1], M.slate, g);
+    cyl("keepTF"+i, 0.26, 2.0, 8, p[0], kY+30.4, p[1], M.gold, g);
+  });
+  // keep windows
+  for(let f=0;f<4;f++){
+    const a = f*Math.PI/2;
+    for(let r=0;r<3;r++){
+      for(let c=-1;c<=1;c++){
+        const ox = Math.cos(a)*7.62 + Math.cos(a+Math.PI/2)*c*3.6;
+        const oz = Math.sin(a)*7.62 + Math.sin(a+Math.PI/2)*c*3.6;
+        box("kw", 1.15, 2.2, 0.3, ox, kY+8.5+r*4.2, oz, M.window, g, 0, -a, 0);
+      }
+    }
+  }
+  // banners
+  [[0,R-1.25,0],[ -R+1.25,0,Math.PI/2],[R-1.25,0,Math.PI/2]].forEach((b,i)=>{
+    const bn = box("banner"+i, 3.2, 5.2, 0.14, b[0], baseY+4.6, b[1], i===1?M.clothB:M.clothA, g, 0, b[2], 0);
+    box("btrim"+i, 3.4, 0.5, 0.2, b[0], baseY+7.2, b[1], M.gold, g, 0, b[2], 0);
+  });
+  // flag on the keep
+  cyl("flagPole", 0.3, 11, 8, 0, kY+25.0, 0, M.timber, g);
+  const flag = box("flag", 5.6, 2.6, 0.12, 2.9, kY+28.4, 0, M.clothC, g);
+  flag.registerBeforeRender(function(){
+    flag.rotation.y = Math.sin(performance.now()*0.0011)*0.20;
+    flag.rotation.z = Math.sin(performance.now()*0.0017)*0.055;
+  });
+
+  // courtyard well + steps
+  cyl("well", 2.4, 1.6, 16, -7, baseY+0.8, 7, M.stoneDark, g);
+  cone("wellRoof", 3.6, 1.8, 12, -7, baseY+2.4, 7, M.clayDark, g);
+})();
+
+/* ============================================================
+   8 · Village houses, tavern, market
+   ============================================================ */
+lNote.textContent = "Building the village…";
+
+function buildHouse(o){
+  const g = new BABYLON.TransformNode("house", scene);
+  const y = heightAt(o.x, o.z) - 0.5;
+  g.position.set(o.x, y, o.z);
+  g.rotation.y = o.rot || 0;
+  const w = o.w, d = o.d, h = o.h;
+  const wallM = o.alt ? M.plaster2 : M.plaster;
+
+  box("foundation", w*1.06, 3.0, d*1.06, 0, 1.2, 0, M.stoneDark, g);
+  box("walls", w, h, d, 0, 3.0 + h/2, 0, wallM, g);
+
+  // timber frame
+  const py = 3.0 + h/2;
+  [[-1,-1],[1,-1],[-1,1],[1,1]].forEach(p=>{
+    box("post", 0.32, h, 0.32, p[0]*(w/2-0.1), py, p[1]*(d/2-0.1), M.timber, g);
+  });
+  box("beam", w+0.1, 0.34, 0.3, 0, 3.0+h-0.2, d/2, M.timber, g);
+  box("beam", w+0.1, 0.34, 0.3, 0, 3.0+h-0.2, -d/2, M.timber, g);
+  box("beam", 0.3, 0.34, d+0.1, w/2, 3.0+h-0.2, 0, M.timber, g);
+  box("beam", 0.3, 0.34, d+0.1, -w/2, 3.0+h-0.2, 0, M.timber, g);
+  box("beam2", w+0.1, 0.28, 0.26, 0, 3.0+h*0.52, d/2, M.timber, g);
+
+  // door + windows
+  box("door", 1.5, 2.7, 0.22, 0, 3.0+1.35, d/2+0.08, M.door, g);
+  box("doorTop", 1.9, 0.3, 0.3, 0, 3.0+2.85, d/2+0.12, M.timber, g);
+  const wins = [[-w*0.28, d/2+0.1, 0],[w*0.28, d/2+0.1, 0],[-w/2-0.1, 0, Math.PI/2],[w/2+0.1, 0, Math.PI/2]];
+  wins.forEach((q,i)=>{
+    if(i>1 && d<6.4) return;
+    box("win", 1.15, 1.35, 0.2, q[0], 3.0+h*0.62, q[1], M.window, g, 0, q[2], 0);
+    box("winTrim", 1.45, 0.22, 0.26, q[0], 3.0+h*0.62+0.82, q[1], M.timber, g, 0, q[2], 0);
+    box("winTrim", 1.45, 0.22, 0.26, q[0], 3.0+h*0.62-0.82, q[1], M.timber, g, 0, q[2], 0);
+  });
+
+  // gable roof: two slabs + ridge
+  const slope = 0.68;
+  const slabLen = w*0.62;
+  const roofY = 3.0 + h + Math.sin(slope)*slabLen*0.5 - 0.15;
+  const roofM = o.thatch ? M.thatch : (o.alt ? M.clayDark : M.clay);
+  for(let s=-1;s<=1;s+=2){
+    box("roofSlab", slabLen, 0.34, d*1.22, s*Math.cos(slope)*slabLen*0.5, roofY, 0, roofM, g, 0, 0, s*slope);
+  }
+  box("ridge", 0.7, 0.42, d*1.24, 0, 3.0+h+Math.sin(slope)*slabLen+0.05, 0, roofM === M.thatch ? M.timber : M.clayDark, g);
+  // gable triangles
+  for(let s=-1;s<=1;s+=2){
+    box("gable", w*0.96, 1.5, 0.24, 0, 3.0+h+0.55, s*(d/2-0.05), wallM, g);
+  }
+  // chimney
+  if(o.chimney !== false){
+    box("chimney", 1.05, 3.2, 1.05, w*0.26, 3.0+h+1.4, -d*0.16, M.stoneDark, g);
+    box("chimneyTop", 1.35, 0.36, 1.35, w*0.26, 3.0+h+3.05, -d*0.16, M.stone, g);
+  }
+  return g;
+}
+
+const houses = [
+  {x:-14, z:18, rot:0.5,  w:6,   d:8,   h:4.2},
+  {x:-20, z:10, rot:-0.3, w:5,   d:7,   h:3.8, alt:true, thatch:true},
+  {x:-16, z:2,  rot:1.2,  w:6.5, d:7,   h:4.4},
+  {x:-8,  z:-8, rot:0.2,  w:6,   d:8,   h:4.2, alt:true},
+  {x:-22, z:-2, rot:2.2,  w:5,   d:6,   h:3.6, thatch:true},
+  {x:2,   z:20, rot:-0.6, w:6,   d:7,   h:4.0},
+  {x:6,   z:26, rot:0.9,  w:5,   d:6,   h:3.6, alt:true, thatch:true},
+  {x:-2,  z:28, rot:-1.1, w:6,   d:7,   h:4.0},
+  {x:22,  z:-12,rot:0.4,  w:5.5, d:7,   h:4.0, alt:true},
+  {x:22,  z:-22,rot:-0.7, w:5,   d:6,   h:3.6, thatch:true},
+  {x:-26, z:16, rot:1.7,  w:5,   d:6,   h:3.5, thatch:true}
+];
+houses.forEach(buildHouse);
+
+/* the Gilded Stag tavern */
+(function(){
+  const t = buildHouse({x:-10, z:8, rot:0.9, w:8.5, d:9.5, h:5.4, alt:true});
+  const sign = new BABYLON.TransformNode("sign", scene);
+  sign.parent = t;
+  sign.position.set(5.2, 8.4, 3.2);
+  cyl("signPole", 0.22, 3.2, 8, 0, 0, 0, M.iron, sign);
+  const board = box("signBoard", 2.6, 1.9, 0.18, 1.5, -1.1, 0, M.timber, sign);
+  box("signTrim", 2.9, 2.2, 0.10, 1.5, -1.1, -0.11, M.gold, sign);
+  board.registerBeforeRender(function(){
+    sign.rotation.x = Math.sin(performance.now()*0.0013)*0.075;
+    sign.rotation.z = Math.sin(performance.now()*0.0009+1.1)*0.05;
+  });
+  // lanterns
+  [[4.2,3.2],[-4.2,3.2]].forEach((p,i)=>{
+    const l = box("lantern", 0.75, 1.15, 0.75, p[0], 6.4, p[1], M.window, t);
+    box("lanternCap", 1.0, 0.22, 1.0, p[0], 7.1, p[1], M.iron, t);
+  });
+})();
+
+/* market square */
+(function(){
+  const mx = -6, mz = 12;
+  const my = heightAt(mx,mz);
+  const square = BABYLON.MeshBuilder.CreateDisc("square", {radius:11, tessellation:40}, scene);
+  square.rotation.x = Math.PI/2;
+  square.position.set(mx, my+0.12, mz);
+  square.material = mat("dirt","#B49A72",{spec:"#241A12",power:12});
+  square.receiveShadows = true;
+
+  const awningTexA = stripeTexture("awnA","#C6453C","#EFE2C6");
+  const awningTexB = stripeTexture("awnB","#2F7FA8","#EFE2C6");
+  const awningTexC = stripeTexture("awnC","#E7B24C","#B4553C");
+  const awnings = [awningTexA, awningTexB, awningTexC];
+
+  const stalls = [
+    {x:-12.5, z:15.5, r:0.4}, {x:-8.5, z:19.5, r:1.5}, {x:-2.5, z:18.5, r:2.6},
+    {x:-1.0, z:12.5, r:-0.4}, {x:-4.0, z:6.5, r:-1.4}, {x:-11.0, z:8.5, r:2.2},
+    {x:-13.5, z:12.0, r:0.1}, {x:-5.5, z:14.5, r:0.9}
+  ];
+  stalls.forEach((s,i)=>{
+    const g = new BABYLON.TransformNode("stall"+i, scene);
+    g.position.set(s.x, heightAt(s.x,s.z), s.z);
+    g.rotation.y = s.r;
+    const sw = 4.2, sd = 3.0;
+    for(let c=0;c<4;c++){
+      const px = (c%2?1:-1)*sw/2, pz = (c<2?1:-1)*sd/2;
+      cyl("post", 0.24, 3.4, 8, px, 1.7, pz, M.timber, g);
+    }
+    box("counter", sw, 0.28, sd*0.72, 0, 1.35, 0, M.timberLit, g);
+    box("shelf", sw, 0.22, sd*0.72, 0, 2.35, -sd*0.28, M.timber, g);
+    const awnMat = new BABYLON.StandardMaterial("awn"+i, scene);
+    awnMat.diffuseTexture = awnings[i%3];
+    awnMat.specularColor = C3(0.1,0.1,0.1);
+    const awn = box("awning", sw+1.1, 0.16, sd+1.0, 0, 3.62, 0, awnMat, g, 0.13, 0, 0);
+    awnMat.diffuseTexture.uScale = 1.6;
+    // goods
+    for(let k=0;k<5;k++){
+      const gx = (Math.random()-0.5)*sw*0.8, gz = (Math.random()-0.5)*sd*0.5;
+      const gm = [M.clay, M.gold, M.clothB, M.foliage2, M.clothA][k%5];
+      if(k%2){ box("good", 0.7, 0.55, 0.7, gx, 1.75, gz, gm, g); }
+      else { const s2 = BABYLON.MeshBuilder.CreateSphere("good", {diameter:0.72, segments:8}, scene); s2.position.set(gx,1.78,gz); s2.material = gm; s2.parent = g; }
+    }
+    // crates at the side
+    box("crate", 1.1, 1.0, 1.1, sw*0.62, 0.5, sd*0.55, M.timberLit, g);
+    box("crate", 0.9, 0.85, 0.9, sw*0.62+0.15, 1.42, sd*0.55-0.1, M.timber, g);
+  });
+
+  // market well + banner poles
+  const w = cyl("mktWell", 3.0, 1.7, 18, mx-1, my+0.85, mz-1, M.stone, null);
+  cone("mktWellRoof", 4.4, 2.2, 12, mx-1, my+2.9, mz-1, M.clayDark, null);
+  for(let i=0;i<3;i++){
+    const a = i/3*Math.PI*2 + 0.6;
+    const px = mx + Math.cos(a)*13, pz = mz + Math.sin(a)*13;
+    cyl("pole", 0.3, 8.5, 8, px, heightAt(px,pz)+4.2, pz, M.timber, null);
+    box("pennant", 3.0, 1.6, 0.1, px+1.5, heightAt(px,pz)+7.4, pz, i===0?M.clothA:(i===1?M.clothB:M.clothC), null);
+  }
+})();
+
+/* ============================================================
+   9 · Millbrook Mill + turning wheel
+   ============================================================ */
+lNote.textContent = "Setting the mill wheel…";
+
+const millWheelSpin = new BABYLON.TransformNode("millWheelSpin", scene);
+(function(){
+  const mz = 8, mx = riverX(8) + riverHalfWidth(8) + 4.2;
+  const my = heightAt(mx, mz) - 0.4;
+  const g = new BABYLON.TransformNode("mill", scene);
+  g.position.set(mx, my, mz);
+  g.rotation.y = -0.32;
+
+  box("millBase", 9.0, 6.0, 9.0, 0, 3.0, 0, M.stoneDark, g);
+  box("millUpper", 8.2, 5.2, 8.2, 0, 8.6, 0, M.plaster2, g);
+  for(let s=-1;s<=1;s+=2){
+    box("millPost", 0.34, 5.2, 0.34, s*3.9, 8.6, 3.9, M.timber, g);
+    box("millPost", 0.34, 5.2, 0.34, s*3.9, 8.6, -3.9, M.timber, g);
+    box("millBeam", 8.4, 0.36, 0.34, 0, 11.1, s*3.9, M.timber, g);
+    box("millBeam", 0.34, 0.36, 8.4, s*3.9, 11.1, 0, M.timber, g);
+  }
+  const slope = 0.72, slabLen = 6.4;
+  for(let s=-1;s<=1;s+=2){
+    box("millRoof", slabLen, 0.36, 10.2, s*Math.cos(slope)*slabLen*0.5, 11.6+Math.sin(slope)*slabLen*0.5, 0, M.clayDark, g, 0, 0, s*slope);
+  }
+  box("millRidge", 0.7, 0.44, 10.4, 0, 11.6+Math.sin(slope)*slabLen, 0, M.timber, g);
+  box("millDoor", 2.0, 3.2, 0.24, 0, 1.7, 4.6, M.door, g);
+  box("millWin", 1.4, 1.6, 0.22, 2.4, 9.2, 4.2, M.window, g);
+  box("millWin", 1.4, 1.6, 0.22, -2.4, 9.2, 4.2, M.window, g);
+  box("millChute", 0.9, 0.35, 7.2, -4.9, 9.8, -1.2, M.timber, g, 0.42, 0, 0);
+  cyl("millSilos", 3.0, 7.0, 16, 6.4, 3.5, -4.6, M.stone, g);
+  cone("millSiloRoof", 3.9, 2.6, 16, 6.4, 8.2, -4.6, M.thatch, g);
+
+  // the wheel itself — placed in world space so it dips into the pond
+  const orient = new BABYLON.TransformNode("millWheelOrient", scene);
+  orient.position.set(mx - 5.3, waterY(mz) + 4.25, mz - 1.7);
+  orient.rotation.set(0, -0.32, Math.PI/2);
+  millWheelSpin.parent = orient;
+
+  const torus = BABYLON.MeshBuilder.CreateTorus("wheelRim", {diameter:9.0, thickness:0.62, tessellation:26}, scene);
+  torus.material = M.timber; torus.parent = millWheelSpin;
+  const inner = BABYLON.MeshBuilder.CreateTorus("wheelRim2", {diameter:6.4, thickness:0.42, tessellation:22}, scene);
+  inner.material = M.timberLit; inner.parent = millWheelSpin;
+  for(let i=0;i<8;i++){
+    const a = i/8*Math.PI*2;
+    // spokes radiate inside the wheel plane (local XZ, axle = local Y)
+    const spoke = box("spoke", 8.4, 0.34, 0.34, 0, 0, 0, M.timber, millWheelSpin);
+    spoke.rotation.y = a;
+    const paddle = box("paddle", 1.8, 0.32, 1.7, Math.cos(a)*4.25, 0, Math.sin(a)*4.25, M.timberLit, millWheelSpin);
+    paddle.rotation.y = -a;
+    box("paddleLip", 1.8, 1.15, 0.22, Math.cos(a)*4.9, 0, Math.sin(a)*4.9, M.timber, millWheelSpin, 0, -a, 0);
+  }
+  cyl("axle", 1.05, 3.4, 12, 0, 0, 0, M.iron, millWheelSpin);
+})();
+
+/* ============================================================
+   10 · Bridges, watchtower, rocks, pines
+   ============================================================ */
+lNote.textContent = "Spanning the river…";
+
+function buildBridge(z, rot){
+  const cx = riverX(z), cy = waterY(z)+3.4;
+  const span = riverHalfWidth(z)*2 + 9.5;
+  const g = new BABYLON.TransformNode("bridge", scene);
+  g.position.set(cx, cy, z);
+  g.rotation.y = rot || 0;
+  const planks = 15;
+  for(let i=0;i<planks;i++){
+    const t = i/(planks-1);
+    const px = -span/2 + t*span;
+    const lift = Math.sin(t*Math.PI)*1.55;
+    box("plank", span/planks*0.92, 0.28, 3.6, px, lift, 0, M.timberLit, g);
+    if(i%3===0){
+      for(let s=-1;s<=1;s+=2){
+        box("railPost", 0.26, 2.1, 0.26, px, lift+1.1, s*1.85, M.timber, g);
+      }
+    }
+    if(i<planks-1 && i%3===0){
+      for(let s=-1;s<=1;s+=2){
+        box("rail", span/3*1.02, 0.22, 0.22, px+span/6, lift+1.0+0.52, s*1.85, M.timber, g);
+      }
+    }
+  }
+  // stone abutments
+  for(let s=-1;s<=1;s+=2){
+    box("abut", 3.4, 7.0, 5.2, s*(span/2-0.6), -3.2, 0, M.stoneDark, g);
+  }
+  return g;
+}
+buildBridge(-16, 0.16);
+buildBridge(24, -0.22);
+
+/* ruined watchtower */
+(function(){
+  const tx = -33, tz = -2;
+  const ty = heightAt(tx,tz) - 0.6;
+  const g = new BABYLON.TransformNode("tower", scene);
+  g.position.set(tx, ty, tz);
+  g.rotation.y = 0.42;
+
+  cyl("ruinBase", 9.2, 2.2, 24, 0, 1.1, 0, M.stoneDark, g);
+  const body = cyl("ruinBody", 8.0, 15.0, 24, 0, 8.2, 0, M.stone, g, 6.6);
+  // broken crown
+  const crownR = 3.6;
+  for(let i=0;i<11;i++){
+    const a = i/11*Math.PI*2;
+    const hgt = 1.1 + Math.abs(Math.sin(i*2.3))*2.6;
+    box("crown", 1.9, hgt, 1.5, Math.cos(a)*crownR, 15.6+hgt/2, Math.sin(a)*crownR, M.stone, g, 0, -a, Math.sin(i)*0.12);
+  }
+  // hollow interior + broken floor
+  cyl("ruinHollow", 5.4, 15.4, 22, 0, 8.0, 0, M.stoneDark, g);
+  box("ruinFloor", 6.4, 0.5, 6.4, 0, 9.2, 0, M.timber, g, 0, 0.3, 0.06);
+  // window slits
+  for(let i=0;i<3;i++){
+    const a = i/3*Math.PI*2 + 0.5;
+    box("rwin", 1.0, 2.6, 0.4, Math.cos(a)*4.05, 10.2, Math.sin(a)*4.05, M.window, g, 0, -a, 0);
+  }
+  // fallen flag + rubble
+  cyl("rPole", 0.28, 9.0, 8, 3.2, 2.2, 3.0, M.timber, g, 0.28);
+  g.getChildMeshes().forEach(m=>{ if(m.name==="rPole"){ m.rotation.set(1.24, 0.3, 0.4); } });
+  for(let i=0;i<16;i++){
+    const a = Math.random()*Math.PI*2, r = 6 + Math.random()*9;
+    const sz = 1.1 + Math.random()*2.6;
+    const b = BABYLON.MeshBuilder.CreateSphere("rubble"+i, {diameter:sz, segments:7}, scene);
+    b.position.set(tx+Math.cos(a)*r, heightAt(tx+Math.cos(a)*r, tz+Math.sin(a)*r)+sz*0.22, tz+Math.sin(a)*r);
+    b.scaling.y = 0.62; b.scaling.x = 1 + Math.random()*0.5;
+    b.rotation.set(Math.random(), Math.random(), Math.random());
+    b.material = M.boulder;
+    b.parent = null;
+  }
+  // mossy boulders around the island
+  for(let i=0;i<18;i++){
+    const a = Math.random()*Math.PI*2, r = 20 + Math.random()*22;
+    const px = Math.cos(a)*r, pz = Math.sin(a)*r;
+    if(Math.abs(px-riverX(pz)) < 10) continue;
+    const sz = 1.8 + Math.random()*4.2;
+    const b = BABYLON.MeshBuilder.CreateSphere("boulder"+i, {diameter:sz, segments:8}, scene);
+    b.position.set(px, heightAt(px,pz)+sz*0.16, pz);
+    b.scaling.set(1+Math.random()*0.7, 0.6+Math.random()*0.4, 1+Math.random()*0.5);
+    b.rotation.set(Math.random(), Math.random(), Math.random());
+    b.material = i%3===0 ? M.foliage3 : M.boulder;
+  }
+})();
+
+/* pine forest — real meshes, varied silhouette */
+lNote.textContent = "Planting the pines…";
+(function(){
+  const tiers = [
+    {y:5.4,  d:7.6, h:6.0, m:M.foliage},
+    {y:9.0,  d:6.0, h:5.4, m:M.foliage2},
+    {y:12.2, d:4.3, h:5.0, m:M.foliage3}
+  ];
+  let planted = 0, guard = 0;
+  while(planted < 54 && guard++ < 5000){
+    const a = Math.random()*Math.PI*2;
+    const r = 15 + Math.random()*26;
+    const px = Math.cos(a)*r, pz = Math.sin(a)*r;
+    if(Math.abs(px - riverX(pz)) < 12.5) continue;
+    if(Math.hypot(px-2, pz+2) < 21) continue;               // castle plateau
+    if(Math.hypot(px+6, pz-12) < 15) continue;              // market
+    if(Math.hypot(px+10, pz-8) < 12) continue;              // tavern
+    if(Math.hypot(px+33, pz+2) < 12) continue;              // watchtower
+    if(Math.hypot(px-28, pz-8) < 12) continue;              // mill
+    if(slopeAt(px,pz) > 0.85) continue;
+    const h = heightAt(px,pz);
+    if(h < 2.2) continue;
+    const s = 0.72 + Math.random()*0.72;
+    const g = new BABYLON.TransformNode("pine"+planted, scene);
+    g.position.set(px, h-0.55, pz);
+    g.rotation.y = Math.random()*Math.PI*2;
+    g.scaling.set(s, s*(0.86 + Math.random()*0.34), s);
+    cyl("trunk", 0.95, 6.2, 8, 0, 3.1, 0, M.bark, g);
+    tiers.forEach((t,i)=>{ cone("tier"+i, t.d, t.h, 10, 0, t.y, 0, t.m, g); });
+    planted++;
+  }
+})();
+
+/* reeds along the water */
+(function(){
+  for(let i=0;i<44;i++){
+    const z = -34 + Math.random()*70;
+    const side = Math.random()>0.5 ? 1 : -1;
+    const x = riverX(z) + side*(riverHalfWidth(z)+1.2+Math.random()*3.2);
+    const h = heightAt(x,z);
+    if(h < waterY(z)-0.2) continue;
+    const reed = cone("reed", 0.42, 2.0+Math.random()*1.8, 6, x, h+0.9, z, M.foliage2);
+    reed.scaling.x = 0.6;
+    reed.rotation.z = (Math.random()-0.5)*0.35;
+  }
+})();
+
+/* ============================================================
+   11 · Shadows, fog, atmosphere registration
+   ============================================================ */
+scene.meshes.forEach(m=>{
+  const n = m.name || "";
+  if(n === "sky" || n.indexOf("river")===0 || n.indexOf("falls")===0 ||
+     n.indexOf("pool")===0 || n.indexOf("mist")===0 || n.indexOf("motes")===0) return;
+  if(m.getTotalVertices && m.getTotalVertices() > 0) shadow.addShadowCaster(m);
+});
+island.top.receiveShadows = true;
+
+scene.fogMode = BABYLON.Scene.FOGMODE_EXP2;
+scene.fogDensity = 0.0022;
+scene.fogColor = hex("#C7B295");
+
+/* ============================================================
+   12 · UI: camera travel, readouts, toggles
+   ============================================================ */
+const V3 = BABYLON.Vector3;
+const landmarks = [
+  {alpha:-1.32, beta:1.14, radius:52, target:new V3(2, 11, -2)},
+  {alpha:-0.72, beta:1.22, radius:38, target:new V3(25, 8, 8)},
+  {alpha:-1.95, beta:1.18, radius:38, target:new V3(-6, 8, 13)},
+  {alpha:-2.72, beta:1.14, radius:34, target:new V3(-33, 8, -2)},
+  {alpha: 0.18, beta:1.33, radius:58, target:new V3(21, -16, 47)}
+];
+const overview = {alpha:-1.18, beta:1.04, radius:104, target:new V3(0, 1, 0)};
+
+const ease = new BABYLON.CubicEase();
+ease.setEasingMode(BABYLON.EasingFunction.EASINGMODE_EASEINOUT);
+
+function shortestAngle(from, to){
+  let d = (to - from) % (Math.PI*2);
+  if(d > Math.PI) d -= Math.PI*2;
+  if(d < -Math.PI) d += Math.PI*2;
+  return from + d;
+}
+
+let travelling = false;
+function flyTo(v){
+  travelling = true;
+  scene.stopAnimation(camera);
+  const fps = 60, frames = 78;
+  const a = shortestAngle(camera.alpha, v.alpha);
+  BABYLON.Animation.CreateAndStartAnimation("camA", camera, "alpha", fps, frames, camera.alpha, a, 0, ease);
+  BABYLON.Animation.CreateAndStartAnimation("camB", camera, "beta",  fps, frames, camera.beta,  v.beta,  0, ease);
+  BABYLON.Animation.CreateAndStartAnimation("camR", camera, "radius",fps, frames, camera.radius,v.radius,0, ease);
+  BABYLON.Animation.CreateAndStartAnimation("camT", camera, "target",fps, frames, camera.target.clone(), v.target, 0, ease);
+  window.setTimeout(()=>{ travelling = false; }, frames/fps*1000 + 120);
+}
+
+const rail = document.getElementById('rail');
+const lks = Array.prototype.slice.call(rail.querySelectorAll('.lk'));
+lks.forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    lks.forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    flyTo(landmarks[+btn.dataset.i]);
+    lastInput = performance.now();
+  });
+});
+
+const state = { orbit:true, dusk:false, mist:true };
+let lastInput = performance.now();
+
+function toggleBtn(id, key, onChange){
+  const el = document.getElementById(id);
+  el.addEventListener('click', ()=>{
+    state[key] = !state[key];
+    el.classList.toggle('on', state[key]);
+    if(onChange) onChange(state[key]);
+    lastInput = performance.now();
+  });
+}
+toggleBtn('c-orbit','orbit');
+toggleBtn('c-mist','mist', on=>{
+  if(on){ mist.start(); motes.start(); } else { mist.stop(); motes.stop(); }
+});
+toggleBtn('c-dusk','dusk', on=>{
+  if(on){
+    sun.diffuse = hex("#FFB268"); sun.intensity = 1.16;
+    sun.direction = new V3(-0.34,-0.50,0.72);
+    hemi.diffuse = hex("#FFC38C"); hemi.intensity = 0.42;
+    hemi.groundColor = hex("#2C1B12");
+    rim.diffuse = hex("#5C74B8"); rim.intensity = 0.42;
+    scene.clearColor = new BABYLON.Color4(0.10,0.062,0.062,1);
+    scene.fogColor = hex("#B07A5C");
+    matSky.emissiveColor = C3(1,0.72,0.55);
+    M.window.emissiveColor = hex("#FFC46A");
+    matWater.emissiveColor = C3(0.06,0.16,0.22);
+    IPC.exposure = 1.22;
+    document.getElementById('c-dusk').querySelector('.lab').textContent = 'Lamp · dusk';
+  }else{
+    sun.diffuse = C3(1.0,0.93,0.78); sun.intensity = 1.42;
+    sun.direction = new V3(-0.52,-0.82,0.42);
+    hemi.diffuse = C3(1.0,0.92,0.80); hemi.intensity = 0.62;
+    hemi.groundColor = C3(0.26,0.20,0.15);
+    rim.diffuse = C3(0.44,0.62,0.86); rim.intensity = 0.30;
+    scene.clearColor = new BABYLON.Color4(0.055,0.045,0.035,1);
+    scene.fogColor = hex("#C7B295");
+    matSky.emissiveColor = C3(1,1,1);
+    M.window.emissiveColor = hex("#E8A63F");
+    matWater.emissiveColor = C3(0.045,0.185,0.215);
+    IPC.exposure = 1.12;
+    document.getElementById('c-dusk').querySelector('.lab').textContent = 'Lamp · day';
+  }
+});
+
+document.getElementById('c-overview').addEventListener('click', (e)=>{
+  lks.forEach(b=>b.classList.remove('active'));
+  flyTo(overview);
+  lastInput = performance.now();
+  const el = e.currentTarget;
+  el.classList.add('on');
+  window.setTimeout(()=>{ el.classList.remove('on'); }, 900);
+});
+
+['pointerdown','wheel','touchstart'].forEach(ev=>{
+  canvas.addEventListener(ev, ()=>{ lastInput = performance.now(); travelling = false; }, {passive:true});
+});
+
+const rOrbit = document.getElementById('r-orbit');
+const rElev  = document.getElementById('r-elev');
+const rRange = document.getElementById('r-range');
+const rFps   = document.getElementById('r-fps');
+const rMesh  = document.getElementById('r-mesh');
+
+const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+if(reduceMotion){
+  state.orbit = false;
+  document.getElementById('c-orbit').classList.remove('on');
+}
+
+/* ============================================================
+   13 · Render loop
+   ============================================================ */
+let last = performance.now(), hudTick = 0;
+scene.onBeforeRenderObservable.add(()=>{
+  const now = performance.now();
+  const dt = Math.min((now - last)/1000, 0.05);
+  last = now;
+
+  // flowing water
+  waterTex.vOffset -= dt*0.115;
+  waterTex.uOffset += dt*0.012;
+  fallsTex.vOffset -= dt*0.46;
+
+  // mill wheel
+  if(!reduceMotion) millWheelSpin.rotation.y += dt*0.42;
+
+  // gentle auto orbit
+  if(state.orbit && !travelling && (now - lastInput) > 2400){
+    camera.alpha += dt*0.045;
+  }
+
+  // hud
+  if(++hudTick % 8 === 0){
+    const deg = ((camera.alpha*180/Math.PI) % 360 + 360) % 360;
+    rOrbit.textContent = String(Math.round(deg)).padStart(3,'0') + '°';
+    rElev.textContent  = String(Math.round(90 - camera.beta*180/Math.PI)).padStart(2,'0') + '°';
+    rRange.textContent = String(Math.round(camera.radius)).padStart(3,'0');
+    rFps.textContent   = String(Math.round(engine.getFps())).padStart(2,'0');
+    rMesh.textContent  = String(scene.meshes.length);
+  }
+});
+
+engine.runRenderLoop(()=>{
+  if(scene && scene.activeCamera) scene.render();
+});
+window.addEventListener('resize', ()=>{ engine.resize(); });
+
+scene.executeWhenReady(()=>{
+  lNote.textContent = 'Ready.';
+  window.setTimeout(()=>{ loader.classList.add('hide'); }, 260);
+});
+
+})();
+</script>
+</body>
+</html>

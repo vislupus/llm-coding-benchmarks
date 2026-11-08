@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sofia Climate Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #f4f6f9;
+    --panel: #ffffff;
+    --text: #1d2733;
+    --muted: #6b7785;
+    --border: #e1e6ec;
+    --accent: #2563eb;
+    --hot: #dc2626;
+    --cold: #0ea5e9;
+    --warn-bg: #fff7ed;
+    --warn-border: #fdba74;
+    --shadow: 0 1px 3px rgba(16,24,40,.08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f141a; --panel: #171e27; --text: #e6ebf1; --muted: #93a0b0;
+      --border: #27313d; --accent: #60a5fa; --hot: #f87171; --cold: #38bdf8;
+      --warn-bg: #2a1f12; --warn-border: #b45309; --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  header { padding: 24px 20px 8px; max-width: 1200px; margin: 0 auto; }
+  header h1 { margin: 0 0 4px; font-size: 26px; font-weight: 650; }
+  header p { margin: 0; color: var(--muted); }
+  main { max-width: 1200px; margin: 0 auto; padding: 12px 20px 48px; }
+
+  .controls {
+    display: flex; flex-wrap: wrap; gap: 16px 24px; align-items: flex-end;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px 20px; box-shadow: var(--shadow); margin-bottom: 20px;
+  }
+  .controls label { display: flex; flex-direction: column; font-size: 13px; color: var(--muted); gap: 4px; }
+  .controls input, .controls select {
+    font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 7px 10px; min-width: 110px;
+  }
+  .controls button {
+    font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--text); cursor: pointer;
+  }
+  .controls button:hover { border-color: var(--accent); }
+  .range-note { font-size: 13px; color: var(--muted); align-self: center; margin-left: auto; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; margin-bottom: 20px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px 16px; box-shadow: var(--shadow);
+  }
+  .card .label { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .card .value { font-size: 26px; font-weight: 650; margin: 4px 0 2px; font-variant-numeric: tabular-nums; }
+  .card .sub { font-size: 12px; color: var(--muted); }
+  .card.hot .value { color: var(--hot); }
+  .card.cold .value { color: var(--cold); }
+
+  .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(460px, 1fr)); gap: 16px; }
+  @media (max-width: 540px) { .charts { grid-template-columns: 1fr; } }
+  .chart-box {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px 16px 12px; box-shadow: var(--shadow);
+  }
+  .chart-box h2 { margin: 0 0 2px; font-size: 16px; font-weight: 600; }
+  .chart-box p { margin: 0 0 10px; font-size: 13px; color: var(--muted); }
+  .chart-box .wrap { position: relative; height: 300px; }
+
+  #status {
+    background: var(--warn-bg); border: 1px solid var(--warn-border); border-radius: 12px;
+    padding: 14px 18px; margin-bottom: 20px; display: none;
+  }
+  #status.show { display: block; }
+  #status code { background: rgba(0,0,0,.08); padding: 1px 5px; border-radius: 4px; }
+  #status input[type=file] { margin-top: 8px; }
+  footer { max-width: 1200px; margin: 0 auto; padding: 0 20px 32px; font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Sofia Climate Dashboard</h1>
+  <p>Daily temperatures from station 2809794 &mdash; annual means, extremes, monthly climatology and hot/cold day counts.</p>
+</header>
+
+<main>
+  <div id="status"></div>
+
+  <div class="controls" id="controls" style="display:none">
+    <label>Start year
+      <select id="startYear"></select>
+    </label>
+    <label>End year
+      <select id="endYear"></select>
+    </label>
+    <label>Hot day: TMAX &ge; (&deg;C)
+      <input type="number" id="hotThresh" value="30" step="1">
+    </label>
+    <label>Cold day: TMIN &le; (&deg;C)
+      <input type="number" id="coldThresh" value="-10" step="1">
+    </label>
+    <label>Min. days per year for stats
+      <input type="number" id="minDays" value="300" min="1" max="366" step="1">
+    </label>
+    <label>Input units
+      <select id="unitMode">
+        <option value="auto">Auto-detect</option>
+        <option value="tenths">Tenths of &deg;C</option>
+        <option value="celsius">Already &deg;C</option>
+      </select>
+    </label>
+    <button id="resetBtn" type="button">Reset range</button>
+    <span class="range-note" id="rangeNote"></span>
+  </div>
+
+  <div class="cards" id="cards" style="display:none">
+    <div class="card"><div class="label">Overall mean (TAVG)</div><div class="value" id="cMean">&ndash;</div><div class="sub" id="cMeanSub"></div></div>
+    <div class="card"><div class="label">Warming trend</div><div class="value" id="cTrend">&ndash;</div><div class="sub" id="cTrendSub"></div></div>
+    <div class="card hot"><div class="label">Hottest day</div><div class="value" id="cHotMax">&ndash;</div><div class="sub" id="cHotMaxSub"></div></div>
+    <div class="card cold"><div class="label">Coldest day</div><div class="value" id="cColdMin">&ndash;</div><div class="sub" id="cColdMinSub"></div></div>
+    <div class="card hot"><div class="label">Hot days</div><div class="value" id="cHotDays">&ndash;</div><div class="sub" id="cHotDaysSub"></div></div>
+    <div class="card cold"><div class="label">Cold days</div><div class="value" id="cColdDays">&ndash;</div><div class="sub" id="cColdDaysSub"></div></div>
+    <div class="card"><div class="label">Data coverage</div><div class="value" id="cCoverage">&ndash;</div><div class="sub" id="cCoverageSub"></div></div>
+  </div>
+
+  <div class="charts" id="charts" style="display:none">
+    <div class="chart-box">
+      <h2>Annual mean temperature</h2>
+      <p>Mean of daily TAVG per year, with a linear trend fitted to the selected range.</p>
+      <div class="wrap"><canvas id="annualChart"></canvas></div>
+    </div>
+    <div class="chart-box">
+      <h2>Annual extremes</h2>
+      <p>Highest TMAX and lowest TMIN recorded each year.</p>
+      <div class="wrap"><canvas id="extremesChart"></canvas></div>
+    </div>
+    <div class="chart-box">
+      <h2>Monthly climatology</h2>
+      <p>Mean TAVG, TMAX and TMIN by calendar month over the selected years.</p>
+      <div class="wrap"><canvas id="monthlyChart"></canvas></div>
+    </div>
+    <div class="chart-box">
+      <h2>Hot and cold days per year</h2>
+      <p id="hotColdDesc">Days with TMAX &ge; 30&deg;C (hot) and TMIN &le; &minus;10&deg;C (cold).</p>
+      <div class="wrap"><canvas id="hotColdChart"></canvas></div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  Years with fewer valid days than the "min. days" setting are excluded from the annual mean, the trend and the coverage count, but still appear in the extremes and day-count charts.
+</footer>
+
+<script>
+(function () {
+  'use strict';
+
+  const CSV_FILE = 'temperature_Sofia_2809794_1952-01-01 - 2021-11-28.csv';
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  // ---------- state ----------
+  let rawRows = [];       // {date, year, month, tavgRaw, tmaxRaw, tminRaw}
+  let rows = [];          // same, with converted °C values
+  let allYears = [];
+  let charts = {};
+
+  const $ = id => document.getElementById(id);
+  const statusEl = $('status');
+
+  function showStatus(html, allowUpload) {
+    statusEl.innerHTML = html + (allowUpload
+      ? '<br><label>Pick the CSV manually: <input type="file" id="fileInput" accept=".csv,text/csv"></label>'
+      : '');
+    statusEl.classList.add('show');
+    if (allowUpload) {
+      $('fileInput').addEventListener('change', e => {
+        const f = e.target.files[0];
+        if (!f) return;
+        f.text().then(txt => { statusEl.classList.remove('show'); initWithCsv(txt); })
+                .catch(err => showStatus('Could not read file: ' + err.message, true));
+      });
+    }
+  }
+
+  // ---------- CSV parsing (handles quoted fields containing commas) ----------
+  function parseCsvLine(line) {
+    const out = []; let cur = ''; let inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (inQ) {
+        if (ch === '"') {
+          if (line[i + 1] === '"') { cur += '"'; i++; } else { inQ = false; }
+        } else cur += ch;
+      } else {
+        if (ch === '"') inQ = true;
+        else if (ch === ',') { out.push(cur); cur = ''; }
+        else cur += ch;
+      }
+    }
+    out.push(cur);
+    return out;
+  }
+
+  function parseDate(s) {
+    s = s.trim();
+    let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (!m) m = s.match(/^(\d{4})(\d{2})(\d{2})$/);
+    if (!m) m = s.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})/);
+    if (!m) {
+      const dmy = s.match(/^(\d{1,2})[./](\d{1,2})[./](\d{4})/);
+      if (dmy) return { y: +dmy[3], m: +dmy[2], d: +dmy[1] };
+      return null;
+    }
+    return { y: +m[1], m: +m[2], d: +m[3] };
+  }
+
+  function parseCsv(text) {
+    const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/).filter(l => l.trim().length);
+    if (lines.length < 2) throw new Error('CSV appears to be empty.');
+    const header = parseCsvLine(lines[0]).map(h => h.trim().replace(/^"|"$/g, '').toUpperCase());
+    const idx = {
+      date: header.indexOf('DATE'),
+      tavg: header.indexOf('TAVG'),
+      tmax: header.indexOf('TMAX'),
+      tmin: header.indexOf('TMIN')
+    };
+    if (idx.date < 0) throw new Error('No DATE column found. Header: ' + header.join(', '));
+    if (idx.tavg < 0 && idx.tmax < 0 && idx.tmin < 0) throw new Error('No TAVG/TMAX/TMIN columns found.');
+
+    const num = v => {
+      if (v === undefined) return null;
+      v = v.trim();
+      if (v === '' || v === 'NA' || v === '-9999' || v === '9999') return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+
+    const out = [];
+    for (let i = 1; i < lines.length; i++) {
+      const f = parseCsvLine(lines[i]);
+      const d = parseDate(f[idx.date] || '');
+      if (!d) continue;
+      out.push({
+        date: `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`,
+        year: d.y, month: d.m,
+        tavgRaw: idx.tavg >= 0 ? num(f[idx.tavg]) : null,
+        tmaxRaw: idx.tmax >= 0 ? num(f[idx.tmax]) : null,
+        tminRaw: idx.tmin >= 0 ? num(f[idx.tmin]) : null
+      });
+    }
+    if (!out.length) throw new Error('No parsable data rows.');
+    out.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+    return out;
+  }
+
+  // ---------- unit handling ----------
+  function detectTenths(data) {
+    // Values in tenths will routinely exceed 80 in magnitude (e.g. 25°C → 250); °C values won't.
+    const vals = [];
+    for (const r of data) {
+      if (r.tmaxRaw !== null) vals.push(Math.abs(r.tmaxRaw));
+      if (r.tminRaw !== null) vals.push(Math.abs(r.tminRaw));
+      if (r.tavgRaw !== null) vals.push(Math.abs(r.tavgRaw));
+    }
+    if (!vals.length) return true;
+    vals.sort((a, b) => a - b);
+    return vals[Math.floor(vals.length * 0.9)] > 80;
+  }
+
+  function applyUnits() {
+    const mode = $('unitMode').value;
+    const tenths = mode === 'tenths' ? true : mode === 'celsius' ? false : detectTenths(rawRows);
+    const f = tenths ? 0.1 : 1;
+    rows = rawRows.map(r => ({
+      date: r.date, year: r.year, month: r.month,
+      tavg: r.tavgRaw === null ? null : r.tavgRaw * f,
+      tmax: r.tmaxRaw === null ? null : r.tmaxRaw * f,
+      tmin: r.tminRaw === null ? null : r.tminRaw * f
+    }));
+    // Fall back to (TMAX+TMIN)/2 when TAVG is missing but both extremes exist.
+    for (const r of rows) {
+      if (r.tavg === null && r.tmax !== null && r.tmin !== null) r.tavg = (r.tmax + r.tmin) / 2;
+    }
+    return tenths;
+  }
+
+  // ---------- aggregation ----------
+  function linearTrend(xs, ys) {
+    const n = xs.length;
+    if (n < 2) return null;
+    let sx = 0, sy = 0, sxx = 0, sxy = 0;
+    for (let i = 0; i < n; i++) { sx += xs[i]; sy += ys[i]; sxx += xs[i] * xs[i]; sxy += xs[i] * ys[i]; }
+    const den = n * sxx - sx * sx;
+    if (den === 0) return null;
+    const slope = (n * sxy - sx * sy) / den;
+    const intercept = (sy - slope * sx) / n;
+    return { slope, intercept };
+  }
+
+  function aggregate(startY, endY, hotT, coldT, minDays) {
+    const byYear = new Map();
+    const monthly = Array.from({ length: 12 }, () => ({ avgS: 0, avgN: 0, maxS: 0, maxN: 0, minS: 0, minN: 0 }));
+    let sumAvg = 0, nAvg = 0, hottest = null, coldest = null, totalDays = 0;
+
+    for (const r of rows) {
+      if (r.year < startY || r.year > endY) continue;
+      totalDays++;
+      let y = byYear.get(r.year);
+      if (!y) { y = { year: r.year, avgS: 0, avgN: 0, max: null, maxDate: null, min: null, minDate: null, hot: 0, cold: 0 }; byYear.set(r.year, y); }
+      const mo = monthly[r.month - 1];
+
+      if (r.tavg !== null) { y.avgS += r.tavg; y.avgN++; sumAvg += r.tavg; nAvg++; mo.avgS += r.tavg; mo.avgN++; }
+      if (r.tmax !== null) {
+        mo.maxS += r.tmax; mo.maxN++;
+        if (y.max === null || r.tmax > y.max) { y.max = r.tmax; y.maxDate = r.date; }
+        if (!hottest || r.tmax > hottest.v) hottest = { v: r.tmax, date: r.date };
+        if (r.tmax >= hotT) y.hot++;
+      }
+      if (r.tmin !== null) {
+        mo.minS += r.tmin; mo.minN++;
+        if (y.min === null || r.tmin < y.min) { y.min = r.tmin; y.minDate = r.date; }
+        if (!coldest || r.tmin < coldest.v) coldest = { v: r.tmin, date: r.date };
+        if (r.tmin <= coldT) y.cold++;
+      }
+    }
+
+    const years = [];
+    for (let yy = startY; yy <= endY; yy++) {
+      const y = byYear.get(yy) || { year: yy, avgS: 0, avgN: 0, max: null, min: null, hot: 0, cold: 0 };
+      y.mean = y.avgN >= minDays ? y.avgS / y.avgN : null;
+      years.push(y);
+    }
+    const valid = years.filter(y => y.mean !== null);
+    const trend = linearTrend(valid.map(y => y.year), valid.map(y => y.mean));
+    let totalHot = 0, totalCold = 0;
+    years.forEach(y => { totalHot += y.hot; totalCold += y.cold; });
+
+    return {
+      years, valid, trend,
+      overallMean: nAvg ? sumAvg / nAvg : null,
+      hottest, coldest, totalHot, totalCold, totalDays,
+      monthly: monthly.map(m => ({
+        avg: m.avgN ? m.avgS / m.avgN : null,
+        max: m.maxN ? m.maxS / m.maxN : null,
+        min: m.minN ? m.minS / m.minN : null
+      }))
+    };
+  }
+
+  // ---------- rendering ----------
+  const fmt = (v, d = 1) => v === null || v === undefined || !Number.isFinite(v) ? '–' : v.toFixed(d);
+  const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+  function chartDefaults() {
+    Chart.defaults.color = css('--muted');
+    Chart.defaults.borderColor = css('--border');
+    Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+  }
+
+  function makeChart(id, config) {
+    if (charts[id]) charts[id].destroy();
+    charts[id] = new Chart($(id).getContext('2d'), config);
+  }
+
+  function render() {
+    const startY = +$('startYear').value, endY = +$('endYear').value;
+    const hotT = +$('hotThresh').value, coldT = +$('coldThresh').value;
+    const minDays = Math.max(1, +$('minDays').value || 1);
+    if (startY > endY) { $('endYear').value = startY; return render(); }
+
+    const a = aggregate(startY, endY, hotT, coldT, minDays);
+    const accent = css('--accent'), hot = css('--hot'), cold = css('--cold');
+
+    // summary cards
+    $('cMean').textContent = fmt(a.overallMean) + ' °C';
+    $('cMeanSub').textContent = `${startY}–${endY}, daily TAVG`;
+    if (a.trend) {
+      const perDecade = a.trend.slope * 10;
+      $('cTrend').textContent = (perDecade >= 0 ? '+' : '') + fmt(perDecade, 2) + ' °C/decade';
+      const total = a.trend.slope * (a.valid[a.valid.length - 1].year - a.valid[0].year);
+      $('cTrendSub').textContent = `${(total >= 0 ? '+' : '')}${fmt(total, 2)} °C over ${a.valid.length} valid years`;
+    } else { $('cTrend').textContent = '–'; $('cTrendSub').textContent = 'Need ≥ 2 valid years'; }
+    $('cHotMax').textContent = a.hottest ? fmt(a.hottest.v) + ' °C' : '–';
+    $('cHotMaxSub').textContent = a.hottest ? a.hottest.date : '';
+    $('cColdMin').textContent = a.coldest ? fmt(a.coldest.v) + ' °C' : '–';
+    $('cColdMinSub').textContent = a.coldest ? a.coldest.date : '';
+    $('cHotDays').textContent = a.totalHot.toLocaleString();
+    $('cHotDaysSub').textContent = `TMAX ≥ ${hotT} °C · ${fmt(a.totalHot / Math.max(1, a.years.length))}/yr`;
+    $('cColdDays').textContent = a.totalCold.toLocaleString();
+    $('cColdDaysSub').textContent = `TMIN ≤ ${coldT} °C · ${fmt(a.totalCold / Math.max(1, a.years.length))}/yr`;
+    $('cCoverage').textContent = `${a.valid.length}/${a.years.length} yrs`;
+    $('cCoverageSub').textContent = `${a.totalDays.toLocaleString()} daily records`;
+    $('rangeNote').textContent = `Showing ${startY}–${endY} (${a.years.length} years)`;
+    $('hotColdDesc').textContent = `Days with TMAX ≥ ${hotT} °C (hot) and TMIN ≤ ${coldT} °C (cold).`;
+
+    const labels = a.years.map(y => String(y.year));
+    const common = {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: {
+        label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y === null ? '–' : ctx.parsed.y.toFixed(ctx.dataset.isCount ? 0 : 1)}${ctx.dataset.isCount ? ' days' : ' °C'}`
+      } } },
+      scales: { x: { ticks: { maxTicksLimit: 14 } } }
+    };
+
+    // Annual mean + trend
+    const trendData = a.trend ? a.years.map(y => a.trend.intercept + a.trend.slope * y.year) : [];
+    makeChart('annualChart', {
+      type: 'line',
+      data: { labels, datasets: [
+        { label: 'Annual mean TAVG', data: a.years.map(y => y.mean), borderColor: accent, backgroundColor: accent,
+          pointRadius: 2.5, tension: 0.25, spanGaps: false },
+        ...(a.trend ? [{ label: 'Linear trend', data: trendData, borderColor: hot, borderDash: [6, 4], pointRadius: 0, borderWidth: 2 }] : [])
+      ] },
+      options: { ...common, scales: { ...common.scales, y: { title: { display: true, text: '°C' } } } }
+    });
+
+    // Extremes
+    makeChart('extremesChart', {
+      type: 'line',
+      data: { labels, datasets: [
+        { label: 'Highest TMAX', data: a.years.map(y => y.max), borderColor: hot, backgroundColor: hot, pointRadius: 2, tension: 0.2 },
+        { label: 'Lowest TMIN', data: a.years.map(y => y.min), borderColor: cold, backgroundColor: cold, pointRadius: 2, tension: 0.2 }
+      ] },
+      options: { ...common, scales: { ...common.scales, y: { title: { display: true, text: '°C' } } } }
+    });
+
+    // Monthly climatology
+    makeChart('monthlyChart', {
+      type: 'line',
+      data: { labels: MONTHS, datasets: [
+        { label: 'Mean TMAX', data: a.monthly.map(m => m.max), borderColor: hot, backgroundColor: hot, tension: 0.3 },
+        { label: 'Mean TAVG', data: a.monthly.map(m => m.avg), borderColor: accent, backgroundColor: accent, tension: 0.3 },
+        { label: 'Mean TMIN', data: a.monthly.map(m => m.min), borderColor: cold, backgroundColor: cold, tension: 0.3 }
+      ] },
+      options: { ...common, scales: { y: { title: { display: true, text: '°C' } } } }
+    });
+
+    // Hot/cold days
+    makeChart('hotColdChart', {
+      type: 'bar',
+      data: { labels, datasets: [
+        { label: `Hot days (TMAX ≥ ${hotT} °C)`, data: a.years.map(y => y.hot), backgroundColor: hot, isCount: true },
+        { label: `Cold days (TMIN ≤ ${coldT} °C)`, data: a.years.map(y => -y.cold), backgroundColor: cold, isCount: true }
+      ] },
+      options: { ...common,
+        plugins: { ...common.plugins, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${Math.abs(ctx.parsed.y)} days` } } },
+        scales: { x: { stacked: true, ticks: { maxTicksLimit: 14 } },
+                  y: { stacked: true, title: { display: true, text: 'days (cold shown below axis)' },
+                       ticks: { callback: v => Math.abs(v) } } } }
+    });
+  }
+
+  // ---------- init ----------
+  function fillYearSelects() {
+    const s = $('startYear'), e = $('endYear');
+    s.innerHTML = e.innerHTML = '';
+    for (const y of allYears) {
+      s.add(new Option(y, y)); e.add(new Option(y, y));
+    }
+    s.value = allYears[0]; e.value = allYears[allYears.length - 1];
+  }
+
+  function initWithCsv(text) {
+    try {
+      rawRows = parseCsv(text);
+    } catch (err) {
+      showStatus('<strong>Could not parse the CSV.</strong> ' + err.message, true);
+      return;
+    }
+    const tenths = applyUnits();
+    const yearSet = new Set(rawRows.map(r => r.year));
+    allYears = [...yearSet].sort((a, b) => a - b);
+    const minY = allYears[0], maxY = allYears[allYears.length - 1];
+    allYears = []; for (let y = minY; y <= maxY; y++) allYears.push(y);
+
+    fillYearSelects();
+    $('controls').style.display = '';
+    $('cards').style.display = '';
+    $('charts').style.display = '';
+    chartDefaults();
+    render();
+
+    if (!tenths && $('unitMode').value === 'auto') {
+      showStatus('Values looked like they were already in °C, so no ÷10 conversion was applied. Override with the <em>Input units</em> control if that is wrong.', false);
+    }
+  }
+
+  ['startYear', 'endYear', 'hotThresh', 'coldThresh', 'minDays'].forEach(id => $(id).addEventListener('change', render));
+  $('unitMode').addEventListener('change', () => { applyUnits(); render(); });
+  $('resetBtn').addEventListener('click', () => { fillYearSelects(); render(); });
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { chartDefaults(); if (rows.length) render(); });
+
+  if (typeof Chart === 'undefined') {
+    showStatus('<strong>Chart.js failed to load.</strong> The page needs internet access to fetch the charting library from the CDN.', false);
+    return;
+  }
+
+  fetch(encodeURI(CSV_FILE))
+    .then(resp => { if (!resp.ok) throw new Error(`HTTP ${resp.status}`); return resp.text(); })
+    .then(initWithCsv)
+    .catch(err => {
+      const isFile = location.protocol === 'file:';
+      showStatus(
+        `<strong>Could not load <code>${CSV_FILE}</code> automatically</strong> (${err.message}).` +
+        (isFile
+          ? ' Browsers block <code>fetch()</code> of local files when a page is opened directly from disk. Either serve the folder (e.g. <code>python -m http.server</code> and open <code>http://localhost:8000/</code>) or pick the file below.'
+          : ' Make sure the CSV sits in the same folder as this HTML file, or pick it below.'),
+        true);
+    });
+})();
+</script>
+</body>
+</html>

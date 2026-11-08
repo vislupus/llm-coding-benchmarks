@@ -1,0 +1,1832 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Von Kármán Vortex Street // Interactive 2D Fluid Tunnel (p5.js)</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.2/p5.min.js"></script>
+<style>
+  :root {
+    --bg: #070b14;
+    --panel: rgba(12, 19, 34, 0.92);
+    --border: rgba(56, 189, 248, 0.25);
+    --cyan: #38bdf8;
+    --amber: #fb923c;
+    --red: #f43f5e;
+    --emerald: #34d399;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+  }
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  body {
+    background: radial-gradient(circle at 50% 20%, #0f172a 0%, #050811 100%);
+    color: var(--text);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 14px 18px;
+    gap: 14px;
+    overflow-x: hidden;
+  }
+
+  /* Header Bar */
+  header {
+    width: 100%;
+    max-width: 1280px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 20px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .brand-badge {
+    background: linear-gradient(135deg, rgba(56, 189, 248, 0.2), rgba(244, 63, 94, 0.2));
+    border: 1px solid rgba(56, 189, 248, 0.45);
+    color: var(--cyan);
+    font-weight: 800;
+    font-size: 11px;
+    letter-spacing: 2px;
+    padding: 5px 10px;
+    border-radius: 6px;
+    text-transform: uppercase;
+  }
+  .brand h1 {
+    font-size: 19px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    background: linear-gradient(90deg, #38bdf8, #f8fafc, #fb923c);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .telemetry {
+    display: flex;
+    gap: 18px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .stat-pill {
+    background: rgba(15, 23, 42, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 6px 12px;
+    display: flex;
+    flex-direction: column;
+    min-width: 96px;
+  }
+  .stat-pill span.lbl {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--muted);
+  }
+  .stat-pill span.val {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--cyan);
+  }
+  .stat-pill span.val.amber { color: var(--amber); }
+  .stat-pill span.val.emerald { color: var(--emerald); }
+
+  /* Canvas Container */
+  #canvas-wrap {
+    width: 100%;
+    max-width: 1280px;
+    background: #04070e;
+    border: 1px solid rgba(56, 189, 248, 0.35);
+    border-radius: 14px;
+    overflow: hidden;
+    position: relative;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.65), 0 0 30px rgba(56, 189, 248, 0.08);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+  canvas {
+    display: block;
+    width: 100% !important;
+    height: auto !important;
+  }
+  .canvas-hint {
+    position: absolute;
+    bottom: 12px;
+    left: 16px;
+    background: rgba(7, 11, 20, 0.78);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 12px;
+    color: #cbd5e1;
+    pointer-events: none;
+    backdrop-filter: blur(6px);
+    display: flex;
+    gap: 14px;
+  }
+  .canvas-hint b { color: var(--cyan); }
+
+  /* Control Deck */
+  .controls-deck {
+    width: 100%;
+    max-width: 1280px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+    gap: 14px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 15px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  }
+  .card-title {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--cyan);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding-bottom: 7px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .control-row {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .control-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: #cbd5e1;
+    font-weight: 500;
+  }
+  .control-label span.readout {
+    font-family: monospace;
+    color: var(--cyan);
+    font-weight: 700;
+  }
+  input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.12);
+    border-radius: 4px;
+    outline: none;
+    cursor: pointer;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--cyan);
+    box-shadow: 0 0 10px rgba(56, 189, 248, 0.8);
+    cursor: pointer;
+    transition: transform 0.1s;
+  }
+  input[type="range"]::-webkit-slider-thumb:hover {
+    transform: scale(1.15);
+  }
+
+  /* Button Grids */
+  .btn-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 7px;
+  }
+  .btn-row {
+    display: flex;
+    gap: 7px;
+    flex-wrap: wrap;
+  }
+  button {
+    appearance: none;
+    background: rgba(30, 41, 59, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    color: var(--text);
+    border-radius: 7px;
+    padding: 7px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    flex: 1;
+    text-align: center;
+  }
+  button:hover {
+    border-color: var(--cyan);
+    background: rgba(56, 189, 248, 0.15);
+  }
+  button.active {
+    background: linear-gradient(135deg, rgba(56, 189, 248, 0.32), rgba(14, 116, 144, 0.45));
+    border-color: var(--cyan);
+    color: #ffffff;
+    box-shadow: 0 0 12px rgba(56, 189, 248, 0.3);
+  }
+  button.action-amber {
+    border-color: rgba(251, 146, 60, 0.45);
+    color: #fed7aa;
+  }
+  button.action-amber:hover {
+    background: rgba(251, 146, 60, 0.2);
+    border-color: var(--amber);
+  }
+
+  .toggle-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .chk-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: #cbd5e1;
+    cursor: pointer;
+    background: rgba(15, 23, 42, 0.6);
+    padding: 7px 10px;
+    border-radius: 7px;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+  }
+  .chk-label input {
+    accent-color: var(--cyan);
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+  }
+  select {
+    width: 100%;
+    background: rgba(15, 23, 42, 0.9);
+    color: var(--text);
+    border: 1px solid rgba(56, 189, 248, 0.35);
+    border-radius: 7px;
+    padding: 8px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    outline: none;
+    cursor: pointer;
+  }
+  @media (max-width: 760px) {
+    .canvas-hint { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <span class="brand-badge">D2Q9 Lattice–Boltzmann CFD</span>
+    <h1>Von Kármán Vortex Street Flow Tunnel</h1>
+  </div>
+  <div class="telemetry">
+    <div class="stat-pill">
+      <span class="lbl">Reynolds (Re)</span>
+      <span class="val" id="stat-re">185</span>
+    </div>
+    <div class="stat-pill">
+      <span class="lbl">Strouhal (St)</span>
+      <span class="val amber" id="stat-st">0.198</span>
+    </div>
+    <div class="stat-pill">
+      <span class="lbl">Lift Force (CL)</span>
+      <span class="val emerald" id="stat-cl">+0.00</span>
+    </div>
+    <div class="stat-pill">
+      <span class="lbl">Drag Force (CD)</span>
+      <span class="val" id="stat-cd">1.18</span>
+    </div>
+    <div class="stat-pill">
+      <span class="lbl">Solver FPS</span>
+      <span class="val" id="stat-fps">60</span>
+    </div>
+  </div>
+</header>
+
+<div id="canvas-wrap">
+  <div id="p5-holder"></div>
+  <div class="canvas-hint">
+    <span><b>Drag Inside Shape:</b> Move Obstacle</span>
+    <span><b>Drag Orange Knob / Mouse Wheel:</b> Rotate 360°</span>
+    <span><b>Drag Cyan Knob:</b> Resize</span>
+  </div>
+</div>
+
+<div class="controls-deck">
+  <!-- 1. Obstacle Geometry & Orientation -->
+  <div class="card">
+    <div class="card-title">
+      <span>1. Obstacle Shape &amp; Pose</span>
+      <span id="pose-readout" style="font-family:monospace;font-size:11px;color:#94a3b8;">X:0.24 Y:0.50</span>
+    </div>
+    <div class="btn-grid" id="shape-btns">
+      <button data-shape="circle" class="active">Cylinder</button>
+      <button data-shape="ellipse">Ellipse</button>
+      <button data-shape="rect">Rectangle</button>
+      <button data-shape="plate">Flat Plate</button>
+      <button data-shape="airfoil">NACA Airfoil</button>
+      <button data-shape="triangle">Wedge Δ</button>
+    </div>
+
+    <div class="control-row">
+      <div class="control-label">
+        <span>Characteristic Size (Diameter / Chord)</span>
+        <span class="readout" id="val-size">26 px</span>
+      </div>
+      <input type="range" id="sl-size" min="12" max="46" step="1" value="26">
+    </div>
+
+    <div class="control-row">
+      <div class="control-label">
+        <span>Rotation Angle ($\theta$)</span>
+        <span class="readout" id="val-angle">0°</span>
+      </div>
+      <input type="range" id="sl-angle" min="0" max="360" step="1" value="0">
+    </div>
+
+    <div class="btn-row">
+      <button data-ang="0">0°</button>
+      <button data-ang="30">30°</button>
+      <button data-ang="45">45°</button>
+      <button data-ang="90">90°</button>
+      <button data-ang="180">180°</button>
+      <button id="btn-spin">Auto-Spin: OFF</button>
+    </div>
+  </div>
+
+  <!-- 2. Fluid Tunnel Physics -->
+  <div class="card">
+    <div class="card-title">
+      <span>2. Flow Tunnel Physics</span>
+      <span style="font-size:11px;color:#34d399;">Incompressible Navier–Stokes / LBM</span>
+    </div>
+
+    <div class="control-row">
+      <div class="control-label">
+        <span>Inlet Flow Velocity ($U_0$)</span>
+        <span class="readout" id="val-vel">0.105</span>
+      </div>
+      <input type="range" id="sl-vel" min="0.040" max="0.145" step="0.005" value="0.105">
+    </div>
+
+    <div class="control-row">
+      <div class="control-label">
+        <span>Kinematic Viscosity ($\nu$)</span>
+        <span class="readout" id="val-visc">0.014</span>
+      </div>
+      <input type="range" id="sl-visc" min="0.005" max="0.055" step="0.001" value="0.014">
+    </div>
+
+    <div class="control-row">
+      <div class="control-label">
+        <span>Simulation Substeps / Frame</span>
+        <span class="readout" id="val-steps">8x</span>
+      </div>
+      <input type="range" id="sl-steps" min="2" max="14" step="1" value="8">
+    </div>
+
+    <div class="btn-row" style="margin-top:auto;">
+      <button id="btn-perturb" class="action-amber">Kick / Perturb Wake</button>
+      <button id="btn-reset-flow">Reset Flow</button>
+      <button id="btn-pause">Pause</button>
+    </div>
+  </div>
+
+  <!-- 3. Visualization & Overlays -->
+  <div class="card">
+    <div class="card-title">
+      <span>3. Field Visualization &amp; Overlays</span>
+    </div>
+
+    <div class="control-row">
+      <div class="control-label"><span>Primary Color Field</span></div>
+      <select id="sel-viz">
+        <option value="hybrid" selected>Vorticity (∇×u) + Dual Smoke Ribbons</option>
+        <option value="vorticity">Pure Vorticity Field (ω = ∂v/∂x − ∂u/∂y)</option>
+        <option value="dye">Wind-Tunnel Smoke Streaklines</option>
+        <option value="speed">Velocity Magnitude (|u| Jet Colormap)</option>
+        <option value="pressure">Pressure / Density Perturbation (Δp)</option>
+      </select>
+    </div>
+
+    <div class="control-row">
+      <div class="control-label">
+        <span>Color Contrast / Gain</span>
+        <span class="readout" id="val-gain">1.35x</span>
+      </div>
+      <input type="range" id="sl-gain" min="0.4" max="3.0" step="0.05" value="1.35">
+    </div>
+
+    <div class="toggle-grid">
+      <label class="chk-label">
+        <input type="checkbox" id="chk-vectors" checked>
+        <span>Velocity Vectors ($\vec{u}$)</span>
+      </label>
+      <label class="chk-label">
+        <input type="checkbox" id="chk-particles" checked>
+        <span>Tracer Particles</span>
+      </label>
+      <label class="chk-label">
+        <input type="checkbox" id="chk-cores" checked>
+        <span>Vortex Core Markers</span>
+      </label>
+      <label class="chk-label">
+        <input type="checkbox" id="chk-gizmo" checked>
+        <span>Interactive Gizmo</span>
+      </label>
+      <label class="chk-label">
+        <input type="checkbox" id="chk-graph" checked>
+        <span>Wake Oscilloscope</span>
+      </label>
+      <label class="chk-label">
+        <input type="checkbox" id="chk-walls" checked>
+        <span>No-Slip Tube Walls</span>
+      </label>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+/* ============================================================================
+   D2Q9 LATTICE–BOLTZMANN + BFECC SMOKE SOLVER FOR VON KÁRMÁN VORTEX STREET
+   ----------------------------------------------------------------------------
+   Grid: NX = 320, NY = 128
+   Solves the 2D incompressible Navier-Stokes equations via D2Q9 BGK with
+   Smagorinsky subgrid stabilization and moving-boundary bounce-back momentum
+   transfer, plus advected dual-streamline smoke dye and 2,000 tracer particles.
+   ============================================================================ */
+
+const NX = 320;
+const NY = 128;
+const NCELLS = NX * NY;
+const SCALE = 3.5; // Canvas pixels per lattice cell -> 1120 x 448 viewport
+const CW = Math.floor(NX * SCALE);
+const CH = Math.floor(NY * SCALE);
+
+// D2Q9 Lattice Weights & Directions
+// 0:(0,0), 1:(1,0), 2:(0,1), 3:(-1,0), 4:(0,-1), 5:(1,1), 6:(-1,1), 7:(-1,-1), 8:(1,-1)
+const W0 = 4 / 9;
+const W1 = 1 / 9;
+const W2 = 1 / 36;
+
+// Microscopic distribution functions (SoA layout for maximum JS JIT performance)
+let f0 = new Float32Array(NCELLS), f1 = new Float32Array(NCELLS), f2 = new Float32Array(NCELLS);
+let f3 = new Float32Array(NCELLS), f4 = new Float32Array(NCELLS), f5 = new Float32Array(NCELLS);
+let f6 = new Float32Array(NCELLS), f7 = new Float32Array(NCELLS), f8 = new Float32Array(NCELLS);
+
+let ft0 = new Float32Array(NCELLS), ft1 = new Float32Array(NCELLS), ft2 = new Float32Array(NCELLS);
+let ft3 = new Float32Array(NCELLS), ft4 = new Float32Array(NCELLS), ft5 = new Float32Array(NCELLS);
+let ft6 = new Float32Array(NCELLS), ft7 = new Float32Array(NCELLS), ft8 = new Float32Array(NCELLS);
+
+// Macroscopic Fluid Fields
+const rho  = new Float32Array(NCELLS);
+const ux   = new Float32Array(NCELLS);
+const uy   = new Float32Array(NCELLS);
+const curl = new Float32Array(NCELLS);
+
+// Dual-Streamline Passive Smoke Dye Fields (Upper Cyan Stream & Lower Amber Stream)
+let dyeTop = new Float32Array(NCELLS);
+let dyeBot = new Float32Array(NCELLS);
+let dyeTopTmp = new Float32Array(NCELLS);
+let dyeBotTmp = new Float32Array(NCELLS);
+
+// Solid Obstacle & Tube Wall Masks
+const barrier = new Uint8Array(NCELLS);
+const prevBarrier = new Uint8Array(NCELLS);
+
+// Simulation Parameters
+const sim = {
+  u0: 0.105,          // Inlet velocity in lattice units
+  nu: 0.014,          // Kinematic viscosity
+  substeps: 8,        // LBM steps per render frame
+  vizMode: 'hybrid',  // hybrid | vorticity | dye | speed | pressure
+  colorGain: 1.35,
+  showVectors: true,
+  showParticles: true,
+  showCores: true,
+  showGizmo: true,
+  showGraph: true,
+  noSlipWalls: true,
+  paused: false,
+  autoSpin: false,
+  stepCount: 0,
+  perturbTimer: 45,   // Initial transverse perturbation to kick off immediate shedding
+  liftForce: 0,
+  dragForce: 0,
+  liftHistory: [],
+  wakeHistory: [],
+  strouhal: 0.198
+};
+
+// Interactive Obstacle State (in lattice coordinates)
+const obstacle = {
+  x: NX * 0.23,
+  y: NY * 0.50,
+  vx: 0,
+  vy: 0,
+  size: 26,           // Characteristic diameter / chord in lattice cells
+  angle: 0,           // Degrees [0..360)
+  omega: 0,           // Angular velocity (rad / substep)
+  shape: 'circle',    // circle | ellipse | rect | plate | airfoil | triangle
+  dragMode: null,     // null | 'move' | 'rotate' | 'scale'
+  dragOffsetX: 0,
+  dragOffsetY: 0
+};
+
+// Lagrangian Flow Tracer Particles
+const NUM_PARTICLES = 1800;
+const particles = new Array(NUM_PARTICLES);
+
+function initParticles() {
+  for (let i = 0; i < NUM_PARTICLES; i++) {
+    particles[i] = {
+      x: Math.random() * (NX - 4) + 2,
+      y: Math.random() * (NY - 10) + 5,
+      px: 0,
+      py: 0,
+      age: Math.floor(Math.random() * 160),
+      stream: i % 2
+    };
+    particles[i].px = particles[i].x;
+    particles[i].py = particles[i].y;
+  }
+}
+
+/* ============================================================================
+   SIGNED DISTANCE / INSIDE-SHAPE TEST FOR ARBITRARY ROTATED OBSTACLES
+   ============================================================================ */
+function isPointInObstacle(gx, gy) {
+  const dx = gx - obstacle.x;
+  const dy = gy - obstacle.y;
+  const r = obstacle.size * 0.5;
+  // Quick bounding circle reject
+  if (dx * dx + dy * dy > (r * 1.45) * (r * 1.45)) return false;
+
+  const rad = -obstacle.angle * Math.PI / 180;
+  const c = Math.cos(rad), s = Math.sin(rad);
+  // Local coordinates in obstacle frame
+  const lx = dx * c - dy * s;
+  const ly = dx * s + dy * c;
+
+  switch (obstacle.shape) {
+    case 'circle':
+      return (lx * lx + ly * ly) <= r * r;
+
+    case 'ellipse': {
+      const rx = r * 1.25;
+      const ry = r * 0.62;
+      return (lx * lx) / (rx * rx) + (ly * ly) / (ry * ry) <= 1.0;
+    }
+
+    case 'rect': {
+      const hx = r * 0.92;
+      const hy = r * 0.72;
+      return Math.abs(lx) <= hx && Math.abs(ly) <= hy;
+    }
+
+    case 'plate': {
+      // Streamlined or bluff flat plate with rounded tips
+      const hx = r * 0.22;
+      const hy = r * 1.12;
+      return Math.abs(lx) <= hx && Math.abs(ly) <= hy;
+    }
+
+    case 'airfoil': {
+      // Symmetric NACA-style teardrop airfoil of chord 2.4*r
+      const chord = r * 2.3;
+      const u = (lx + chord * 0.45) / chord; // normalized chord position [0, 1]
+      if (u < 0 || u > 1) return false;
+      const thickness = 0.28 * chord;
+      const halfY = (thickness / 0.2) * (
+        0.2969 * Math.sqrt(u) -
+        0.1260 * u -
+        0.3516 * u * u +
+        0.2843 * u * u * u -
+        0.1015 * u * u * u * u
+      );
+      return Math.abs(ly) <= halfY;
+    }
+
+    case 'triangle': {
+      // Equilateral bluff wedge
+      const h = r * 1.15;
+      if (lx < -h * 0.7 || lx > h * 0.9) return false;
+      const t = (lx + h * 0.7) / (1.6 * h); // 0 at leading apex, 1 at trailing base
+      return Math.abs(ly) <= t * h * 0.95;
+    }
+  }
+  return false;
+}
+
+/* ============================================================================
+   EQUILIBRIUM DISTRIBUTION & GRID INITIALIZATION
+   ============================================================================ */
+function setEquilibriumCell(idx, d, vx, vy) {
+  const vx2 = vx * vx;
+  const vy2 = vy * vy;
+  const uSq = 1.5 * (vx2 + vy2);
+
+  rho[idx] = d;
+  ux[idx]  = vx;
+  uy[idx]  = vy;
+
+  f0[idx] = W0 * d * (1.0 - uSq);
+  f1[idx] = W1 * d * (1.0 + 3.0 * vx + 4.5 * vx2 - uSq);
+  f3[idx] = W1 * d * (1.0 - 3.0 * vx + 4.5 * vx2 - uSq);
+  f2[idx] = W1 * d * (1.0 + 3.0 * vy + 4.5 * vy2 - uSq);
+  f4[idx] = W1 * d * (1.0 - 3.0 * vy + 4.5 * vy2 - uSq);
+
+  const p5 = vx + vy;
+  const p6 = -vx + vy;
+  f5[idx] = W2 * d * (1.0 + 3.0 * p5 + 4.5 * p5 * p5 - uSq);
+  f7[idx] = W2 * d * (1.0 - 3.0 * p5 + 4.5 * p5 * p5 - uSq);
+  f6[idx] = W2 * d * (1.0 + 3.0 * p6 + 4.5 * p6 * p6 - uSq);
+  f8[idx] = W2 * d * (1.0 - 3.0 * p6 + 4.5 * p6 * p6 - uSq);
+}
+
+function rebuildObstacleMask(preserveFluid = true) {
+  prevBarrier.set(barrier);
+  barrier.fill(0);
+
+  // Top & Bottom Tube Walls (y = 0, 1 and y = NY-2, NY-1)
+  for (let x = 0; x < NX; x++) {
+    barrier[x] = 1;
+    barrier[x + NX] = 1;
+    barrier[x + (NY - 1) * NX] = 1;
+    barrier[x + (NY - 2) * NX] = 1;
+  }
+
+  // Rasterize Obstacle
+  const pad = Math.ceil(obstacle.size * 0.85) + 3;
+  const xMin = Math.max(4, Math.floor(obstacle.x - pad));
+  const xMax = Math.min(NX - 6, Math.ceil(obstacle.x + pad));
+  const yMin = Math.max(3, Math.floor(obstacle.y - pad));
+  const yMax = Math.min(NY - 4, Math.ceil(obstacle.y + pad));
+
+  for (let y = yMin; y <= yMax; y++) {
+    const row = y * NX;
+    for (let x = xMin; x <= xMax; x++) {
+      if (isPointInObstacle(x, y)) {
+        barrier[row + x] = 1;
+      }
+    }
+  }
+
+  // If a cell was previously solid obstacle and just became fluid, initialize smoothly
+  if (preserveFluid) {
+    for (let y = 2; y < NY - 2; y++) {
+      const row = y * NX;
+      for (let x = 2; x < NX - 2; x++) {
+        const idx = row + x;
+        if (prevBarrier[idx] === 1 && barrier[idx] === 0) {
+          // Average neighbor fluid velocity or obstacle velocity
+          const vx = Math.max(-0.15, Math.min(0.15, obstacle.vx || sim.u0 * 0.5));
+          const vy = Math.max(-0.15, Math.min(0.15, obstacle.vy || 0));
+          setEquilibriumCell(idx, 1.0, vx, vy);
+          dyeTop[idx] = 0;
+          dyeBot[idx] = 0;
+        }
+      }
+    }
+  }
+}
+
+function inletVelocityProfile(y) {
+  // Smooth flat-top channel flow profile inside the tube with boundary-layer taper at walls
+  const h = (NY - 4) * 0.5;
+  const yn = (y - (NY - 1) * 0.5) / h;
+  if (Math.abs(yn) >= 1.0) return 0.0;
+  if (!sim.noSlipWalls) return sim.u0;
+  // Super-parabolic profile (steep near walls, uniform core for textbook vortex shedding)
+  return sim.u0 * (1.0 - Math.pow(yn, 8));
+}
+
+function resetFluidField() {
+  rebuildObstacleMask(false);
+  for (let y = 0; y < NY; y++) {
+    const uIn = inletVelocityProfile(y);
+    for (let x = 0; x < NX; x++) {
+      const idx = y * NX + x;
+      // Add a tiny initial transverse wave behind the obstacle to break symmetry immediately
+      const pert = (x > obstacle.x && x < obstacle.x + 50)
+        ? 0.018 * Math.sin((x - obstacle.x) * 0.25) * Math.exp(-Math.pow((y - obstacle.y) / 18, 2))
+        : 0.0;
+      setEquilibriumCell(idx, 1.0, barrier[idx] ? 0 : uIn, barrier[idx] ? 0 : pert);
+
+      // Initialize dual smoke streams upstream
+      const dy = y - obstacle.y;
+      dyeTop[idx] = (!barrier[idx] && dy > -14 && dy < -1 && x < obstacle.x) ? 0.9 : 0.0;
+      dyeBot[idx] = (!barrier[idx] && dy > 1 && dy < 14 && x < obstacle.x) ? 0.9 : 0.0;
+    }
+  }
+  curl.fill(0);
+  sim.stepCount = 0;
+  sim.perturbTimer = 50;
+  initParticles();
+}
+
+/* ============================================================================
+   CORE LATTICE-BOLTZMANN SOLVER STEP (COLLIDE + STREAM + BOUNCE-BACK)
+   ============================================================================ */
+function stepLBM() {
+  const baseOmega = 1.0 / (3.0 * sim.nu + 0.5);
+  const uMaxSq = 0.24 * 0.24; // Mach stability limiter
+
+  // 1. COLLISION & BOUNDARY INLET/OUTLET FORCING
+  const pertVy = sim.perturbTimer > 0
+    ? 0.016 * Math.sin(sim.stepCount * 0.18)
+    : 0.0;
+  if (sim.perturbTimer > 0) sim.perturbTimer--;
+
+  for (let y = 2; y < NY - 2; y++) {
+    const row = y * NX;
+
+    // Left Tube Inlet (x = 0, 1): Prescribed velocity + symmetry-breaking pulse
+    const uIn = inletVelocityProfile(y);
+    const vIn = (Math.abs(y - obstacle.y) < obstacle.size) ? pertVy : 0.0;
+    setEquilibriumCell(row, 1.0, uIn, vIn);
+    setEquilibriumCell(row + 1, 1.0, uIn, vIn);
+
+    // Interior Collisions
+    for (let x = 2; x < NX - 1; x++) {
+      const i = row + x;
+      if (barrier[i]) {
+        ux[i] = 0;
+        uy[i] = 0;
+        rho[i] = 1.0;
+        continue;
+      }
+
+      const n0 = f0[i], n1 = f1[i], n2 = f2[i], n3 = f3[i], n4 = f4[i];
+      const n5 = f5[i], n6 = f6[i], n7 = f7[i], n8 = f8[i];
+
+      let d = n0 + n1 + n2 + n3 + n4 + n5 + n6 + n7 + n8;
+      if (d <= 0.1 || d > 3.0 || Number.isNaN(d)) {
+        setEquilibriumCell(i, 1.0, sim.u0, 0);
+        continue;
+      }
+
+      let vx = (n1 + n5 + n8 - (n3 + n6 + n7)) / d;
+      let vy = (n2 + n5 + n6 - (n4 + n7 + n8)) / d;
+
+      // Soft stability clamp for extreme rapid user dragging
+      const speedSq = vx * vx + vy * vy;
+      if (speedSq > uMaxSq) {
+        const s = 0.24 / Math.sqrt(speedSq);
+        vx *= s;
+        vy *= s;
+      }
+
+      // Outflow sponge damping on the right-most 6 cells to prevent wave reflection
+      if (x > NX - 8) {
+        const damp = (x - (NX - 8)) * 0.06;
+        vx = vx * (1 - damp) + uIn * damp;
+        vy = vy * (1 - damp);
+        d  = d  * (1 - damp) + 1.0 * damp;
+      }
+
+      rho[i] = d;
+      ux[i]  = vx;
+      uy[i]  = vy;
+
+      const vx2 = vx * vx;
+      const vy2 = vy * vy;
+      const uSq = 1.5 * (vx2 + vy2);
+
+      const eq0 = W0 * d * (1.0 - uSq);
+      const eq1 = W1 * d * (1.0 + 3.0 * vx + 4.5 * vx2 - uSq);
+      const eq3 = W1 * d * (1.0 - 3.0 * vx + 4.5 * vx2 - uSq);
+      const eq2 = W1 * d * (1.0 + 3.0 * vy + 4.5 * vy2 - uSq);
+      const eq4 = W1 * d * (1.0 - 3.0 * vy + 4.5 * vy2 - uSq);
+
+      const p5 = vx + vy;
+      const p6 = -vx + vy;
+      const eq5 = W2 * d * (1.0 + 3.0 * p5 + 4.5 * p5 * p5 - uSq);
+      const eq7 = W2 * d * (1.0 - 3.0 * p5 + 4.5 * p5 * p5 - uSq);
+      const eq6 = W2 * d * (1.0 + 3.0 * p6 + 4.5 * p6 * p6 - uSq);
+      const eq8 = W2 * d * (1.0 - 3.0 * p6 + 4.5 * p6 * p6 - uSq);
+
+      // Smagorinsky subgrid stress stabilization (keeps high-Re vortex streets crisp & stable)
+      const neq1 = n1 - eq1, neq2 = n2 - eq2, neq3 = n3 - eq3, neq4 = n4 - eq4;
+      const neq5 = n5 - eq5, neq6 = n6 - eq6, neq7 = n7 - eq7, neq8 = n8 - eq8;
+      const Pxx = neq1 + neq3 + neq5 + neq6 + neq7 + neq8;
+      const Pyy = neq2 + neq4 + neq5 + neq6 + neq7 + neq8;
+      const Pxy = neq5 - neq6 + neq7 - neq8;
+      const stressMag = Math.sqrt(Pxx * Pxx + Pyy * Pyy + 2.0 * Pxy * Pxy);
+      const localOmega = 1.0 / ((1.0 / baseOmega) + 0.18 * stressMag);
+
+      f0[i] = n0 - localOmega * (n0 - eq0);
+      f1[i] = n1 - localOmega * neq1;
+      f2[i] = n2 - localOmega * neq2;
+      f3[i] = n3 - localOmega * neq3;
+      f4[i] = n4 - localOmega * neq4;
+      f5[i] = n5 - localOmega * neq5;
+      f6[i] = n6 - localOmega * neq6;
+      f7[i] = n7 - localOmega * neq7;
+      f8[i] = n8 - localOmega * neq8;
+    }
+  }
+
+  // 2. STREAMING STEP + MOVING OBSTACLE BOUNCE-BACK & FORCE INTEGRAL
+  let fxSum = 0.0;
+  let fySum = 0.0;
+  const obsVx = Math.max(-0.08, Math.min(0.08, obstacle.vx));
+  const obsVy = Math.max(-0.08, Math.min(0.08, obstacle.vy));
+  const obsW  = Math.max(-0.03, Math.min(0.03, obstacle.omega));
+
+  for (let y = 1; y < NY - 1; y++) {
+    const row = y * NX;
+    for (let x = 1; x < NX - 1; x++) {
+      const i = row + x;
+      if (barrier[i]) continue;
+
+      ft0[i] = f0[i];
+
+      // Direction 1: from (x-1, y)
+      const iW = i - 1;
+      if (barrier[iW]) {
+        const uw = (y > 2 && y < NY - 3) ? (obsVx - obsW * (y - obstacle.y)) : 0;
+        ft1[i] = f3[i] + 6.0 * W1 * uw;
+        fxSum += 2.0 * f3[i];
+      } else {
+        ft1[i] = f1[iW];
+      }
+
+      // Direction 3: from (x+1, y)
+      const iE = i + 1;
+      if (barrier[iE]) {
+        const uw = (y > 2 && y < NY - 3) ? (obsVx - obsW * (y - obstacle.y)) : 0;
+        ft3[i] = f1[i] - 6.0 * W1 * uw;
+        fxSum -= 2.0 * f1[i];
+      } else {
+        ft3[i] = f3[iE];
+      }
+
+      // Direction 2: from (x, y-1)
+      const iN = i - NX;
+      if (barrier[iN]) {
+        if (!sim.noSlipWalls && y <= 2) {
+          ft2[i] = f4[i]; // Specular slip wall
+        } else {
+          const vw = (y > 2 && y < NY - 3) ? (obsVy + obsW * (x - obstacle.x)) : 0;
+          ft2[i] = f4[i] + 6.0 * W1 * vw;
+          if (y > 2 && y < NY - 3) fySum += 2.0 * f4[i];
+        }
+      } else {
+        ft2[i] = f2[iN];
+      }
+
+      // Direction 4: from (x, y+1)
+      const iS = i + NX;
+      if (barrier[iS]) {
+        if (!sim.noSlipWalls && y >= NY - 3) {
+          ft4[i] = f2[i];
+        } else {
+          const vw = (y > 2 && y < NY - 3) ? (obsVy + obsW * (x - obstacle.x)) : 0;
+          ft4[i] = f2[i] - 6.0 * W1 * vw;
+          if (y > 2 && y < NY - 3) fySum -= 2.0 * f2[i];
+        }
+      } else {
+        ft4[i] = f4[iS];
+      }
+
+      // Direction 5: from (x-1, y-1)
+      const iNW = i - NX - 1;
+      if (barrier[iNW]) {
+        if (!sim.noSlipWalls && y <= 2) {
+          ft5[i] = f8[i - 1];
+        } else {
+          const uw = (y > 2 && y < NY - 3) ? (obsVx + obsVy) : 0;
+          ft5[i] = f7[i] + 6.0 * W2 * uw;
+          if (y > 2 && y < NY - 3) { fxSum += 2.0 * f7[i]; fySum += 2.0 * f7[i]; }
+        }
+      } else {
+        ft5[i] = f5[iNW];
+      }
+
+      // Direction 7: from (x+1, y+1)
+      const iSE = i + NX + 1;
+      if (barrier[iSE]) {
+        if (!sim.noSlipWalls && y >= NY - 3) {
+          ft7[i] = f6[i + 1];
+        } else {
+          const uw = (y > 2 && y < NY - 3) ? (obsVx + obsVy) : 0;
+          ft7[i] = f5[i] - 6.0 * W2 * uw;
+          if (y > 2 && y < NY - 3) { fxSum -= 2.0 * f5[i]; fySum -= 2.0 * f5[i]; }
+        }
+      } else {
+        ft7[i] = f7[iSE];
+      }
+
+      // Direction 6: from (x+1, y-1)
+      const iNE = i - NX + 1;
+      if (barrier[iNE]) {
+        if (!sim.noSlipWalls && y <= 2) {
+          ft6[i] = f7[i + 1];
+        } else {
+          const uw = (y > 2 && y < NY - 3) ? (-obsVx + obsVy) : 0;
+          ft6[i] = f8[i] + 6.0 * W2 * uw;
+          if (y > 2 && y < NY - 3) { fxSum -= 2.0 * f8[i]; fySum += 2.0 * f8[i]; }
+        }
+      } else {
+        ft6[i] = f6[iNE];
+      }
+
+      // Direction 8: from (x-1, y+1)
+      const iSW = i + NX - 1;
+      if (barrier[iSW]) {
+        if (!sim.noSlipWalls && y >= NY - 3) {
+          ft8[i] = f5[i - 1];
+        } else {
+          const uw = (y > 2 && y < NY - 3) ? (obsVx - obsVy) : 0;
+          ft8[i] = f6[i] + 6.0 * W2 * uw;
+          if (y > 2 && y < NY - 3) { fxSum += 2.0 * f6[i]; fySum -= 2.0 * f6[i]; }
+        }
+      } else {
+        ft8[i] = f8[iSW];
+      }
+    }
+
+    // Right Outlet Zero-Gradient Boundary (x = NX - 1)
+    const iOut = row + (NX - 1);
+    const iPrev = row + (NX - 2);
+    ft0[iOut] = ft0[iPrev]; ft1[iOut] = ft1[iPrev]; ft2[iOut] = ft2[iPrev];
+    ft3[iOut] = ft3[iPrev]; ft4[iOut] = ft4[iPrev]; ft5[iOut] = ft5[iPrev];
+    ft6[iOut] = ft6[iPrev]; ft7[iOut] = ft7[iPrev]; ft8[iOut] = ft8[iPrev];
+  }
+
+  // Swap distribution arrays
+  let tmp;
+  tmp = f0; f0 = ft0; ft0 = tmp;
+  tmp = f1; f1 = ft1; ft1 = tmp;
+  tmp = f2; f2 = ft2; ft2 = tmp;
+  tmp = f3; f3 = ft3; ft3 = tmp;
+  tmp = f4; f4 = ft4; ft4 = tmp;
+  tmp = f5; f5 = ft5; ft5 = tmp;
+  tmp = f6; f6 = ft6; ft6 = tmp;
+  tmp = f7; f7 = ft7; ft7 = tmp;
+  tmp = f8; f8 = ft8; ft8 = tmp;
+
+  // Normalize aerodynamic force coefficients
+  const dynPress = Math.max(0.0005, 0.5 * sim.u0 * sim.u0 * obstacle.size);
+  sim.dragForce = sim.dragForce * 0.92 + (-fxSum / dynPress) * 0.08;
+  sim.liftForce = sim.liftForce * 0.88 + (-fySum / dynPress) * 0.12;
+  sim.stepCount++;
+}
+
+/* ============================================================================
+   SMOKE DYE ADVECTION, VORTICITY CURL & LAGRANGIAN PARTICLES
+   ============================================================================ */
+function advectSmokeAndComputeVorticity() {
+  const dt = sim.substeps;
+  // Inject fresh dual-color smoke ribbons upstream of the obstacle
+  const r = obstacle.size * 0.55;
+  for (let y = 3; y < NY - 3; y++) {
+    const dy = y - obstacle.y;
+    // Create 3 fine smoke filaments in upper stream and 3 in lower stream
+    const stripe = 0.5 + 0.5 * Math.cos(dy * 0.75);
+    const topBand = (dy < -1.0 && dy > -r * 1.45) ? Math.pow(stripe, 0.5) : 0.0;
+    const botBand = (dy > 1.0 && dy < r * 1.45) ? Math.pow(stripe, 0.5) : 0.0;
+    for (let x = 0; x < 6; x++) {
+      const idx = y * NX + x;
+      dyeTop[idx] = topBand;
+      dyeBot[idx] = botBand;
+    }
+  }
+
+  // Semi-Lagrangian Backtrace Advection + Curl Computation
+  for (let y = 2; y < NY - 2; y++) {
+    const row = y * NX;
+    for (let x = 2; x < NX - 1; x++) {
+      const i = row + x;
+      if (barrier[i]) {
+        curl[i] = 0;
+        dyeTopTmp[i] = 0;
+        dyeBotTmp[i] = 0;
+        continue;
+      }
+
+      // Compute vorticity curl: ω = ∂uy/∂x - ∂ux/∂y
+      curl[i] = 0.5 * ((uy[i + 1] - uy[i - 1]) - (ux[i + NX] - ux[i - NX]));
+
+      // Backtrace fluid parcel position
+      let bx = x - ux[i] * dt;
+      let by = y - uy[i] * dt;
+      bx = Math.max(1.0, Math.min(NX - 2.001, bx));
+      by = Math.max(2.0, Math.min(NY - 3.001, by));
+
+      const x0 = bx | 0;
+      const y0 = by | 0;
+      const fx = bx - x0;
+      const fy = by - y0;
+      const i00 = y0 * NX + x0;
+      const i10 = i00 + 1;
+      const i01 = i00 + NX;
+      const i11 = i01 + 1;
+
+      const w00 = (1 - fx) * (1 - fy);
+      const w10 = fx * (1 - fy);
+      const w01 = (1 - fx) * fy;
+      const w11 = fx * fy;
+
+      dyeTopTmp[i] = (dyeTop[i00] * w00 + dyeTop[i10] * w10 + dyeTop[i01] * w01 + dyeTop[i11] * w11) * 0.9985;
+      dyeBotTmp[i] = (dyeBot[i00] * w00 + dyeBot[i10] * w10 + dyeBot[i01] * w01 + dyeBot[i11] * w11) * 0.9985;
+    }
+  }
+
+  let t = dyeTop; dyeTop = dyeTopTmp; dyeTopTmp = t;
+  t = dyeBot; dyeBot = dyeBotTmp; dyeBotTmp = t;
+
+  // Advect Lagrangian Tracer Particles (RK2 Midpoint integration)
+  if (sim.showParticles) {
+    for (let i = 0; i < NUM_PARTICLES; i++) {
+      const p = particles[i];
+      p.px = p.x;
+      p.py = p.y;
+
+      const ix = Math.max(1, Math.min(NX - 2, p.x | 0));
+      const iy = Math.max(2, Math.min(NY - 3, p.y | 0));
+      const idx = iy * NX + ix;
+
+      const vx1 = ux[idx] * dt;
+      const vy1 = uy[idx] * dt;
+
+      const mx = Math.max(1, Math.min(NX - 2, (p.x + vx1 * 0.5) | 0));
+      const my = Math.max(2, Math.min(NY - 3, (p.y + vy1 * 0.5) | 0));
+      const mIdx = my * NX + mx;
+
+      p.x += ux[mIdx] * dt;
+      p.y += uy[mIdx] * dt;
+      p.age++;
+
+      // Respawn at inlet nozzle if out of bounds or inside obstacle
+      if (p.x >= NX - 3 || p.x < 1 || p.y <= 2 || p.y >= NY - 3 || barrier[(p.y | 0) * NX + (p.x | 0)] || p.age > 340) {
+        p.x = 2 + Math.random() * 6;
+        // Concentrate half the particles in the obstacle wake path for dramatic vortex visualization
+        if (i < NUM_PARTICLES * 0.65) {
+          p.y = obstacle.y + (Math.random() - 0.5) * obstacle.size * 1.9;
+        } else {
+          p.y = 4 + Math.random() * (NY - 8);
+        }
+        p.y = Math.max(3, Math.min(NY - 4, p.y));
+        p.px = p.x;
+        p.py = p.y;
+        p.age = 0;
+        p.stream = p.y < obstacle.y ? 0 : 1;
+      }
+    }
+  }
+
+  // Record wake oscillation probe behind obstacle for oscilloscope & Strouhal estimation
+  const probeX = Math.min(NX - 10, Math.round(obstacle.x + obstacle.size * 2.2));
+  const probeY = Math.max(4, Math.min(NY - 5, Math.round(obstacle.y)));
+  const probeVy = uy[probeY * NX + probeX] / Math.max(0.01, sim.u0);
+
+  sim.wakeHistory.push(probeVy);
+  sim.liftHistory.push(sim.liftForce);
+  if (sim.wakeHistory.length > 180) {
+    sim.wakeHistory.shift();
+    sim.liftHistory.shift();
+  }
+}
+
+/* ============================================================================
+   SCIENTIFIC COLORMAPS & HIGH-SPEED PIXEL BUFFER RENDERING
+   ============================================================================ */
+let fluidImg = null;
+
+function renderFluidBuffer() {
+  fluidImg.loadPixels();
+  const pix = fluidImg.pixels;
+  const gain = sim.colorGain;
+  const mode = sim.vizMode;
+  const invU0 = 1.0 / Math.max(0.02, sim.u0);
+
+  for (let y = 0; y < NY; y++) {
+    const row = y * NX;
+    for (let x = 0; x < NX; x++) {
+      const i = row + x;
+      const pIdx = i * 4;
+
+      // Tube top/bottom walls
+      if (y < 2 || y >= NY - 2) {
+        pix[pIdx]     = 22;
+        pix[pIdx + 1] = 33;
+        pix[pIdx + 2] = 52;
+        pix[pIdx + 3] = 255;
+        continue;
+      }
+
+      if (barrier[i]) {
+        pix[pIdx]     = 30;
+        pix[pIdx + 1] = 41;
+        pix[pIdx + 2] = 59;
+        pix[pIdx + 3] = 255;
+        continue;
+      }
+
+      let r = 7, g = 11, b = 22;
+
+      if (mode === 'vorticity' || mode === 'hybrid') {
+        // Diverging Scientific Vorticity Colormap:
+        // Counter-clockwise (+ω): Amber / Coral / White-Hot
+        // Clockwise (-ω): Electric Cyan / Deep Azure / White-Hot
+        const w = curl[i] * 28.0 * gain;
+        const mag = Math.min(1.0, Math.abs(w));
+        const mag2 = mag * mag;
+
+        if (w > 0) {
+          r = 7  + mag * 242;
+          g = 11 + mag * 72 + mag2 * 135;
+          b = 22 + mag * 65 + mag2 * 110;
+        } else {
+          r = 7  + mag2 * 150;
+          g = 11 + mag * 185 + mag2 * 55;
+          b = 22 + mag * 233;
+        }
+
+        if (mode === 'hybrid') {
+          // Blend in the dual-streamline wind-tunnel dye ribbons
+          const dT = Math.min(1.0, dyeTop[i] * 1.15);
+          const dB = Math.min(1.0, dyeBot[i] * 1.15);
+          r = Math.min(255, r + dB * 195 + dT * 18);
+          g = Math.min(255, g + dT * 170 + dB * 85);
+          b = Math.min(255, b + dT * 215 + dB * 30);
+        }
+      } else if (mode === 'dye') {
+        // Pure Wind-Tunnel Dual-Color Smoke Streaklines
+        const dT = Math.min(1.0, dyeTop[i] * 1.35 * gain);
+        const dB = Math.min(1.0, dyeBot[i] * 1.35 * gain);
+        const mix = dT * dB;
+        r = 6  + dB * 245 + dT * 20 + mix * 90;
+        g = 10 + dT * 205 + dB * 95 + mix * 110;
+        b = 20 + dT * 240 + dB * 45 + mix * 70;
+      } else if (mode === 'speed') {
+        // Turbo / Plasma Velocity Magnitude Colormap
+        const spd = Math.sqrt(ux[i] * ux[i] + uy[i] * uy[i]) * invU0 * 0.62 * gain;
+        const t = Math.max(0.0, Math.min(1.0, spd));
+        r = Math.min(255, Math.max(0, 255 * Math.sin(Math.min(1, t * 1.25) * Math.PI * 0.85)));
+        g = Math.min(255, Math.max(0, 255 * Math.sin(Math.max(0, t - 0.15) * Math.PI * 1.05)));
+        b = Math.min(255, Math.max(0, 255 * (Math.cos(t * Math.PI * 1.35) * 0.5 + 0.5)));
+      } else if (mode === 'pressure') {
+        // Schlieren / Pressure Perturbation (Δp = c_s^2 (ρ - 1))
+        const dp = (rho[i] - 1.0) * 26.0 * gain;
+        const m = Math.min(1.0, Math.abs(dp));
+        if (dp >= 0) {
+          // High pressure stagnation zone (Warm Gold)
+          r = 12 + m * 240;
+          g = 16 + m * 175;
+          b = 28 + m * 55;
+        } else {
+          // Low pressure vortex core suction zone (Violet-Cyan)
+          r = 12 + m * 115;
+          g = 16 + m * 210;
+          b = 28 + m * 225;
+        }
+      }
+
+      pix[pIdx]     = r;
+      pix[pIdx + 1] = g;
+      pix[pIdx + 2] = b;
+      pix[pIdx + 3] = 255;
+    }
+  }
+  fluidImg.updatePixels();
+}
+
+/* ============================================================================
+   DETECT VORTEX CORES IN THE WAKE (LOCAL EXTREMA OF VORTICITY ω)
+   ============================================================================ */
+function findVortexCores() {
+  const cores = [];
+  const startX = Math.max(8, Math.floor(obstacle.x + obstacle.size * 0.45));
+  const threshold = 0.011;
+
+  for (let y = 8; y < NY - 8; y += 2) {
+    for (let x = startX; x < NX - 10; x += 2) {
+      const i = y * NX + x;
+      if (barrier[i]) continue;
+      const w = curl[i];
+      if (Math.abs(w) < threshold) continue;
+
+      let isExtrema = true;
+      for (let dy = -3; dy <= 3 && isExtrema; dy += 3) {
+        for (let dx = -3; dx <= 3; dx += 3) {
+          if (dx === 0 && dy === 0) continue;
+          const nw = curl[(y + dy) * NX + (x + dx)];
+          if (w > 0 && nw > w) { isExtrema = false; break; }
+          if (w < 0 && nw < w) { isExtrema = false; break; }
+        }
+      }
+
+      if (isExtrema) {
+        // Merge nearby detections
+        let merged = false;
+        for (const c of cores) {
+          if (Math.hypot(c.x - x, c.y - y) < 11) {
+            if (Math.abs(w) > Math.abs(c.w)) { c.x = x; c.y = y; c.w = w; }
+            merged = true;
+            break;
+          }
+        }
+        if (!merged) cores.push({ x, y, w });
+      }
+    }
+  }
+  return cores;
+}
+
+/* ============================================================================
+   P5.JS LIFECYCLE, VECTOR OVERLAYS, OBSTACLE CAD GIZMO & INTERACTION
+   ============================================================================ */
+let fpsSmooth = 60;
+
+function setup() {
+  const cnv = createCanvas(CW, CH);
+  cnv.parent('p5-holder');
+  pixelDensity(1);
+
+  fluidImg = createImage(NX, NY);
+  // Enable bilinear smoothing when scaling the NX x NY texture up to CW x CH
+  drawingContext.imageSmoothingEnabled = true;
+  drawingContext.imageSmoothingQuality = 'high';
+
+  resetFluidField();
+  bindUIControls();
+}
+
+function draw() {
+  // 1. Update Auto-Spin if enabled
+  if (sim.autoSpin && !sim.paused) {
+    obstacle.angle = (obstacle.angle + 0.8) % 360;
+    obstacle.omega = 0.8 * (Math.PI / 180) / sim.substeps;
+    document.getElementById('sl-angle').value = Math.round(obstacle.angle);
+    document.getElementById('val-angle').textContent = Math.round(obstacle.angle) + '°';
+    rebuildObstacleMask(true);
+  } else if (obstacle.dragMode !== 'rotate') {
+    obstacle.omega = 0;
+  }
+
+  // 2. Step Lattice–Boltzmann Physics
+  if (!sim.paused) {
+    for (let s = 0; s < sim.substeps; s++) {
+      stepLBM();
+    }
+    advectSmokeAndComputeVorticity();
+    // Decay instantaneous drag velocity after substep
+    obstacle.vx *= 0.5;
+    obstacle.vy *= 0.5;
+  }
+
+  // 3. Render Scalar Fluid Field
+  renderFluidBuffer();
+  image(fluidImg, 0, 0, CW, CH);
+
+  // 4. Draw Tube Walls & Inlet Nozzle Grille
+  drawTubeStructure();
+
+  // 5. Draw Lagrangian Tracer Particles
+  if (sim.showParticles) {
+    drawParticlesOverlay();
+  }
+
+  // 6. Draw Velocity Vector Field (u arrows)
+  if (sim.showVectors) {
+    drawVelocityVectors();
+  }
+
+  // 7. Draw Vortex Street Core Markers (+ / - alternating vortices)
+  if (sim.showCores) {
+    drawVortexCoreMarkers();
+  }
+
+  // 8. Draw Crisp Vector Obstacle & Interactive Rotation/Scale Gizmo
+  drawObstacleAndGizmo();
+
+  // 9. Draw Wake Oscilloscope & Shedding Telemetry
+  if (sim.showGraph) {
+    drawWakeOscilloscope();
+  }
+
+  // 10. Update Top Telemetry Bar
+  updateTelemetryHUD();
+}
+
+function drawTubeStructure() {
+  push();
+  const wallH = 2 * SCALE;
+  // Metallic Tube Top & Bottom Walls
+  noStroke();
+  fill(15, 23, 42, 240);
+  rect(0, 0, CW, wallH);
+  rect(0, CH - wallH, CW, wallH);
+
+  stroke(56, 189, 248, 150);
+  strokeWeight(1.5);
+  line(0, wallH, CW, wallH);
+  line(0, CH - wallH, CW, CH - wallH);
+
+  // Diagonal hatch marks on tube walls
+  stroke(56, 189, 248, 45);
+  strokeWeight(1);
+  for (let x = 0; x < CW; x += 18) {
+    line(x, 0, x - 8, wallH);
+    line(x, CH - wallH, x - 8, CH);
+  }
+
+  // Left Inlet Honeycomb Flow Straightener Nozzle
+  fill(15, 23, 42, 200);
+  stroke(56, 189, 248, 90);
+  rect(0, wallH, 10, CH - wallH * 2);
+  for (let y = wallH + 12; y < CH - wallH; y += 14) {
+    line(0, y, 10, y);
+  }
+  pop();
+}
+
+function drawParticlesOverlay() {
+  push();
+  strokeWeight(1.6);
+  for (let i = 0; i < NUM_PARTICLES; i++) {
+    const p = particles[i];
+    const x1 = p.px * SCALE;
+    const y1 = p.py * SCALE;
+    const x2 = p.x * SCALE;
+    const y2 = p.y * SCALE;
+    if (Math.abs(x2 - x1) > 35) continue;
+
+    // Stretch trail slightly for sense of motion
+    const dx = (x2 - x1) * 2.2;
+    const dy = (y2 - y1) * 2.2;
+    if (p.stream === 0) {
+      stroke(125, 211, 252, 165);
+    } else {
+      stroke(253, 186, 116, 165);
+    }
+    line(x2 - dx, y2 - dy, x2, y2);
+  }
+  pop();
+}
+
+function drawVelocityVectors() {
+  push();
+  const stepX = 10;
+  const stepY = 8;
+  const invU0 = 1.0 / Math.max(0.02, sim.u0);
+
+  strokeWeight(1.15);
+  for (let y = 6; y < NY - 6; y += stepY) {
+    for (let x = 8; x < NX - 6; x += stepX) {
+      const idx = y * NX + x;
+      if (barrier[idx]) continue;
+
+      const vx = ux[idx];
+      const vy = uy[idx];
+      const mag = Math.hypot(vx, vy);
+      if (mag < 0.002) continue;
+
+      const sx = x * SCALE;
+      const sy = y * SCALE;
+      const len = Math.min(24, (mag * invU0) * 14.5);
+      const ang = Math.atan2(vy, vx);
+
+      const ex = sx + Math.cos(ang) * len;
+      const ey = sy + Math.sin(ang) * len;
+
+      stroke(226, 232, 240, 125);
+      line(sx, sy, ex, ey);
+
+      // Arrowhead
+      const headLen = 4.0;
+      line(ex, ey, ex - Math.cos(ang - 0.5) * headLen, ey - Math.sin(ang - 0.5) * headLen);
+      line(ex, ey, ex - Math.cos(ang + 0.5) * headLen, ey - Math.sin(ang + 0.5) * headLen);
+    }
+  }
+  pop();
+}
+
+function drawVortexCoreMarkers() {
+  const cores = findVortexCores();
+  push();
+  textAlign(CENTER, CENTER);
+  textSize(10);
+  for (const c of cores) {
+    const sx = c.x * SCALE;
+    const sy = c.y * SCALE;
+    const isCCW = c.w > 0;
+    const col = isCCW ? color(251, 146, 60, 220) : color(56, 189, 248, 220);
+
+    noFill();
+    stroke(col);
+    strokeWeight(1.4);
+    circle(sx, sy, 16);
+
+    // Subtle rotation arc ticks
+    const rot = frameCount * 0.06 * (isCCW ? 1 : -1);
+    arc(sx, sy, 23, 23, rot, rot + PI * 0.7);
+    arc(sx, sy, 23, 23, rot + PI, rot + PI * 1.7);
+
+    noStroke();
+    fill(col);
+    text(isCCW ? '+' : '−', sx, sy + 0.5);
+  }
+  pop();
+}
+
+function drawObstacleAndGizmo() {
+  const cx = obstacle.x * SCALE;
+  const cy = obstacle.y * SCALE;
+  const r  = (obstacle.size * 0.5) * SCALE;
+
+  push();
+  translate(cx, cy);
+  rotate(radians(obstacle.angle));
+
+  // Crisp anti-aliased vector body over the lattice stair-steps
+  fill(30, 41, 59);
+  stroke(148, 163, 184);
+  strokeWeight(2.2);
+
+  switch (obstacle.shape) {
+    case 'circle':
+      circle(0, 0, r * 2);
+      break;
+    case 'ellipse':
+      ellipse(0, 0, r * 2.5, r * 1.24);
+      break;
+    case 'rect':
+      rectMode(CENTER);
+      rect(0, 0, r * 1.84, r * 1.44, 3);
+      break;
+    case 'plate':
+      rectMode(CENTER);
+      rect(0, 0, r * 0.44, r * 2.24, r * 0.2);
+      break;
+    case 'airfoil': {
+      const chord = r * 2.3;
+      const thick = 0.28 * chord;
+      beginShape();
+      for (let i = 0; i <= 28; i++) {
+        const u = i / 28;
+        const x = (u - 0.45) * chord;
+        const y = (thick / 0.2) * (0.2969 * Math.sqrt(u) - 0.1260 * u - 0.3516 * u * u + 0.2843 * u * u * u - 0.1015 * u * u * u * u);
+        vertex(x, -y);
+      }
+      for (let i = 28; i >= 0; i--) {
+        const u = i / 28;
+        const x = (u - 0.45) * chord;
+        const y = (thick / 0.2) * (0.2969 * Math.sqrt(u) - 0.1260 * u - 0.3516 * u * u + 0.2843 * u * u * u - 0.1015 * u * u * u * u);
+        vertex(x, y);
+      }
+      endShape(CLOSE);
+      break;
+    }
+    case 'triangle': {
+      const h = r * 1.15;
+      triangle(-h * 0.7, 0, h * 0.9, -h * 0.95, h * 0.9, h * 0.95);
+      break;
+    }
+  }
+
+  // Orientation centerline & center pivot cross
+  stroke(56, 189, 248, 120);
+  strokeWeight(1.2);
+  line(-r * 0.5, 0, r * 0.75, 0);
+  fill(56, 189, 248);
+  noStroke();
+  circle(0, 0, 5);
+
+  // Interactive CAD Gizmo (Rotation Ring, Orange Rotate Knob, Cyan Scale Knob)
+  if (sim.showGizmo) {
+    const gizmoR = r + 20;
+    noFill();
+    stroke(255, 255, 255, 65);
+    strokeWeight(1.2);
+    drawingContext.setLineDash([4, 4]);
+    circle(0, 0, gizmoR * 2);
+    drawingContext.setLineDash([]);
+
+    // Line to Rotation Handle (at local +X axis)
+    stroke(251, 146, 60, 180);
+    line(r * 0.75, 0, gizmoR, 0);
+
+    // Orange Rotation Handle Knob
+    fill(251, 146, 60);
+    stroke(15, 23, 42);
+    strokeWeight(2);
+    circle(gizmoR, 0, 12);
+
+    // Cyan Scale Handle Knob (at local +Y axis)
+    fill(56, 189, 248);
+    stroke(15, 23, 42);
+    circle(0, r, 11);
+  }
+  pop();
+}
+
+function drawWakeOscilloscope() {
+  const gw = 230;
+  const gh = 78;
+  const gx = CW - gw - 14;
+  const gy = CH - gh - 16;
+
+  push();
+  fill(7, 11, 22, 210);
+  stroke(56, 189, 248, 90);
+  strokeWeight(1);
+  rect(gx, gy, gw, gh, 8);
+
+  // Zero reference line
+  stroke(255, 255, 255, 35);
+  line(gx + 8, gy + gh * 0.55, gx + gw - 8, gy + gh * 0.55);
+
+  noStroke();
+  fill(148, 163, 184);
+  textSize(10);
+  textAlign(LEFT, TOP);
+  text('WAKE VORTEX OSCILLATION (Vy & Lift)', gx + 10, gy + 6);
+
+  // Plot transverse wake velocity (Cyan)
+  if (sim.wakeHistory.length > 2) {
+    noFill();
+    stroke(56, 189, 248);
+    strokeWeight(1.6);
+    beginShape();
+    for (let i = 0; i < sim.wakeHistory.length; i++) {
+      const px = gx + 10 + (i / 180) * (gw - 20);
+      const py = gy + gh * 0.55 - Math.max(-1, Math.min(1, sim.wakeHistory[i] * 1.4)) * (gh * 0.34);
+      vertex(px, py);
+    }
+    endShape();
+
+    // Plot Lift Coefficient CL (Amber)
+    stroke(251, 146, 60, 200);
+    strokeWeight(1.3);
+    beginShape();
+    for (let i = 0; i < sim.liftHistory.length; i++) {
+      const px = gx + 10 + (i / 180) * (gw - 20);
+      const py = gy + gh * 0.55 - Math.max(-1, Math.min(1, sim.liftHistory[i] * 0.6)) * (gh * 0.34);
+      vertex(px, py);
+    }
+    endShape();
+  }
+  pop();
+}
+
+function updateTelemetryHUD() {
+  fpsSmooth = fpsSmooth * 0.9 + frameRate() * 0.1;
+  const re = Math.round((sim.u0 * obstacle.size) / sim.nu);
+
+  // Estimate Strouhal number from zero-crossings in wakeHistory
+  let crossings = 0;
+  let firstIdx = -1, lastIdx = -1;
+  for (let i = 1; i < sim.wakeHistory.length; i++) {
+    if (sim.wakeHistory[i - 1] <= 0 && sim.wakeHistory[i] > 0 && (sim.wakeHistory[i] - sim.wakeHistory[i - 1]) > 0.01) {
+      if (firstIdx === -1) firstIdx = i;
+      lastIdx = i;
+      crossings++;
+    }
+  }
+  if (crossings >= 2 && lastIdx > firstIdx) {
+    const periodFrames = (lastIdx - firstIdx) / (crossings - 1);
+    const freqLattice = 1.0 / (periodFrames * sim.substeps);
+    const stMeas = (freqLattice * obstacle.size) / Math.max(0.01, sim.u0);
+    if (stMeas > 0.05 && stMeas < 0.45) {
+      sim.strouhal = sim.strouhal * 0.95 + stMeas * 0.05;
+    }
+  }
+
+  document.getElementById('stat-re').textContent = re;
+  document.getElementById('stat-st').textContent = sim.strouhal.toFixed(3);
+  document.getElementById('stat-cl').textContent = (sim.liftForce >= 0 ? '+' : '') + sim.liftForce.toFixed(2);
+  document.getElementById('stat-cd').textContent = Math.max(0, sim.dragForce).toFixed(2);
+  document.getElementById('stat-fps').textContent = Math.round(fpsSmooth);
+  document.getElementById('pose-readout').textContent =
+    `X:${(obstacle.x / NX).toFixed(2)} Y:${(obstacle.y / NY).toFixed(2)}`;
+}
+
+/* ============================================================================
+   DIRECT MOUSE & WHEEL INTERACTION ON THE FLUID TUBE CANVAS
+   ============================================================================ */
+function getGizmoPositions() {
+  const cx = obstacle.x * SCALE;
+  const cy = obstacle.y * SCALE;
+  const r  = (obstacle.size * 0.5) * SCALE;
+  const gizmoR = r + 20;
+  const rad = radians(obstacle.angle);
+  const c = Math.cos(rad), s = Math.sin(rad);
+
+  return {
+    cx, cy, r,
+    rotX: cx + c * gizmoR,
+    rotY: cy + s * gizmoR,
+    scaleX: cx - s * r,
+    scaleY: cy + c * r
+  };
+}
+
+function mousePressed() {
+  if (mouseX < 0 || mouseX > CW || mouseY < 0 || mouseY > CH) return;
+
+  const g = getGizmoPositions();
+  if (sim.showGizmo && dist(mouseX, mouseY, g.rotX, g.rotY) < 15) {
+    obstacle.dragMode = 'rotate';
+    return;
+  }
+  if (sim.showGizmo && dist(mouseX, mouseY, g.scaleX, g.scaleY) < 15) {
+    obstacle.dragMode = 'scale';
+    return;
+  }
+
+  const dCenter = dist(mouseX, mouseY, g.cx, g.cy);
+  if (dCenter <= g.r * 1.35) {
+    if (keyIsDown(SHIFT)) {
+      obstacle.dragMode = 'rotate';
+    } else {
+      obstacle.dragMode = 'move';
+      obstacle.dragOffsetX = obstacle.x - mouseX / SCALE;
+      obstacle.dragOffsetY = obstacle.y - mouseY / SCALE;
+    }
+  }
+}
+
+function mouseDragged() {
+  if (!obstacle.dragMode) return;
+  const gx = mouseX / SCALE;
+  const gy = mouseY / SCALE;
+
+  if (obstacle.dragMode === 'move') {
+    const pad = obstacle.size * 0.55 + 3;
+    const newX = Math.max(pad + 4, Math.min(NX - pad - 12, gx + obstacle.dragOffsetX));
+    const newY = Math.max(pad + 2, Math.min(NY - pad - 2, gy + obstacle.dragOffsetY));
+    obstacle.vx = (newX - obstacle.x) / sim.substeps;
+    obstacle.vy = (newY - obstacle.y) / sim.substeps;
+    obstacle.x = newX;
+    obstacle.y = newY;
+    rebuildObstacleMask(true);
+  } else if (obstacle.dragMode === 'rotate') {
+    const ang = (degrees(Math.atan2(gy - obstacle.y, gx - obstacle.x)) + 360) % 360;
+    const dAng = ((ang - obstacle.angle + 540) % 360) - 180;
+    obstacle.omega = radians(dAng) / sim.substeps;
+    obstacle.angle = ang;
+    document.getElementById('sl-angle').value = Math.round(obstacle.angle);
+    document.getElementById('val-angle').textContent = Math.round(obstacle.angle) + '°';
+    rebuildObstacleMask(true);
+  } else if (obstacle.dragMode === 'scale') {
+    const newR = dist(gx, gy, obstacle.x, obstacle.y);
+    obstacle.size = Math.round(Math.max(12, Math.min(46, newR * 2)));
+    document.getElementById('sl-size').value = obstacle.size;
+    document.getElementById('val-size').textContent = obstacle.size + ' px';
+    rebuildObstacleMask(true);
+  }
+}
+
+function mouseReleased() {
+  obstacle.dragMode = null;
+  obstacle.vx = 0;
+  obstacle.vy = 0;
+  obstacle.omega = 0;
+}
+
+function mouseWheel(event) {
+  if (mouseX >= 0 && mouseX <= CW && mouseY >= 0 && mouseY <= CH) {
+    const delta = event.delta > 0 ? 5 : -5;
+    obstacle.angle = (obstacle.angle + delta + 360) % 360;
+    document.getElementById('sl-angle').value = Math.round(obstacle.angle);
+    document.getElementById('val-angle').textContent = Math.round(obstacle.angle) + '°';
+    rebuildObstacleMask(true);
+    return false; // Prevent page scroll when rotating obstacle with mouse wheel
+  }
+}
+
+/* ============================================================================
+   UI CONTROLS BINDING
+   ============================================================================ */
+function bindUIControls() {
+  // Shape selector buttons
+  const shapeBtns = document.querySelectorAll('#shape-btns button');
+  shapeBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      shapeBtns.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      obstacle.shape = btn.dataset.shape;
+      rebuildObstacleMask(true);
+    });
+  });
+
+  // Size slider
+  const slSize = document.getElementById('sl-size');
+  slSize.addEventListener('input', () => {
+    obstacle.size = Number(slSize.value);
+    document.getElementById('val-size').textContent = obstacle.size + ' px';
+    rebuildObstacleMask(true);
+  });
+
+  // Rotation slider & quick angle buttons
+  const slAngle = document.getElementById('sl-angle');
+  slAngle.addEventListener('input', () => {
+    obstacle.angle = Number(slAngle.value);
+    document.getElementById('val-angle').textContent = obstacle.angle + '°';
+    rebuildObstacleMask(true);
+  });
+
+  document.querySelectorAll('[data-ang]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      obstacle.angle = Number(btn.dataset.ang);
+      slAngle.value = obstacle.angle;
+      document.getElementById('val-angle').textContent = obstacle.angle + '°';
+      rebuildObstacleMask(true);
+    });
+  });
+
+  const btnSpin = document.getElementById('btn-spin');
+  btnSpin.addEventListener('click', () => {
+    sim.autoSpin = !sim.autoSpin;
+    btnSpin.textContent = `Auto-Spin: ${sim.autoSpin ? 'ON' : 'OFF'}`;
+    btnSpin.classList.toggle('active', sim.autoSpin);
+  });
+
+  // Physics sliders
+  const slVel = document.getElementById('sl-vel');
+  slVel.addEventListener('input', () => {
+    sim.u0 = Number(slVel.value);
+    document.getElementById('val-vel').textContent = sim.u0.toFixed(3);
+  });
+
+  const slVisc = document.getElementById('sl-visc');
+  slVisc.addEventListener('input', () => {
+    sim.nu = Number(slVisc.value);
+    document.getElementById('val-visc').textContent = sim.nu.toFixed(3);
+  });
+
+  const slSteps = document.getElementById('sl-steps');
+  slSteps.addEventListener('input', () => {
+    sim.substeps = Number(slSteps.value);
+    document.getElementById('val-steps').textContent = sim.substeps + 'x';
+  });
+
+  document.getElementById('btn-perturb').addEventListener('click', () => {
+    sim.perturbTimer = 60;
+  });
+
+  document.getElementById('btn-reset-flow').addEventListener('click', () => {
+    obstacle.x = NX * 0.23;
+    obstacle.y = NY * 0.50;
+    resetFluidField();
+  });
+
+  const btnPause = document.getElementById('btn-pause');
+  btnPause.addEventListener('click', () => {
+    sim.paused = !sim.paused;
+    btnPause.textContent = sim.paused ? 'Resume' : 'Pause';
+    btnPause.classList.toggle('active', sim.paused);
+  });
+
+  // Visualization mode & overlays
+  document.getElementById('sel-viz').addEventListener('change', (e) => {
+    sim.vizMode = e.target.value;
+  });
+
+  const slGain = document.getElementById('sl-gain');
+  slGain.addEventListener('input', () => {
+    sim.colorGain = Number(slGain.value);
+    document.getElementById('val-gain').textContent = sim.colorGain.toFixed(2) + 'x';
+  });
+
+  document.getElementById('chk-vectors').addEventListener('change', e => sim.showVectors = e.target.checked);
+  document.getElementById('chk-particles').addEventListener('change', e => sim.showParticles = e.target.checked);
+  document.getElementById('chk-cores').addEventListener('change', e => sim.showCores = e.target.checked);
+  document.getElementById('chk-gizmo').addEventListener('change', e => sim.showGizmo = e.target.checked);
+  document.getElementById('chk-graph').addEventListener('change', e => sim.showGraph = e.target.checked);
+  document.getElementById('chk-walls').addEventListener('change', e => sim.noSlipWalls = e.target.checked);
+}
+</script>
+</body>
+</html>

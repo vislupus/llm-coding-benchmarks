@@ -1,0 +1,893 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PhotoCanvas — Image Editor</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; font-family:'Segoe UI',Arial,sans-serif; }
+  html,body { height:100%; overflow:hidden; background:#1e1e1e; color:#ddd; user-select:none; }
+  #app { display:flex; flex-direction:column; height:100%; }
+
+  /* ---------- TOP BAR ---------- */
+  #topbar { display:flex; align-items:center; gap:6px; padding:6px 10px; background:#2b2b2b; border-bottom:1px solid #111; flex-wrap:wrap; }
+  .tbtn { background:#3a3a3a; color:#ddd; border:1px solid #555; border-radius:4px; padding:5px 10px; cursor:pointer; font-size:12px; }
+  .tbtn:hover { background:#4a6a9a; border-color:#6a8aba; }
+  .tbtn:disabled { opacity:.4; cursor:default; }
+  .tbtn:disabled:hover { background:#3a3a3a; border-color:#555; }
+  #title { font-weight:bold; font-size:14px; color:#8ab4f8; margin-right:10px; }
+  #zoomLabel { font-size:12px; color:#aaa; min-width:44px; text-align:center; }
+  .spacer { flex:1; }
+
+  /* ---------- MAIN ---------- */
+  #main { display:flex; flex:1; min-height:0; }
+
+  /* ---------- TOOLBAR ---------- */
+  #toolbar { width:52px; background:#2b2b2b; border-right:1px solid #111; display:flex; flex-direction:column; align-items:center; padding-top:8px; gap:4px; overflow-y:auto; }
+  .tool { width:40px; height:40px; display:flex; align-items:center; justify-content:center; font-size:18px; cursor:pointer; border-radius:5px; border:1px solid transparent; }
+  .tool:hover { background:#3a3a3a; }
+  .tool.active { background:#4a6a9a; border-color:#6a8aba; }
+  .tsep { width:32px; height:1px; background:#555; margin:4px 0; }
+
+  /* ---------- CANVAS AREA ---------- */
+  #canvasArea { flex:1; overflow:auto; background:#181818; display:flex; align-items:center; justify-content:center; position:relative; }
+  #canvasWrap {
+    position:relative; flex:none;
+    background-image:conic-gradient(#3a3a3a 25%, #2a2a2a 0 50%, #3a3a3a 0 75%, #2a2a2a 0);
+    background-size:20px 20px;
+    box-shadow:0 0 0 1px #000, 0 8px 30px rgba(0,0,0,.6);
+    cursor:crosshair;
+  }
+  #canvasWrap * { pointer-events:none; }
+  #canvasWrap { image-rendering:auto; }
+
+  /* ---------- RIGHT PANEL ---------- */
+  #rightPanel { width:264px; background:#2b2b2b; border-left:1px solid #111; overflow-y:auto; }
+  .section { border-bottom:1px solid #1a1a1a; padding:10px; }
+  .section h3 { font-size:11px; text-transform:uppercase; letter-spacing:1px; color:#8ab4f8; margin-bottom:8px; }
+  .row { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+  .row label { font-size:11px; color:#aaa; min-width:58px; }
+  input[type=range] { flex:1; accent-color:#4a6a9a; }
+  input[type=color] { width:44px; height:30px; border:none; background:none; cursor:pointer; padding:0; }
+  .val { font-size:11px; color:#ccc; min-width:30px; text-align:right; }
+  select { background:#3a3a3a; color:#ddd; border:1px solid #555; border-radius:4px; padding:4px; font-size:12px; width:100%; }
+  .swatches { display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; }
+  .swatch { width:20px; height:20px; border:1px solid #555; border-radius:3px; cursor:pointer; }
+  .swatch:hover { outline:2px solid #8ab4f8; }
+
+  /* ---------- LAYERS ---------- */
+  #layerList { max-height:220px; overflow-y:auto; margin-bottom:8px; }
+  .layerItem { display:flex; align-items:center; gap:6px; padding:4px 6px; background:#333; border:1px solid #444; border-radius:4px; margin-bottom:4px; cursor:pointer; font-size:12px; }
+  .layerItem.current { border-color:#8ab4f8; background:#3a4a63; }
+  .layerItem .eye { cursor:pointer; font-size:14px; width:18px; text-align:center; }
+  .layerItem .lname { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .layerItem canvas { border:1px solid #555; background-image:conic-gradient(#444 25%,#333 0 50%,#444 0 75%,#333 0); background-size:10px 10px; }
+  .layerBtns { display:grid; grid-template-columns:repeat(4,1fr); gap:4px; }
+  .layerBtns .tbtn { padding:4px 0; font-size:14px; }
+  #layerOpacityRow { margin-top:8px; }
+
+  /* ---------- FILTERS ---------- */
+  .filterGrid { display:grid; grid-template-columns:1fr 1fr; gap:4px; }
+  .filterGrid .tbtn { padding:5px 0; font-size:11px; }
+  .filterSliders { margin-top:8px; }
+
+  /* ---------- STATUS BAR ---------- */
+  #statusbar { display:flex; gap:16px; padding:4px 12px; background:#2b2b2b; border-top:1px solid #111; font-size:11px; color:#999; }
+
+  /* toast */
+  #toast { position:fixed; bottom:40px; left:50%; transform:translateX(-50%); background:#4a6a9a; color:#fff; padding:8px 18px; border-radius:6px; font-size:13px; opacity:0; transition:opacity .3s; pointer-events:none; z-index:99; }
+  #toast.show { opacity:1; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- TOP BAR -->
+  <div id="topbar">
+    <span id="title">🎨 PhotoCanvas</span>
+    <button class="tbtn" onclick="newDocument()">New</button>
+    <button class="tbtn" onclick="document.getElementById('fileInput').click()">Open</button>
+    <button class="tbtn" onclick="exportPNG()">Save PNG</button>
+    <input type="file" id="fileInput" accept="image/*" hidden>
+    <span class="tsep" style="height:20px"></span>
+    <button class="tbtn" id="undoBtn" onclick="undo()" title="Ctrl+Z">↩ Undo</button>
+    <button class="tbtn" id="redoBtn" onclick="redo()" title="Ctrl+Y">↪ Redo</button>
+    <span class="tsep" style="height:20px"></span>
+    <button class="tbtn" onclick="setZoom(zoom-0.25)">−</button>
+    <span id="zoomLabel">100%</span>
+    <button class="tbtn" onclick="setZoom(zoom+0.25)">+</button>
+    <button class="tbtn" onclick="setZoom(1)">Fit</button>
+    <span class="spacer"></span>
+    <button class="tbtn" onclick="flattenImage()">Flatten</button>
+  </div>
+
+  <div id="main">
+
+    <!-- TOOLBAR -->
+    <div id="toolbar">
+      <div class="tool" data-tool="move"     title="Move (V)">✥</div>
+      <div class="tool" data-tool="marquee"  title="Marquee Select (M)">▭</div>
+      <div class="tsep"></div>
+      <div class="tool" data-tool="brush"    title="Brush (B)">🖌</div>
+      <div class="tool" data-tool="eraser"   title="Eraser (E)">🧽</div>
+      <div class="tool" data-tool="fill"     title="Fill / Bucket (G)">🪣</div>
+      <div class="tool" data-tool="eyedrop"  title="Eyedropper (I)">💧</div>
+      <div class="tsep"></div>
+      <div class="tool" data-tool="rect"     title="Rectangle (U)">▢</div>
+      <div class="tool" data-tool="ellipse"  title="Ellipse (O)">◯</div>
+      <div class="tool" data-tool="line"     title="Line (L)">╱</div>
+      <div class="tool" data-tool="text"     title="Text (T)">T</div>
+    </div>
+
+    <!-- CANVAS -->
+    <div id="canvasArea">
+      <div id="canvasWrap">
+        <canvas id="displayCanvas"></canvas>
+        <canvas id="overlayCanvas"></canvas>
+      </div>
+    </div>
+
+    <!-- RIGHT PANEL -->
+    <div id="rightPanel">
+
+      <div class="section">
+        <h3>Color</h3>
+        <div class="row">
+          <input type="color" id="colorPicker" value="#ff0000">
+          <div class="swatches" id="swatches"></div>
+        </div>
+      </div>
+
+      <div class="section">
+        <h3>Tool Options</h3>
+        <div class="row"><label>Size</label><input type="range" id="sizeSlider" min="1" max="200" value="20"><span class="val" id="sizeVal">20</span></div>
+        <div class="row"><label>Opacity</label><input type="range" id="opacitySlider" min="1" max="100" value="100"><span class="val" id="opacityVal">100%</span></div>
+        <div class="row"><label>Hardness</label><input type="range" id="hardnessSlider" min="0" max="100" value="100"><span class="val" id="hardnessVal">100%</span></div>
+        <div class="row" id="shapeStrokeRow" style="display:none">
+          <label>Shape</label>
+          <select id="shapeMode" style="flex:1">
+            <option value="fill">Fill</option>
+            <option value="stroke">Stroke</option>
+            <option value="both">Fill + Stroke</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="section">
+        <h3>Layers</h3>
+        <div class="row">
+          <select id="blendMode"></select>
+        </div>
+        <div class="row" id="layerOpacityRow">
+          <label>Opacity</label><input type="range" id="layerOpacity" min="0" max="100" value="100"><span class="val" id="layerOpacityVal">100%</span>
+        </div>
+        <div id="layerList"></div>
+        <div class="layerBtns">
+          <button class="tbtn" onclick="addLayer()" title="New layer">＋</button>
+          <button class="tbtn" onclick="duplicateLayer()" title="Duplicate">⧉</button>
+          <button class="tbtn" onclick="moveLayer(1)" title="Move up">▲</button>
+          <button class="tbtn" onclick="moveLayer(-1)" title="Move down">▼</button>
+          <button class="tbtn" onclick="clearLayer()" title="Clear layer">🗑</button>
+          <button class="tbtn" onclick="deleteLayer()" title="Delete layer">✖</button>
+          <button class="tbtn" onclick="mergeDown()" title="Merge down">⤵</button>
+          <button class="tbtn" onclick="deselect()" title="Deselect (Esc)">⊘</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <h3>Filters</h3>
+        <div class="filterGrid">
+          <button class="tbtn" onclick="applyFilter('grayscale(100%)')">Grayscale</button>
+          <button class="tbtn" onclick="applyFilter('sepia(100%)')">Sepia</button>
+          <button class="tbtn" onclick="applyFilter('invert(100%)')">Invert</button>
+          <button class="tbtn" onclick="applyFilter('saturate(0%)')">Desaturate</button>
+          <button class="tbtn" onclick="applyFilter('saturate(200%)')">Saturate</button>
+          <button class="tbtn" onclick="applyFilter('contrast(150%)')">Contrast+</button>
+          <button class="tbtn" onclick="applyFilter('contrast(70%)')">Contrast−</button>
+          <button class="tbtn" onclick="applyFilter('brightness(120%)')">Brighter</button>
+          <button class="tbtn" onclick="applyFilter('brightness(80%)')">Darker</button>
+          <button class="tbtn" onclick="sharpenLayer()">Sharpen</button>
+          <button class="tbtn" onclick="applyFilter('hue-rotate(90deg)')">Hue +90°</button>
+          <button class="tbtn" onclick="applyFilter('hue-rotate(180deg)')">Hue +180°</button>
+        </div>
+        <div class="filterSliders">
+          <div class="row"><label>Blur</label><input type="range" id="fBlur" min="0" max="20" value="0"><span class="val" id="fBlurVal">0</span></div>
+          <div class="row"><label>Bright</label><input type="range" id="fBright" min="20" max="200" value="100"><span class="val" id="fBrightVal">100</span></div>
+          <div class="row"><label>Contrast</label><input type="range" id="fContrast" min="20" max="200" value="100"><span class="val" id="fContrastVal">100</span></div>
+          <div class="row"><label>Saturate</label><input type="range" id="fSat" min="0" max="300" value="100"><span class="val" id="fSatVal">100</span></div>
+          <div class="row"><label>Hue</label><input type="range" id="fHue" min="0" max="360" value="0"><span class="val" id="fHueVal">0°</span></div>
+          <div class="row"><button class="tbtn" style="flex:1" onclick="applyCustomFilter()">Apply Custom Filter</button></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- STATUS BAR -->
+  <div id="statusbar">
+    <span id="statusPos">X: 0, Y: 0</span>
+    <span id="statusSize">800 × 600</span>
+    <span id="statusTool">Brush</span>
+    <span id="statusZoom"></span>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+/* ================= STATE ================= */
+let W = 800, H = 600, zoom = 1;
+let layers = [];          // {id,name,canvas,ctx,visible,opacity,blend}
+let currentLayer = null;
+let tool = 'brush';
+let color = '#ff0000';
+let brushSize = 20, brushOpacity = 1, hardness = 1;
+let layerIdCounter = 1;
+
+let history = [], historyIndex = -1;
+const MAX_HISTORY = 25;
+
+let selection = null;     // {x,y,w,h}
+let maskCanvas = null;
+
+let drawing = false, moveStart = null, moveSnap = null, shapeStart = null, lastPt = null;
+
+const display = document.getElementById('displayCanvas');
+const dctx = display.getContext('2d');
+const overlay = document.getElementById('overlayCanvas');
+const octx = overlay.getContext('2d');
+const wrap = document.getElementById('canvasWrap');
+
+/* ================= SETUP ================= */
+function newCanvas(w, h) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  return c;
+}
+
+function addLayer(name, imageData, opts = {}) {
+  const c = newCanvas(W, H);
+  const l = {
+    id: layerIdCounter++,
+    name: name || 'Layer ' + layerIdCounter,
+    canvas: c, ctx: c.getContext('2d'),
+    visible: true, opacity: 1, blend: 'source-over'
+  };
+  if (imageData) l.ctx.putImageData(imageData, 0, 0);
+  layers.push(l);
+  currentLayer = l;
+  renderLayerPanel(); render();
+  return l;
+}
+
+function newDocument() {
+  const w = parseInt(prompt('Canvas width:', W)) || W;
+  const h = parseInt(prompt('Canvas height:', H)) || H;
+  W = w; H = h;
+  display.width = W; display.height = H;
+  overlay.width = W; overlay.height = H;
+  wrap.style.width = W + 'px'; wrap.style.height = H + 'px';
+  layers = []; layerIdCounter = 1;
+  addLayer('Background');
+  history = []; historyIndex = -1;
+  pushHistory();
+  document.getElementById('statusSize').textContent = W + ' × ' + H;
+  toast('New ' + W + '×' + H + ' document');
+}
+
+function init() {
+  display.width = W; display.height = H;
+  overlay.width = W; overlay.height = H;
+  wrap.style.width = W + 'px'; wrap.style.height = H + 'px';
+  addLayer('Background');
+  pushHistory();
+  setupUI();
+}
+
+/* ================= RENDER ================= */
+function render() {
+  dctx.clearRect(0, 0, W, H);
+  for (const l of layers) {
+    if (!l.visible) continue;
+    dctx.globalAlpha = l.opacity;
+    dctx.globalCompositeOperation = l.blend;
+    dctx.drawImage(l.canvas, 0, 0);
+  }
+  dctx.globalAlpha = 1;
+  dctx.globalCompositeOperation = 'source-over';
+  renderOverlay();
+  renderLayerThumbs();
+}
+
+function renderOverlay() {
+  octx.clearRect(0, 0, W, H);
+  if (selection) {
+    octx.save();
+    octx.strokeStyle = '#00e5ff';
+    octx.lineWidth = 1.5 / zoom;
+    octx.setLineDash([6 / zoom, 4 / zoom]);
+    octx.strokeRect(selection.x, selection.y, selection.w, selection.h);
+    octx.restore();
+  }
+}
+
+function renderLayerPanel() {
+  const list = document.getElementById('layerList');
+  list.innerHTML = '';
+  for (let i = layers.length - 1; i >= 0; i--) {
+    const l = layers[i];
+    const item = document.createElement('div');
+    item.className = 'layerItem' + (l === currentLayer ? ' current' : '');
+    const eye = document.createElement('span');
+    eye.className = 'eye';
+    eye.textContent = l.visible ? '👁' : '—';
+    eye.onclick = (e) => { e.stopPropagation(); l.visible = !l.visible; render(); renderLayerPanel(); };
+    const thumb = newCanvas(40, 30);
+    const tc = thumb.getContext('2d');
+    tc.drawImage(l.canvas, 0, 0, 40, 30);
+    const name = document.createElement('span');
+    name.className = 'lname';
+    name.textContent = l.name;
+    name.ondblclick = (e) => {
+      e.stopPropagation();
+      const n = prompt('Layer name:', l.name);
+      if (n) { l.name = n; renderLayerPanel(); }
+    };
+    item.onclick = () => { currentLayer = l; syncLayerControls(); renderLayerPanel(); };
+    item.append(eye, thumb, name);
+    list.appendChild(item);
+  }
+  syncLayerControls();
+}
+
+function renderLayerThumbs() {
+  const items = document.querySelectorAll('#layerList .layerItem');
+  // reverse mapping: panel is top-down, layers array is bottom-up
+  const idx = layers.length - 1 - [...items].findIndex(el =>
+    el.querySelector('.lname').textContent === currentLayer.name);
+  // simpler: redraw all thumbs
+  items.forEach((item, i) => {
+    const l = layers[layers.length - 1 - i];
+    const thumb = item.querySelector('canvas');
+    if (thumb && l) thumb.getContext('2d').drawImage(l.canvas, 0, 0, 40, 30);
+  });
+}
+
+function syncLayerControls() {
+  document.getElementById('blendMode').value = currentLayer.blend;
+  document.getElementById('layerOpacity').value = Math.round(currentLayer.opacity * 100);
+  document.getElementById('layerOpacityVal').textContent = Math.round(currentLayer.opacity * 100) + '%';
+}
+
+/* ================= HISTORY ================= */
+function snapshot() {
+  return {
+    W, H,
+    layers: layers.map(l => ({
+      name: l.name, visible: l.visible, opacity: l.opacity, blend: l.blend,
+      data: l.canvas.toDataURL()
+    })),
+    currentName: currentLayer.name
+  };
+}
+
+function pushHistory() {
+  history = history.slice(0, historyIndex + 1);
+  history.push(snapshot());
+  if (history.length > MAX_HISTORY) history.shift();
+  historyIndex = history.length - 1;
+  updateHistoryButtons();
+}
+
+function restore(snap) {
+  return Promise.all(snap.layers.map(l => new Promise(res => {
+    const img = new Image();
+    img.onload = () => res(img);
+    img.src = l.data;
+  }))).then(imgs => {
+    layers = [];
+    imgs.forEach((img, i) => {
+      const l = addLayer(snap.layers[i].name);
+      l.ctx.clearRect(0, 0, W, H);
+      l.ctx.drawImage(img, 0, 0);
+      l.visible = snap.layers[i].visible;
+      l.opacity = snap.layers[i].opacity;
+      l.blend = snap.layers[i].blend;
+    });
+    currentLayer = layers.find(l => l.name === snap.currentName) || layers[layers.length - 1];
+    render(); renderLayerPanel();
+  });
+}
+
+function undo() { if (historyIndex > 0) { historyIndex--; restore(history[historyIndex]); updateHistoryButtons(); } }
+function redo() { if (historyIndex < history.length - 1) { historyIndex++; restore(history[historyIndex]); updateHistoryButtons(); } }
+function updateHistoryButtons() {
+  document.getElementById('undoBtn').disabled = historyIndex <= 0;
+  document.getElementById('redoBtn').disabled = historyIndex >= history.length - 1;
+}
+
+/* ================= LAYER OPS ================= */
+function deleteLayer() {
+  if (layers.length <= 1) { toast('Cannot delete the last layer'); return; }
+  const i = layers.indexOf(currentLayer);
+  layers.splice(i, 1);
+  currentLayer = layers[Math.max(0, i - 1)];
+  pushHistory(); renderLayerPanel(); render();
+}
+function duplicateLayer() {
+  const l = addLayer(currentLayer.name + ' copy');
+  l.ctx.drawImage(currentLayer.canvas, 0, 0);
+  pushHistory();
+}
+function moveLayer(dir) {
+  const i = layers.indexOf(currentLayer);
+  const j = i + dir;
+  if (j < 0 || j >= layers.length) return;
+  [layers[i], layers[j]] = [layers[j], layers[i]];
+  pushHistory(); renderLayerPanel(); render();
+}
+function clearLayer() {
+  pushHistory();
+  currentLayer.ctx.clearRect(0, 0, W, H);
+  render();
+}
+function mergeDown() {
+  const i = layers.indexOf(currentLayer);
+  if (i === 0) { toast('Nothing to merge into'); return; }
+  pushHistory();
+  layers[i - 1].ctx.drawImage(currentLayer.canvas, 0, 0);
+  layers.splice(i, 1);
+  currentLayer = layers[i - 1];
+  renderLayerPanel(); render();
+}
+function flattenImage() {
+  pushHistory();
+  const l = addLayer('Flattened');
+  l.ctx.drawImage(display, 0, 0);
+  layers = [l]; currentLayer = l;
+  renderLayerPanel(); render();
+}
+
+/* ================= FILTERS ================= */
+function applyFilter(filterStr) {
+  pushHistory();
+  const l = currentLayer;
+  const t = newCanvas(W, H), tc = t.getContext('2d');
+  tc.filter = filterStr;
+  tc.drawImage(l.canvas, 0, 0);
+  l.ctx.clearRect(0, 0, W, H);
+  l.ctx.drawImage(t, 0, 0);
+  render();
+  toast('Filter applied: ' + filterStr);
+}
+
+function applyCustomFilter() {
+  const parts = [];
+  const b = +document.getElementById('fBlur').value;
+  const br = +document.getElementById('fBright').value;
+  const c = +document.getElementById('fContrast').value;
+  const s = +document.getElementById('fSat').value;
+  const h = +document.getElementById('fHue').value;
+  if (b > 0) parts.push(`blur(${b}px)`);
+  if (br !== 100) parts.push(`brightness(${br}%)`);
+  if (c !== 100) parts.push(`contrast(${c}%)`);
+  if (s !== 100) parts.push(`saturate(${s}%)`);
+  if (h !== 0) parts.push(`hue-rotate(${h}deg)`);
+  if (!parts.length) { toast('No filter selected'); return; }
+  applyFilter(parts.join(' '));
+}
+
+function sharpenLayer() {
+  pushHistory();
+  const l = currentLayer;
+  const img = l.ctx.getImageData(0, 0, W, H);
+  const src = new Uint8ClampedArray(img.data);
+  const k = [0,-1,0,-1,5,-1,0,-1,0];
+  for (let y = 1; y < H - 1; y++)
+    for (let x = 1; x < W - 1; x++) {
+      const i = (y * W + x) * 4;
+      for (let ch = 0; ch < 3; ch++) {
+        let sum = 0, ki = 0;
+        for (let dy = -1; dy <= 1; dy++)
+          for (let dx = -1; dx <= 1; dx++)
+            sum += src[((y+dy)*W + (x+dx))*4 + ch] * k[ki++];
+        img.data[i + ch] = sum;
+      }
+    }
+  l.ctx.putImageData(img, 0, 0);
+  render();
+  toast('Sharpened');
+}
+
+/* ================= SELECTION MASK ================= */
+function makeMask() {
+  maskCanvas = newCanvas(W, H);
+  const mc = maskCanvas.getContext('2d');
+  mc.clearRect(0, 0, W, H);
+  mc.fillStyle = '#fff';
+  mc.fillRect(selection.x, selection.y, selection.w, selection.h);
+}
+function applyMaskToLayer(l) {
+  if (!selection) return;
+  const t = newCanvas(W, H), tc = t.getContext('2d');
+  tc.drawImage(l.canvas, 0, 0);
+  tc.globalCompositeOperation = 'destination-in';
+  tc.drawImage(maskCanvas, 0, 0);
+  l.ctx.clearRect(0, 0, W, H);
+  l.ctx.drawImage(t, 0, 0);
+}
+function deselect() {
+  selection = null; maskCanvas = null;
+  renderOverlay();
+}
+
+/* ================= DRAWING HELPERS ================= */
+function hexToRGBA(hex, a) {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255, Math.round(a * 255)];
+}
+
+function drawBrushStroke(ctx, x0, y0, x1, y1) {
+  ctx.save();
+  ctx.globalAlpha = brushOpacity;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = brushSize;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  if (hardness < 1) {
+    // soft edge via shadow
+    ctx.shadowColor = color;
+    ctx.shadowBlur = brushSize * (1 - hardness) * 0.8;
+  }
+  ctx.beginPath();
+  ctx.moveTo(x0, y0);
+  ctx.lineTo(x1, y1);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawBrushDot(ctx, x, y) {
+  ctx.save();
+  ctx.globalAlpha = brushOpacity;
+  ctx.fillStyle = color;
+  if (hardness < 1) {
+    const g = ctx.createRadialGradient(x, y, brushSize * hardness / 2, x, y, brushSize / 2);
+    g.addColorStop(0, color);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+  }
+  ctx.beginPath();
+  ctx.arc(x, y, brushSize / 2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function floodFill(x, y) {
+  const ctx = currentLayer.ctx;
+  const img = ctx.getImageData(0, 0, W, H);
+  const d = img.data;
+  const x = Math.floor(x), y = Math.floor(y);
+  if (x < 0 || y < 0 || x >= W || y >= H) return;
+  const si = (y * W + x) * 4;
+  const target = [d[si], d[si+1], d[si+2], d[si+3]];
+  const [r, g, b, a] = hexToRGBA(color, brushOpacity);
+  if (target[0] === r && target[1] === g && target[2] === b && target[3] === a) return;
+  const tol = 40;
+  const match = i =>
+    Math.abs(d[i]-target[0]) <= tol && Math.abs(d[i+1]-target[1]) <= tol &&
+    Math.abs(d[i+2]-target[2]) <= tol && Math.abs(d[i+3]-target[3]) <= tol;
+  const visited = new Uint8Array(W * H);
+  const stack = [[x, y]];
+  while (stack.length) {
+    const [cx, cy] = stack.pop();
+    if (cx < 0 || cy < 0 || cx >= W || cy >= H) continue;
+    const p = cy * W + cx;
+    if (visited[p]) continue;
+    const i = p * 4;
+    if (!match(i)) continue;
+    visited[p] = 1;
+    d[i] = r; d[i+1] = g; d[i+2] = b; d[i+3] = a;
+    stack.push([cx+1, cy], [cx-1, cy], [cx, cy+1], [cx, cy-1]);
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
+function drawShape(ctx, x0, y0, x1, y1) {
+  ctx.save();
+  ctx.globalAlpha = brushOpacity;
+  ctx.fillStyle = color;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = Math.max(1, brushSize / 4);
+  const mode = document.getElementById('shapeMode').value;
+  const sx = Math.min(x0, x1), sy = Math.min(y0, y1);
+  const sw = Math.abs(x1 - x0), sh = Math.abs(y1 - y0);
+  ctx.beginPath();
+  if (tool === 'rect') ctx.rect(sx, sy, sw, sh);
+  else if (tool === 'ellipse') ctx.ellipse(sx + sw/2, sy + sh/2, sw/2, sh/2, 0, 0, Math.PI*2);
+  else { ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); }
+  if (mode === 'fill' || mode === 'both') ctx.fill();
+  if (mode === 'stroke' || mode === 'both') ctx.stroke();
+  ctx.restore();
+}
+
+/* ================= MOUSE HANDLING ================= */
+function getPos(e) {
+  const r = display.getBoundingClientRect();
+  return { x: (e.clientX - r.left) / zoom, y: (e.clientY - r.top) / zoom };
+}
+
+wrap.addEventListener('mousedown', e => {
+  const p = getPos(e);
+  drawing = true;
+  lastPt = p;
+
+  if (tool === 'move') {
+    moveStart = p;
+    moveSnap = currentLayer.ctx.getImageData(0, 0, W, H);
+  } else if (tool === 'brush') {
+    pushHistory();
+    drawBrushDot(currentLayer.ctx, p.x, p.y);
+  } else if (tool === 'eraser') {
+    pushHistory();
+    currentLayer.ctx.save();
+    currentLayer.ctx.globalCompositeOperation = 'destination-out';
+    currentLayer.ctx.globalAlpha = brushOpacity;
+    currentLayer.ctx.fillStyle = '#000';
+    currentLayer.ctx.beginPath();
+    currentLayer.ctx.arc(p.x, p.y, brushSize/2, 0, Math.PI*2);
+    currentLayer.ctx.fill();
+    currentLayer.ctx.restore();
+  } else if (tool === 'fill') {
+    pushHistory();
+    floodFill(p.x, p.y);
+    applyMaskToLayer(currentLayer);
+  } else if (tool === 'eyedrop') {
+    const px = dctx.getImageData(Math.floor(p.x), Math.floor(p.y), 1, 1).data;
+    color = '#' + [px[0], px[1], px[2]].map(v => v.toString(16).padStart(2, '0')).join('');
+    document.getElementById('colorPicker').value = color;
+    toast('Picked ' + color);
+  } else if (tool === 'marquee') {
+    shapeStart = p;
+  } else if (tool === 'rect' || tool === 'ellipse' || tool === 'line') {
+    shapeStart = p;
+  } else if (tool === 'text') {
+    const txt = prompt('Enter text:');
+    if (txt) {
+      pushHistory();
+      const ctx = currentLayer.ctx;
+      ctx.save();
+      ctx.globalAlpha = brushOpacity;
+      ctx.fillStyle = color;
+      ctx.font = 'bold ' + Math.max(8, brushSize * 2) + 'px Arial';
+      ctx.fillText(txt, p.x, p.y);
+      ctx.restore();
+      applyMaskToLayer(currentLayer);
+    }
+  }
+  render();
+});
+
+wrap.addEventListener('mousemove', e => {
+  const p = getPos(e);
+  document.getElementById('statusPos').textContent = 'X: ' + Math.round(p.x) + ', Y: ' + Math.round(p.y);
+
+  if (!drawing) return;
+
+  if (tool === 'brush') {
+    drawBrushStroke(currentLayer.ctx, lastPt.x, lastPt.y, p.x, p.y);
+    lastPt = p;
+  } else if (tool === 'eraser') {
+    const ctx = currentLayer.ctx;
+    ctx.save();
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.globalAlpha = brushOpacity;
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = brushSize;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(lastPt.x, lastPt.y);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+    ctx.restore();
+    lastPt = p;
+  } else if (tool === 'move') {
+    const dx = p.x - moveStart.x, dy = p.y - moveStart.y;
+    currentLayer.ctx.clearRect(0, 0, W, H);
+    currentLayer.ctx.putImageData(moveSnap, 0, 0);
+    currentLayer.ctx.clearRect(0, 0, W, H);
+    currentLayer.ctx.save();
+    currentLayer.ctx.putImageData(moveSnap, 0, 0);
+    const t = newCanvas(W, H);
+    t.getContext('2d').putImageData(moveSnap, 0, 0);
+    currentLayer.ctx.clearRect(0, 0, W, H);
+    currentLayer.ctx.drawImage(t, dx, dy);
+    currentLayer.ctx.restore();
+  } else if (tool === 'marquee') {
+    selection = {
+      x: Math.min(shapeStart.x, p.x), y: Math.min(shapeStart.y, p.y),
+      w: Math.abs(p.x - shapeStart.x), h: Math.abs(p.y - shapeStart.y)
+    };
+    renderOverlay();
+  } else if (tool === 'rect' || tool === 'ellipse' || tool === 'line') {
+    octx.clearRect(0, 0, W, H);
+    drawShape(octx, shapeStart.x, shapeStart.y, p.x, p.y);
+    if (selection) {
+      octx.save();
+      octx.strokeStyle = '#00e5ff';
+      octx.setLineDash([6/zoom, 4/zoom]);
+      octx.strokeRect(selection.x, selection.y, selection.w, selection.h);
+      octx.restore();
+    }
+  }
+  render();
+});
+
+window.addEventListener('mouseup', () => {
+  if (!drawing) return;
+  drawing = false;
+
+  if (tool === 'brush' || tool === 'eraser' || tool === 'move') {
+    applyMaskToLayer(currentLayer);
+    render();
+  } else if (tool === 'marquee') {
+    if (selection && (selection.w > 2 || selection.h > 2)) makeMask();
+    else { selection = null; }
+    renderOverlay();
+  } else if (tool === 'rect' || tool === 'ellipse' || tool === 'line') {
+    const p = lastMouse;
+    if (p && shapeStart) {
+      pushHistory();
+      drawShape(currentLayer.ctx, shapeStart.x, shapeStart.y, p.x, p.y);
+      applyMaskToLayer(currentLayer);
+    }
+    octx.clearRect(0, 0, W, H);
+    render();
+  }
+  lastPt = null; moveStart = null; shapeStart = null;
+});
+
+let lastMouse = null;
+wrap.addEventListener('mousemove', e => { lastMouse = getPos(e); });
+
+/* ================= UI SETUP ================= */
+function setupUI() {
+  // tools
+  document.querySelectorAll('.tool').forEach(t => {
+    t.onclick = () => selectTool(t.dataset.tool);
+  });
+  selectTool('brush');
+
+  // colors
+  const swatchColors = ['#000000','#ffffff','#ff0000','#00aa00','#0000ff','#ffff00','#ff00ff','#00ffff',
+                        '#ff8800','#8800ff','#888888','#ff6688','#66cc66','#6688ff','#ffcc00','#996633'];
+  const sw = document.getElementById('swatches');
+  swatchColors.forEach(c => {
+    const s = document.createElement('div');
+    s.className = 'swatch';
+    s.style.background = c;
+    s.onclick = () => setColor(c);
+    sw.appendChild(s);
+  });
+  document.getElementById('colorPicker').oninput = e => setColor(e.target.value);
+
+  // sliders
+  const bind = (id, valId, fn, fmt) => {
+    const el = document.getElementById(id);
+    el.oninput = () => {
+      document.getElementById(valId).textContent = fmt ? fmt(el.value) : el.value;
+      fn(+el.value);
+    };
+  };
+  bind('sizeSlider', 'sizeVal', v => brushSize = v);
+  bind('opacitySlider', 'opacityVal', v => brushOpacity = v/100, v => v + '%');
+  bind('hardnessSlider', 'hardnessVal', v => hardness = v/100, v => v + '%');
+  bind('layerOpacity', 'layerOpacityVal', v => { currentLayer.opacity = v/100; render(); }, v => v + '%');
+  bind('fBlur', 'fBlurVal');
+  bind('fBright', 'fBrightVal');
+  bind('fContrast', 'fContrastVal');
+  bind('fSat', 'fSatVal');
+  bind('fHue', 'fHueVal', null, v => v + '°');
+
+  // blend modes
+  const modes = ['source-over','multiply','screen','overlay','darken','lighten','color-dodge','color-burn',
+                 'hard-light','soft-light','difference','exclusion','hue','saturation','color','luminosity'];
+  const sel = document.getElementById('blendMode');
+  modes.forEach(m => {
+    const o = document.createElement('option');
+    o.value = m; o.textContent = m;
+    sel.appendChild(o);
+  });
+  sel.onchange = () => { currentLayer.blend = sel.value; render(); };
+
+  // keyboard
+  window.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+    const k = e.key.toLowerCase();
+    if (e.ctrlKey || e.metaKey) {
+      if (k === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
+      if (k === 'z' && e.shiftKey) { e.preventDefault(); redo(); }
+      if (k === 'y') { e.preventDefault(); redo(); }
+      if (k === 's') { e.preventDefault(); exportPNG(); }
+      return;
+    }
+    const map = { v:'move', m:'marquee', b:'brush', e:'eraser', g:'fill', i:'eyedrop',
+                  u:'rect', o:'ellipse', l:'line', t:'text' };
+    if (map[k]) selectTool(map[k]);
+    if (k === '[') { brushSize = Math.max(1, brushSize - 5); syncSizeUI(); }
+    if (k === ']') { brushSize = Math.min(200, brushSize + 5); syncSizeUI(); }
+    if (k === 'escape') deselect();
+  });
+
+  // open file
+  document.getElementById('fileInput').onchange = e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const img = new Image();
+    img.onload = () => {
+      W = Math.min(img.width, 2000); H = Math.min(img.height, 2000);
+      display.width = W; display.height = H;
+      overlay.width = W; overlay.height = H;
+      wrap.style.width = W + 'px'; wrap.style.height = H + 'px';
+      layers = []; layerIdCounter = 1;
+      const l = addLayer(file.name.replace(/\.[^.]+$/, ''));
+      l.ctx.drawImage(img, 0, 0, W, H);
+      history = []; historyIndex = -1;
+      pushHistory();
+      document.getElementById('statusSize').textContent = W + ' × ' + H;
+      toast('Opened ' + file.name);
+    };
+    img.src = URL.createObjectURL(file);
+    e.target.value = '';
+  };
+}
+
+function syncSizeUI() {
+  document.getElementById('sizeSlider').value = brushSize;
+  document.getElementById('sizeVal').textContent = brushSize;
+}
+
+function setColor(c) {
+  color = c;
+  document.getElementById('colorPicker').value = c;
+}
+
+function selectTool(t) {
+  tool = t;
+  document.querySelectorAll('.tool').forEach(el =>
+    el.classList.toggle('active', el.dataset.tool === t));
+  document.getElementById('statusTool').textContent = t.charAt(0).toUpperCase() + t.slice(1);
+  document.getElementById('shapeStrokeRow').style.display =
+    (t === 'rect' || t === 'ellipse' || t === 'line') ? 'flex' : 'none';
+  wrap.style.cursor = t === 'move' ? 'move' : t === 'eyedrop' ? 'copy' : 'crosshair';
+}
+
+function setZoom(z) {
+  zoom = Math.min(5, Math.max(0.1, Math.round(z * 100) / 100));
+  wrap.style.transform = 'scale(' + zoom + ')';
+  wrap.style.transformOrigin = 'center center';
+  document.getElementById('zoomLabel').textContent = Math.round(zoom * 100) + '%';
+  document.getElementById('statusZoom').textContent = 'Zoom: ' + Math.round(zoom * 100) + '%';
+  renderOverlay();
+}
+
+function exportPNG() {
+  const t = newCanvas(W, H);
+  t.getContext('2d').drawImage(display, 0, 0);
+  const a = document.createElement('a');
+  a.download = 'photocanvas-export.png';
+  a.href = t.toDataURL('image/png');
+  a.click();
+  toast('Exported PNG');
+}
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.remove('show'), 1800);
+}
+
+/* ================= GO ================= */
+init();
+</script>
+</body>
+</html>

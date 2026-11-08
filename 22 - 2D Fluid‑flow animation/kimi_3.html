@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Von Kármán Vortex Street — Interactive LBM Fluid Sim</title>
+<script src="https://cdn.jsdelivr.net/npm/p5@1.9.4/lib/p5.min.js"></script>
+<style>
+  :root { --bg:#0b0e17; --panel:#141927; --accent:#ffb454; --txt:#cfd8ea; }
+  * { box-sizing: border-box; }
+  body {
+    margin:0; background:var(--bg); color:var(--txt);
+    font-family:'Segoe UI', system-ui, sans-serif;
+    display:flex; flex-direction:column; align-items:center; padding:14px;
+  }
+  h1 {
+    margin:4px 0 2px; font-size:22px; font-weight:600; letter-spacing:.5px;
+    background:linear-gradient(90deg,#ff6b6b,#ffb454,#4fc3f7);
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+  }
+  .sub { font-size:12.5px; color:#8fa0bd; margin-bottom:10px; text-align:center; }
+  #controls {
+    display:flex; flex-wrap:wrap; gap:8px 14px; align-items:center; justify-content:center;
+    background:var(--panel); border:1px solid #232c42; border-radius:12px;
+    padding:10px 16px; margin-bottom:10px; max-width:920px;
+  }
+  .ctl { display:flex; align-items:center; gap:6px; font-size:12px; }
+  .ctl .val { min-width:38px; color:var(--accent); font-variant-numeric:tabular-nums; font-size:11.5px; }
+  input[type=range]{ width:110px; accent-color:var(--accent); }
+  select, button {
+    background:#1c2436; color:var(--txt); border:1px solid #33405e;
+    border-radius:7px; padding:4px 9px; font-size:12px; cursor:pointer;
+  }
+  button:hover, select:hover { border-color:var(--accent); }
+  label.ck { display:flex; gap:5px; align-items:center; font-size:12px; cursor:pointer; }
+  input[type=checkbox]{ accent-color:var(--accent); }
+  #canvas-holder canvas {
+    border-radius:12px; border:1px solid #232c42; display:block;
+    max-width:100%; height:auto !important;
+    box-shadow:0 8px 40px rgba(0,0,0,.55);
+  }
+  #hud { display:flex; gap:18px; font-size:12px; color:#8fa0bd; margin-top:8px; flex-wrap:wrap; justify-content:center; }
+  #hud b { color:var(--accent); font-weight:600; }
+  .legend { display:flex; gap:14px; align-items:center; }
+  .sw { width:11px; height:11px; border-radius:3px; display:inline-block; margin-right:4px; vertical-align:-1px; }
+  .hint { font-size:11.5px; color:#6b7a96; margin-top:6px; text-align:center; max-width:900px; line-height:1.5; }
+  kbd { background:#1c2436; border:1px solid #33405e; border-radius:4px; padding:0 5px; font-size:10.5px; }
+</style>
+</head>
+<body>
+  <h1>Von Kármán Vortex Street</h1>
+  <div class="sub">D2Q9 lattice-Boltzmann wind tunnel · vortices shed naturally from the obstacle's wake</div>
+
+  <div id="controls"></div>
+  <div id="canvas-holder"></div>
+
+  <div id="hud">
+    <span>FPS: <b id="fps">–</b></span>
+    <span>Reynolds ≈ <b id="re">–</b></span>
+    <span class="legend">
+      <span><span class="sw" style="background:#ff5252"></span>CCW vorticity</span>
+      <span><span class="sw" style="background:#42a5f5"></span>CW vorticity</span>
+    </span>
+  </div>
+  <div class="hint">
+    🖱️ <b>Drag the obstacle</b> to move it · <b>scroll wheel</b> over canvas to rotate ·
+    stir the fluid by dragging elsewhere ·
+    <kbd>Q</kbd>/<kbd>E</kbd> rotate · <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> shape ·
+    <kbd>Space</kbd> pause · <kbd>R</kbd> reset flow
+  </div>
+
+<script>
+/* ============================================================
+   D2Q9 Lattice-Boltzmann wind tunnel with a movable, rotatable
+   obstacle. Bounce-back no-slip walls on the obstacle + top and
+   bottom; constant-velocity inlet (left), zero-gradient outlet
+   (right). Vorticity (curl) is visualized as red/blue.
+   ============================================================ */
+const GW = 288, GH = 162, Q = 9, SCALE = 3;      // grid + upscale factor
+const EX  = [0, 1, 0,-1, 0, 1,-1,-1, 1];
+const EY  = [0, 0, 1, 0,-1, 1, 1,-1,-1];
+const OPP = [0, 3, 4, 1, 2, 7, 8, 5, 6];
+const WT  = [4/9, 1/9,1/9,1/9,1/9, 1/36,1/36,1/36,1/36];
+
+let f, f2, rho, uxA, uyA, barrier;
+let u0 = 0.09, nu = 0.028, omega = 1.7;
+let stepsPerFrame = 18, curlGain = 20;
+let running = true;
+
+const obs = { x: 74, y: GH/2, size: 14, angle: 0, shape: 'circle' };
+
+let img, particles = [];
+let showParticles = true, showVectors = false;
+let draggingObs = false, stirring = false;
+
+// UI handles
+let shapeSel, sizeS, rotS, speedS, viscS, stepsS, gainS, pauseBtn;
+let sizeOut, rotOut, speedOut, viscOut, stepsOut, gainOut;
+
+/* ---------------- LBM core ---------------- */
+function equilibrium(i, u, v, r) {
+  const eu = EX[i]*u + EY[i]*v, usq = u*u + v*v;
+  return WT[i]*r*(1 + 3*eu + 4.5*eu*eu - 1.5*usq);
+}
+
+function initFluid() {
+  for (let y = 0; y < GH; y++)
+    for (let x = 0; x < GW; x++) {
+      const b = (y*GW + x)*9;
+      for (let i = 0; i < 9; i++) f[b+i] = equilibrium(i, u0, 0, 1);
+    }
+}
+
+function collide() {
+  for (let y = 0; y < GH; y++)
+    for (let x = 0; x < GW; x++) {
+      const c = y*GW + x;
+      if (barrier[c]) continue;
+      const b = c*9;
+      let r = 0, mx = 0, my = 0;
+      for (let i = 0; i < 9; i++) { const fi = f[b+i]; r += fi; mx += fi*EX[i]; my += fi*EY[i]; }
+      if (!isFinite(r) || r < 1e-4) {                 // numerical blow-up guard
+        for (let i = 0; i < 9; i++) f[b+i] = equilibrium(i, u0, 0, 1);
+        r = 1; mx = u0; my = 0;
+      }
+      const inv = 1/r, u = mx*inv, v = my*inv;
+      rho[c] = r; uxA[c] = u; uyA[c] = v;
+      const usq = u*u + v*v;
+      for (let i = 0; i < 9; i++) {
+        const eu = EX[i]*u + EY[i]*v;
+        const feq = WT[i]*r*(1 + 3*eu + 4.5*eu*eu - 1.5*usq);
+        f[b+i] += omega*(feq - f[b+i]);
+      }
+    }
+}
+
+function stream() {
+  for (let y = 0; y < GH; y++)
+    for (let x = 0; x < GW; x++) {
+      const c = y*GW + x, b = c*9;
+      if (barrier[c]) { for (let i = 0; i < 9; i++) f2[b+i] = f[b+i]; continue; }
+      for (let i = 0; i < 9; i++) {
+        const nx = x + EX[i], ny = y + EY[i];
+        if (nx < 0 || ny < 0 || nx >= GW || ny >= GH || barrier[ny*GW + nx])
+          f2[b + OPP[i]] = f[b+i];                    // bounce-back (no-slip)
+        else
+          f2[(ny*GW + nx)*9 + i] = f[b+i];
+      }
+    }
+  const t = f; f = f2; f2 = t;
+}
+
+function boundary() {
+  for (let y = 0; y < GH; y++) {
+    const ci = y*GW;                                  // inlet: fixed velocity
+    if (!barrier[ci]) { const b = ci*9; for (let i = 0; i < 9; i++) f[b+i] = equilibrium(i, u0, 0, 1); }
+    const co = y*GW + GW - 1, cn = y*GW + GW - 2;     // outlet: zero gradient
+    if (!barrier[co]) for (let i = 0; i < 9; i++) f[co*9+i] = f[cn*9+i];
+  }
+}
+
+function lbmStep() { collide(); stream(); boundary(); }
+
+/* ---------------- Obstacle ---------------- */
+function shapeTest(lx, ly, sz) {
+  if (obs.shape === 'circle')   return lx*lx + ly*ly <= sz*sz;
+  if (obs.shape === 'ellipse') { const rx = sz*1.5, ry = sz*0.75;
+    return (lx*lx)/(rx*rx) + (ly*ly)/(ry*ry) <= 1; }
+  return Math.abs(lx) <= sz*1.3 && Math.abs(ly) <= sz*0.7;   // rectangle
+}
+
+function updateBarrier() {
+  const a = obs.angle * Math.PI/180, c = Math.cos(a), s = Math.sin(a);
+  const rb = Math.ceil(obs.size*1.6) + 3;
+  const x0 = Math.max(1, Math.floor(obs.x - rb)), x1 = Math.min(GW-2, Math.ceil(obs.x + rb));
+  const y0 = Math.max(1, Math.floor(obs.y - rb)), y1 = Math.min(GH-2, Math.ceil(obs.y + rb));
+  for (let y = y0; y <= y1; y++)
+    for (let x = x0; x <= x1; x++) {
+      const idx = y*GW + x;
+      const dx = x - obs.x, dy = y - obs.y;
+      const lx = dx*c + dy*s, ly = -dx*s + dy*c;      // rotate into local frame
+      const inside = shapeTest(lx, ly, obs.size);
+      const b = idx*9;
+      if (inside && !barrier[idx]) {
+        barrier[idx] = 1;
+        for (let i = 0; i < 9; i++) f[b+i] = equilibrium(i, 0, 0, 1);
+      } else if (!inside && barrier[idx]) {
+        barrier[idx] = 0;                              // freshly freed cell
+        for (let i = 0; i < 9; i++) f[b+i] = equilibrium(i, u0, 0, 1);
+      }
+    }
+}
+
+function pointInObstacle(gx, gy, margin = 4) {
+  const a = obs.angle * Math.PI/180, c = Math.cos(a), s = Math.sin(a);
+  const dx = gx - obs.x, dy = gy - obs.y;
+  return shapeTest(dx*c + dy*s, -dx*s + dy*c, obs.size + margin);
+}
+
+/* ---------------- Field sampling / particles ---------------- */
+function sample(arr, x, y) {
+  const x0 = Math.floor(x), y0 = Math.floor(y);
+  const x1 = Math.min(x0+1, GW-1), y1 = Math.min(y0+1, GH-1);
+  const tx = x - x0, ty = y - y0;
+  return (arr[y0*GW+x0]*(1-tx) + arr[y0*GW+x1]*tx)*(1-ty)
+       + (arr[y1*GW+x0]*(1-tx) + arr[y1*GW+x1]*tx)*ty;
+}
+
+class Particle {
+  constructor() { this.reset(true); }
+  reset(anywhere) {
+    this.x = anywhere ? random(1, GW-2) : random(1, 4);
+    this.y = random(2, GH-3);
+    this.px = this.x; this.py = this.y;
+  }
+  step() {
+    this.px = this.x; this.py = this.y;
+    const u = sample(uxA, this.x, this.y), v = sample(uyA, this.x, this.y);
+    const k = running ? stepsPerFrame : 2;
+    this.x += u*k; this.y += v*k;
+    const cx = Math.round(this.x), cy = Math.round(this.y);
+    if (this.x >= GW-2 || this.x < 1 || this.y < 1 || this.y >= GH-1 ||
+        barrier[cy*GW + cx] || (u*u + v*v) < 2e-5 || random() < 0.002) this.reset(false);
+  }
+}
+
+/* ---------------- p5 setup / draw ---------------- */
+function setup() {
+  const cv = createCanvas(GW*SCALE, GH*SCALE);
+  cv.parent('canvas-holder');
+  pixelDensity(1);
+
+  f = new Float32Array(GW*GH*Q);  f2 = new Float32Array(GW*GH*Q);
+  rho = new Float32Array(GW*GH);  uxA = new Float32Array(GW*GH);
+  uyA = new Float32Array(GW*GH);  barrier = new Uint8Array(GW*GH);
+
+  initFluid();
+  updateBarrier();
+  for (let i = 0; i < 1300; i++) particles.push(new Particle());
+
+  img = createImage(GW, GH);
+  buildUI();
+  describe('Lattice-Boltzmann fluid simulation showing a von Karman vortex street behind a movable obstacle.');
+}
+
+function buildUI() {
+  const mk = (label, min, max, val, step) => {
+    const g = createDiv().parent('#controls').class('ctl');
+    createSpan(label).parent(g);
+    const s = createSlider(min, max, val, step).parent(g);
+    const o = createSpan(val).parent(g).class('val');
+    return [s, o];
+  };
+  let g = createDiv().parent('#controls').class('ctl');
+  createSpan('Shape').parent(g);
+  shapeSel = createSelect().parent(g);
+  shapeSel.option('circle'); shapeSel.option('ellipse'); shapeSel.option('rectangle');
+  shapeSel.selected('circle');
+  shapeSel.changed(() => { obs.shape = shapeSel.value(); updateBarrier(); });
+
+  [sizeS,  sizeOut ] = mk('Size',       6,    36,   obs.size, 1);
+  [rotS,   rotOut  ] = mk('Rotation',   0,    359,  0,        1);
+  [speedS, speedOut] = mk('Flow speed', 0.04, 0.16, u0,       0.005);
+  [viscS,  viscOut ] = mk('Viscosity',  0.005,0.06, nu,       0.001);
+  [stepsS, stepsOut] = mk('Sim speed',  4,    30,   stepsPerFrame, 1);
+  [gainS,  gainOut ] = mk('Vorticity gain', 5, 60,  curlGain, 1);
+
+  g = createDiv().parent('#controls').class('ctl');
+  createCheckbox(' Particles', true).parent(g).changed(function(){ showParticles = this.checked(); });
+  createCheckbox(' Vectors',  false).parent(g).changed(function(){ showVectors  = this.checked(); });
+
+  g = createDiv().parent('#controls').class('ctl');
+  pauseBtn = createButton('⏸ Pause').parent(g);
+  pauseBtn.mousePressed(togglePause);
+  createButton('↺ Reset flow').parent(g).mousePressed(() => { initFluid(); updateBarrier(); });
+}
+
+function togglePause() { running = !running; pauseBtn.html(running ? '⏸ Pause' : '▶ Run'); }
+
+function readUI() {
+  const ns = sizeS.value();
+  if (ns !== obs.size)  { obs.size = ns;  updateBarrier(); }
+  const na = rotS.value() % 360;
+  if (na !== obs.angle) { obs.angle = na; updateBarrier(); }
+  u0 = speedS.value();
+  nu = viscS.value();
+  omega = 2/(6*nu + 1);
+  stepsPerFrame = stepsS.value();
+  curlGain = gainS.value();
+  sizeOut.html(obs.size);            rotOut.html(obs.angle + '°');
+  speedOut.html(u0.toFixed(3));      viscOut.html(nu.toFixed(3));
+  stepsOut.html(stepsPerFrame);      gainOut.html(curlGain);
+}
+
+function draw() {
+  readUI();
+  if (running) for (let n = 0; n < stepsPerFrame; n++) lbmStep();
+
+  renderField();
+  image(img, 0, 0, width, height);
+  drawObstacle();
+  if (showParticles) drawParticles();
+  if (showVectors)   drawVectors();
+
+  select('#fps').html(nf(frameRate(), 2, 1));
+  select('#re').html(nf(u0 * 2 * obs.size / nu, 1, 0));
+}
+
+/* ---------------- Rendering ---------------- */
+function renderField() {
+  img.loadPixels();
+  const px = img.pixels;
+  for (let y = 1; y < GH-1; y++)
+    for (let x = 1; x < GW-1; x++) {
+      const c = y*GW + x, p = c*4;
+      if (barrier[c]) { px[p] = 52; px[p+1] = 56; px[p+2] = 68; px[p+3] = 255; continue; }
+      // vorticity:  curl = ∂uy/∂x − ∂ux/∂y
+      const curl = (uyA[c+1] - uyA[c-1]) - (uxA[c+GW] - uxA[c-GW]);
+      let v = curl * curlGain;
+      v = v < -1 ? -1 : (v > 1 ? 1 : v);
+      const spN = Math.min(1, Math.sqrt(uxA[c]*uxA[c] + uyA[c]*uyA[c]) / 0.14);
+      let r, g, b;
+      if (v >= 0) { const t = Math.sqrt(v);
+        r = 12 + 235*t; g = 14 + 105*t; b = 24 + 25*t;
+      } else {      const t = Math.sqrt(-v);
+        r = 12 + 25*t;  g = 14 + 115*t; b = 24 + 225*t;
+      }
+      g += 18*spN; b += 24*spN;
+      px[p] = r; px[p+1] = g; px[p+2] = b; px[p+3] = 255;
+    }
+  img.updatePixels();
+}
+
+function drawObstacle() {
+  push();
+  translate(obs.x*SCALE, obs.y*SCALE);
+  rotate(radians(obs.angle));
+  fill(24, 26, 34, 235); stroke(255, 180, 84); strokeWeight(2);
+  const s = obs.size*SCALE;
+  if (obs.shape === 'circle')        circle(0, 0, 2*s);
+  else if (obs.shape === 'ellipse')  ellipse(0, 0, 3*s, 1.5*s);
+  else { rectMode(CENTER); rect(0, 0, 2.6*s, 1.4*s, 3); }
+  pop();
+}
+
+function drawParticles() {
+  strokeWeight(1.6);
+  for (const p of particles) {
+    p.step();
+    stroke(255, 255, 255, 75);
+    line(p.px*SCALE, p.py*SCALE, p.x*SCALE, p.y*SCALE);
+  }
+}
+
+function drawVectors() {
+  strokeWeight(1);
+  for (let y = 8; y < GH-8; y += 16)
+    for (let x = 8; x < GW-8; x += 16) {
+      const c = y*GW + x;
+      if (barrier[c]) continue;
+      const u = uxA[c]*140, v = uyA[c]*140;
+      if (u*u + v*v < 1) continue;
+      const x0 = x*SCALE, y0 = y*SCALE, x1 = x0 + u, y1 = y0 + v;
+      stroke(190, 220, 255, 120);
+      line(x0, y0, x1, y1);
+      const a = atan2(v, u);
+      line(x1, y1, x1 - 4*cos(a - 0.45), y1 - 4*sin(a - 0.45));
+      line(x1, y1, x1 - 4*cos(a + 0.45), y1 - 4*sin(a + 0.45));
+    }
+}
+
+/* ---------------- Interaction ---------------- */
+function onCanvas() { return mouseX >= 0 && mouseX < width && mouseY >= 0 && mouseY < height; }
+
+function mousePressed() {
+  if (!onCanvas()) return;
+  if (pointInObstacle(mouseX/SCALE, mouseY/SCALE)) draggingObs = true;
+  else stirring = true;
+}
+
+function mouseDragged() {
+  if (draggingObs) {
+    const m = obs.size*1.6 + 3;
+    obs.x = constrain(mouseX/SCALE, m, GW - m);
+    obs.y = constrain(mouseY/SCALE, m, GH - m);
+    updateBarrier();
+  } else if (stirring && onCanvas()) {
+    stir(mouseX/SCALE, mouseY/SCALE, mouseX - pmouseX, mouseY - pmouseY);
+  }
+  return false;
+}
+
+function mouseReleased() { draggingObs = stirring = false; }
+
+function mouseWheel(e) {
+  if (!onCanvas()) return;
+  rotS.value(((rotS.value() + (e.deltaY > 0 ? 4 : -4)) % 360 + 360) % 360);
+  return false;
+}
+
+function keyPressed() {
+  if (key === 'q' || key === 'Q') rotS.value((rotS.value() + 355) % 360);
+  if (key === 'e' || key === 'E') rotS.value((rotS.value() + 5) % 360);
+  if (key === '1') { shapeSel.selected('circle');    obs.shape = 'circle';    updateBarrier(); }
+  if (key === '2') { shapeSel.selected('ellipse');   obs.shape = 'ellipse';   updateBarrier(); }
+  if (key === '3') { shapeSel.selected('rectangle'); obs.shape = 'rectangle'; updateBarrier(); }
+  if (key === ' ') togglePause();
+  if (key === 'r' || key === 'R') { initFluid(); updateBarrier(); }
+}
+
+function stir(gx, gy, dx, dy) {
+  let mx = dx*0.02, my = dy*0.02;
+  const m = Math.hypot(mx, my);
+  if (m > 0.12) { mx *= 0.12/m; my *= 0.12/m; }
+  const R = 9, cx = Math.round(gx), cy = Math.round(gy);
+  for (let y = Math.max(1, cy-R); y <= Math.min(GH-2, cy+R); y++)
+    for (let x = Math.max(1, cx-R); x <= Math.min(GW-2, cx+R); x++) {
+      if ((x-cx)*(x-cx) + (y-cy)*(y-cy) > R*R) continue;
+      const c = y*GW + x;
+      if (barrier[c]) continue;
+      const u = constrain(uxA[c] + mx, -0.2, 0.2), v = constrain(uyA[c] + my, -0.2, 0.2);
+      const b = c*9;
+      for (let i = 0; i < 9; i++) f[b+i] = equilibrium(i, u, v, 1);
+    }
+}
+</script>
+</body>
+</html>

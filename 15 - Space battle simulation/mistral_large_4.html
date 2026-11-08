@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Babylon.js — Epic Space Fleet Battle</title>
+<style>
+  html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:#000;
+               font-family:"Segoe UI", Roboto, Arial, sans-serif; }
+  #renderCanvas { width:100%; height:100%; display:block; outline:none; touch-action:none; }
+  .overlay { position:fixed; z-index:10; color:#cfe6ff; pointer-events:none; user-select:none;
+             text-shadow:0 0 10px rgba(90,170,255,.8); }
+  #hud { top:14px; left:50%; transform:translateX(-50%); font-size:18px; font-weight:700; letter-spacing:2px;
+         background:rgba(6,12,28,.5); padding:9px 26px; border:1px solid rgba(90,160,255,.4);
+         border-radius:12px; backdrop-filter:blur(4px); white-space:nowrap; }
+  #hud .b { color:#5fc4ff; } #hud .r { color:#ff6a55; } #hud .vs { margin:0 16px; color:#9fb6d8; font-weight:400; }
+  #banner { top:36%; left:50%; transform:translate(-50%,-50%); font-size:54px; font-weight:900;
+            letter-spacing:7px; display:none; text-align:center; }
+  #hint { bottom:12px; left:50%; transform:translateX(-50%); font-size:12px; letter-spacing:1px; color:#7f95b5; }
+</style>
+<script src="https://cdn.babylonjs.com/babylon.js"></script>
+</head>
+<body>
+<canvas id="renderCanvas"></canvas>
+<div id="hud" class="overlay"><span class="b">◤ BLUE FLEET&nbsp;<span id="bc">10</span>/10</span><span class="vs">⚔ VS ⚔</span><span class="r"><span id="rc">10</span>/10&nbsp;RED FLEET ◥</span></div>
+<div id="banner" class="overlay"></div>
+<div id="hint" class="overlay">🖱 drag = orbit &nbsp;·&nbsp; wheel = zoom &nbsp;·&nbsp; right-drag = pan &nbsp;·&nbsp; R = restart &nbsp;·&nbsp; (camera slowly auto-orbits when idle)</div>
+
+<script>
+(function(){
+"use strict";
+if (typeof BABYLON === "undefined") {
+  document.body.innerHTML = '<div style="color:#fff;font:16px sans-serif;padding:40px">Babylon.js CDN could not be loaded. Check your internet connection.</div>';
+  return;
+}
+
+var canvas = document.getElementById("renderCanvas");
+var engine = new BABYLON.Engine(canvas, true);
+var scene  = new BABYLON.Scene(engine);
+scene.clearColor = new BABYLON.Color4(0.006, 0.007, 0.02, 1);
+scene.skipPointerMovePicking = true;
+
+/* ================= state ================= */
+var gameOver = false, camShake = 0, wasShaking = false;
+var simTime = 0, lastInteract = performance.now();
+var PROJ_SPEED = 58, PROJ_DMG = 11, PROJ_LIFE = 3.6;
+
+/* ================= camera ================= */
+var camera = new BABYLON.ArcRotateCamera("cam", -Math.PI/2, 1.22, 130, BABYLON.Vector3.Zero(), scene);
+camera.attachControl(canvas, true);
+camera.minZ = 0.1; camera.maxZ = 5000;
+camera.lowerRadiusLimit = 28; camera.upperRadiusLimit = 420;
+camera.wheelDeltaPercentage = 0.008;
+camera.inertia = 0.9;
+camera.panningSensibility = 150;
+camera.fov = 0.9;
+
+/* ================= lights ================= */
+var hemi = new BABYLON.HemisphericLight("hemi", new BABYLON.Vector3(0,1,0), scene);
+hemi.intensity = 0.38; hemi.diffuse = new BABYLON.Color3(0.55,0.65,0.95); hemi.groundColor = new BABYLON.Color3(0.12,0.08,0.18);
+var sun = new BABYLON.DirectionalLight("sun", new BABYLON.Vector3(-0.45,0.65,0.35).normalize(), scene);
+sun.diffuse = new BABYLON.Color3(1,0.93,0.8); sun.specular = new BABYLON.Color3(0.9,0.9,0.9); sun.intensity = 1.15;
+var rim = new BABYLON.DirectionalLight("rim", new BABYLON.Vector3(0.55,-0.25,-0.75).normalize(), scene);
+rim.diffuse = new BABYLON.Color3(0.35,0.5,1); rim.intensity = 0.4;
+
+var glowLayer = new BABYLON.GlowLayer("glow", scene);
+glowLayer.intensity = 0.65;
+
+var flashLight = new BABYLON.PointLight("flash", BABYLON.Vector3.Zero(), scene);
+flashLight.diffuse = new BABYLON.Color3(1,0.6,0.2); flashLight.specular = new BABYLON.Color3(1,0.8,0.5);
+flashLight.intensity = 0; flashLight.range = 120;
+
+/* ================= materials ================= */
+function stdMat(name){ return new BABYLON.StandardMaterial(name, scene); }
+function solidMat(name, rgb){ var m = stdMat(name); m.diffuseColor = rgb; m.specularColor = new BABYLON.Color3(0.6,0.6,0.65); m.specularPower = 48; return m; }
+function glowMat(name, c){ var m = stdMat(name); m.disableLighting = true; m.diffuseColor = new BABYLON.Color3(0,0,0); m.emissiveColor = c; return m; }
+function addMat(name, c){ var m = glowMat(name, c); m.alphaMode = BABYLON.Engine.ALPHA_ADD; m.disableDepthWrite = true; return m; }
+
+var hullBlue  = solidMat("hullB", new BABYLON.Color3(0.16,0.26,0.50)); hullBlue.specularColor = new BABYLON.Color3(0.7,0.8,1); hullBlue.specularPower = 64; hullBlue.emissiveColor = new BABYLON.Color3(0.02,0.04,0.09);
+var hullRed   = solidMat("hullR", new BABYLON.Color3(0.50,0.18,0.15)); hullRed.specularColor  = new BABYLON.Color3(1,0.7,0.6);  hullRed.specularPower  = 64; hullRed.emissiveColor  = new BABYLON.Color3(0.09,0.03,0.02);
+var accentBlue= solidMat("accB",  new BABYLON.Color3(0.08,0.14,0.32));
+var accentRed = solidMat("accR",  new BABYLON.Color3(0.30,0.08,0.07));
+var darkMetal = solidMat("dark",  new BABYLON.Color3(0.10,0.10,0.12));
+
+var glowBlue = glowMat("glowB", new BABYLON.Color3(0.30,0.80,1.00));
+var glowRed  = glowMat("glowR", new BABYLON.Color3(1.00,0.40,0.30));
+var flameBlue = addMat("flB", new BABYLON.Color3(0.45,0.80,1.00));
+var flameRed  = addMat("flR", new BABYLON.Color3(1.00,0.65,0.35));
+var projBlue  = glowMat("pjB", new BABYLON.Color3(0.40,0.80,1.00));
+var projRed   = glowMat("pjR", new BABYLON.Color3(1.00,0.35,0.25));
+var sparkY = addMat("spY", new BABYLON.Color3(1,0.9,0.5));
+var sparkO = addMat("spO", new BABYLON.Color3(1,0.5,0.15));
+var fireO  = addMat("fO", new BABYLON.Color3(1,0.45,0.08));
+var fireY  = addMat("fY", new BABYLON.Color3(1,0.80,0.30));
+var fireW  = addMat("fW", new BABYLON.Color3(1,0.97,0.90));
+var shockM = addMat("shk", new BABYLON.Color3(0.75,0.90,1.00));
+var trailBlue = addMat("trB", new BABYLON.Color3(0.30,0.70,1.00));
+var trailRed  = addMat("trR", new BABYLON.Color3(1.00,0.35,0.20));
+
+var debrisMat = stdMat("deb");
+debrisMat.diffuseColor = new BABYLON.Color3(0.16,0.16,0.19);
+debrisMat.specularColor = new BABYLON.Color3(0.4,0.4,0.45); debrisMat.specularPower = 24;
+debrisMat.emissiveColor = new BABYLON.Color3(0.05,0.03,0.02);
+
+var barBgMat = stdMat("barbg");
+barBgMat.disableLighting = true; barBgMat.diffuseColor = new BABYLON.Color3(0.02,0.02,0.03);
+barBgMat.emissiveColor = new BABYLON.Color3(0.06,0.07,0.10);
+barBgMat.alpha = 0.75; barBgMat.transparencyMode = BABYLON.Material.MATERIAL_ALPHABLEND;
+
+/* ================= glow textures ================= */
+function makeGlowTexture(name, rgb){
+  var s = 64, t = new BABYLON.DynamicTexture(name, {width:s, height:s}, scene, true);
+  var c = t.getContext();
+  var g = c.createRadialGradient(s/2,s/2,0, s/2,s/2,s/2);
+  g.addColorStop(0, "rgba(255,255,255,1)");
+  g.addColorStop(0.3, "rgba(" + rgb + ",0.85)");
+  g.addColorStop(1, "rgba(" + rgb + ",0)");
+  c.fillStyle = g; c.fillRect(0,0,s,s);
+  t.update(); t.hasAlpha = true; return t;
+}
+var glowTexBlue = makeGlowTexture("gtB", "90,180,255");
+var glowTexRed  = makeGlowTexture("gtR", "255,110,70");
+function haloMat(tex){
+  var m = stdMat("halo"); m.disableLighting = true; m.diffuseColor = new BABYLON.Color3(0,0,0);
+  m.emissiveTexture = tex; m.emissiveColor = new BABYLON.Color3(1,1,1);
+  m.alphaMode = BABYLON.Engine.ALPHA_ADD; m.disableDepthWrite = true; return m;
+}
+var haloBlueMat = haloMat(glowTexBlue), haloRedMat = haloMat(glowTexRed);
+
+/* ================= starfield / nebula skybox ================= */
+function drawSky(c, W, H){
+  var g = c.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,"#060614"); g.addColorStop(0.5,"#04040f"); g.addColorStop(1,"#0b0718");
+  c.fillStyle = g; c.fillRect(0,0,W,H);
+  c.globalCompositeOperation = "lighter";
+  var nebs = [["90,45,190",0.20,430],["25,120,160",0.16,520],["180,55,140",0.15,380],
+              ["35,70,180",0.17,470],["130,35,95",0.12,330],["20,140,120",0.10,300]];
+  for (var n=0; n<nebs.length; n++){
+    var rgb = nebs[n][0], a = nebs[n][1], rad = nebs[n][2];
+    for (var i=0;i<4;i++){
+      var x=Math.random()*W, y=Math.random()*H, r=rad*(0.5+Math.random()*1.1);
+      var rg=c.createRadialGradient(x,y,0,x,y,r);
+      rg.addColorStop(0,"rgba("+rgb+","+a+")"); rg.addColorStop(1,"rgba("+rgb+",0)");
+      c.fillStyle=rg; c.fillRect(x-r,y-r,2*r,2*r);
+    }
+  }
+  for (var s2=0; s2<2800; s2++){
+    var x2=Math.random()*W, y2=Math.random()*H;
+    var big=Math.random()>0.965, sz=big?1.2+Math.random()*1.8:0.3+Math.random()*1.1;
+    var al=0.25+Math.random()*0.75, t=Math.random();
+    c.fillStyle = t<0.72?"rgba(255,255,255,"+al+")":(t<0.86?"rgba(170,205,255,"+al+")":"rgba(255,225,180,"+al+")");
+    c.beginPath(); c.arc(x2,y2,sz,0,6.2832); c.fill();
+  }
+  for (var f=0; f<46; f++){
+    var x3=Math.random()*W, y3=Math.random()*H, r3=3+Math.random()*7;
+    c.strokeStyle="rgba(255,255,255,0.35)"; c.lineWidth=1;
+    c.beginPath(); c.moveTo(x3-r3,y3); c.lineTo(x3+r3,y3); c.moveTo(x3,y3-r3); c.lineTo(x3,y3+r3); c.stroke();
+    c.fillStyle="rgba(255,255,255,0.9)"; c.beginPath(); c.arc(x3,y3,1.4,0,6.2832); c.fill();
+  }
+  c.globalCompositeOperation = "source-over";
+}
+var skyTex = new BABYLON.DynamicTexture("sky", {width:2048, height:1024}, scene, true);
+drawSky(skyTex.getContext(), 2048, 1024); skyTex.update();
+var skyMat = stdMat("skyM");
+skyMat.disableLighting = true; skyMat.emissiveTexture = skyTex; skyMat.emissiveColor = new BABYLON.Color3(1,1,1);
+skyMat.diffuseColor = new BABYLON.Color3(0,0,0); skyMat.backFaceCulling = false;
+var sky = BABYLON.MeshBuilder.CreateSphere("sky", {diameter:2400, segments:32}, scene);
+sky.material = skyMat; sky.isPickable = false;
+
+/* ================= distant planet & moon ================= */
+function drawPlanet(c, W, H){
+  var b = c.createLinearGradient(0,0,0,H);
+  b.addColorStop(0,"#3d4c86"); b.addColorStop(0.35,"#27335e"); b.addColorStop(0.7,"#141c3a"); b.addColorStop(1,"#0a0e22");
+  c.fillStyle=b; c.fillRect(0,0,W,H);
+  for (var i=0;i<26;i++){
+    c.fillStyle="rgba("+(Math.random()<0.5?"255,255,255":"10,14,40")+","+(0.03+Math.random()*0.06)+")";
+    c.fillRect(0, Math.random()*H, W, 2+Math.random()*10);
+  }
+}
+var planetTex = new BABYLON.DynamicTexture("planet", {width:512, height:256}, scene, true);
+drawPlanet(planetTex.getContext(), 512, 256); planetTex.update();
+var planetMat = stdMat("pm"); planetMat.diffuseTexture = planetTex; planetMat.specularColor = new BABYLON.Color3(0,0,0); planetMat.emissiveColor = new BABYLON.Color3(0.02,0.02,0.05);
+var planet = BABYLON.MeshBuilder.CreateSphere("planet", {diameter:110, segments:32}, scene);
+planet.position.set(300,-160,-520); planet.material = planetMat;
+var planetHalo = BABYLON.MeshBuilder.CreatePlane("ph", {size:160}, scene);
+planetHalo.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
+planetHalo.material = haloMat(makeGlowTexture("pt","70,60,140"));
+planetHalo.position.copyFrom(planet.position); planetHalo.isPickable = false;
+var moonMat = stdMat("mm"); moonMat.diffuseColor = new BABYLON.Color3(0.35,0.33,0.40); moonMat.specularColor = new BABYLON.Color3(0.2,0.2,0.2);
+var moon = BABYLON.MeshBuilder.CreateSphere("moon", {diameter:26, segments:16}, scene);
+moon.position.set(200,-40,-430); moon.material = moonMat;
+
+/* ================= shared geometries ================= */
+function grabGeo(mesh){ var g = mesh.geometry; mesh.dispose(); return g; }
+var geoBox    = grabGeo(BABYLON.MeshBuilder.CreateBox("gBox", {size:1}, scene));
+var geoSphere = grabGeo(BABYLON.MeshBuilder.CreateSphere("gSph", {diameter:1, segments:14}, scene));
+var geoSphLow = grabGeo(BABYLON.MeshBuilder.CreateSphere("gSphL", {diameter:1, segments:6}, scene));
+var geoCone   = grabGeo(BABYLON.MeshBuilder.CreateCylinder("gCone", {diameterTop:0, diameterBottom:1, height:1, tessellation:12}, scene));
+var geoCyl    = grabGeo(BABYLON.MeshBuilder.CreateCylinder("gCyl", {diameterTop:1, diameterBottom:1, height:1, tessellation:12}, scene));
+var geoPlane  = grabGeo(BABYLON.MeshBuilder.CreatePlane("gPl", {size:1}, scene));
+var geoTorus  = grabGeo(BABYLON.MeshBuilder.CreateTorus("gTor", {diameter:1, thickness:0.06, tessellation:28}, scene));
+var geoTetra  = grabGeo(BABYLON.MeshBuilder.CreateTetrahedron("gTet", {size:1}, scene));
+
+/* ================= mesh pools ================= */
+function makePool(n, geo, mat, billboard){
+  var arr = [];
+  for (var i=0;i<n;i++){
+    var m = new BABYLON.Mesh("pool", scene);
+    m.geometry = geo; if (mat) m.material = mat;
+    m.isPickable = false; m.setEnabled(false);
+    if (billboard) m.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
+    arr.push(m);
+  }
+  return {arr:arr, idx:0};
+}
+function take(pool){
+  var n = pool.arr.length;
+  for (var k=0;k<n;k++){
+    var i = (pool.idx+k)%n, m = pool.arr[i];
+    if (!m.isEnabled()){ pool.idx = (i+1)%n; m.setEnabled(true); return m; }
+  }
+  return null;
+}
+function release(m){ if (m) m.setEnabled(false); }
+
+var poolProj  = makePool(48,  geoSphLow, null, false);
+var poolHalo  = makePool(48,  geoPlane,  null, true);
+var poolTrail = makePool(650, geoSphLow, null, false);
+var poolFire  = makePool(80,  geoSphere, null, false);
+var poolShock = makePool(16,  geoSphere, null, false);
+var poolRing  = makePool(16,  geoTorus,  null, false);
+var poolSpark = makePool(750, geoSphLow, null, false);
+var poolDebBox= makePool(150, geoBox,  debrisMat, false);
+var poolDebTet= makePool(150, geoTetra, debrisMat, false);
+
+var fx = { proj:[], trail:[], fire:[], shock:[], ring:[], spark:[], debris:[] };
+var chains = [];
+
+/* ================= ship construction ================= */
+var TEAMC = { blue: new BABYLON.Color3(0.30,0.75,1.00), red: new BABYLON.Color3(1.00,0.40,0.30) };
+
+function part(parent, geo, mat, sx, sy, sz, x, y, z, rx, ry, rz){
+  var m = new BABYLON.Mesh("p", scene);
+  m.geometry = geo; m.material = mat;
+  m.scaling.set(sx,sy,sz); m.position.set(x,y,z);
+  if (rx || ry || rz) m.rotation.set(rx||0, ry||0, rz||0);
+  m.parent = parent;
+  return m;
+}
+
+function makeShip(team, isFlag){
+  var root = new BABYLON.TransformNode("ship_"+team+(isFlag?"_flag":""), scene);
+  var body = new BABYLON.TransformNode("body", scene); body.parent = root;
+  var hull   = team==="blue" ? hullBlue  : hullRed;
+  var accent = team==="blue" ? accentBlue: accentRed;
+  var glow   = team==="blue" ? glowBlue  : glowRed;
+  var flameM = team==="blue" ? flameBlue : flameRed;
+  var haloM  = team==="blue" ? haloBlueMat : haloRedMat;
+  var flames = [], halos = [], muzzles = [];
+
+  if (!isFlag){
+    /* ---- escort ---- */
+    part(body, geoBox,  hull,   0.55,0.38,1.60,  0,0,0);
+    part(body, geoCone, hull,   0.50,0.50,0.90,  0,0,1.25,  Math.PI/2,0,0);
+    part(body, geoBox,  glow,   0.28,0.16,0.50,  0,0.27,0.40);
+    part(body, geoBox,  accent, 0.85,0.07,0.55,  0.50,-0.02,-0.55,  0, 0.30,0);
+    part(body, geoBox,  accent, 0.85,0.07,0.55, -0.50,-0.02,-0.55,  0,-0.30,0);
+    part(body, geoBox,  accent, 0.06,0.34,0.50,  0,0.32,-0.65);
+    part(body, geoCyl,  darkMetal, 0.34,0.34,0.35, 0,0,-0.85, Math.PI/2,0,0);
+    var fl = part(body, geoCone, flameM, 0.30,0.30,1.50, 0,0,-1.55, -Math.PI/2,0,0);
+    fl.userData = {bx:0.30, bz:1.50}; flames.push(fl);
+    var h = part(body, geoPlane, haloM, 1.2,1.2,1, 0,0,-1.15);
+    h.userData = {b:1.2}; halos.push(h);
+    var mz = new BABYLON.TransformNode("mz", scene); mz.parent = body; mz.position.set(0,0.05,1.80); muzzles.push(mz);
+  } else {
+    /* ---- flagship ---- */
+    part(body, geoBox,  hull,   2.6,1.10,6.4,   0,0,0);
+    part(body, geoBox,  accent, 2.2,0.55,5.0,   0,-0.68,-0.2);
+    part(body, geoCone, hull,   2.3,0.95,2.4,   0,0.05,4.1,  Math.PI/2,0,0);
+    part(body, geoBox,  hull,   1.1,1.25,1.9,   0,1.10,1.7);
+    part(body, geoBox,  glow,   1.16,0.24,1.96, 0,1.15,1.7);
+    part(body, geoSphere, glow, 0.55,0.40,0.55, 0,1.95,1.7);
+    part(body, geoCyl,  darkMetal, 0.05,0.05,1.0, 0,2.35,2.45);
+    part(body, geoSphere, glow, 0.12,0.12,0.12, 0,2.90,2.45);
+    part(body, geoBox,  hull,   3.4,0.20,1.7,   3.0,0,-0.8,  0, 0.22,0);
+    part(body, geoBox,  hull,   3.4,0.20,1.7,  -3.0,0,-0.8,  0,-0.22,0);
+    for (var sx=-1; sx<=1; sx+=2){
+      part(body, geoCyl, darkMetal, 0.13,0.13,1.3, sx*4.2,0.12,0.35, Math.PI/2,0,0);
+      part(body, geoSphere, glow, 0.13,0.13,0.13, sx*4.72,0,-1.45);
+      part(body, geoBox, glow, 0.09,0.18,5.2, sx*1.32,0.28,0.1);
+    }
+    part(body, geoBox,  accent, 0.12,1.0,1.4,  0,0.85,-3.1);
+    part(body, geoBox,  darkMetal, 2.3,0.85,1.1, 0,0,-3.5);
+    var exs = [-0.85, 0, 0.85];
+    for (var e=0; e<exs.length; e++){
+      var ex = exs[e];
+      part(body, geoCyl, darkMetal, 0.52,0.52,0.55, ex,0,-4.15, Math.PI/2,0,0);
+      var f2 = part(body, geoCone, flameM, 0.46,0.46,2.0, ex,0,-4.85, -Math.PI/2,0,0);
+      f2.userData = {bx:0.46, bz:2.0}; flames.push(f2);
+      var h2 = part(body, geoPlane, haloM, 1.7,1.7,1, ex,0,-4.45);
+      h2.userData = {b:1.7}; halos.push(h2);
+      var mz2 = new BABYLON.TransformNode("mz", scene); mz2.parent = body; mz2.position.set(sx? ex*4.9 : 0, 0.12, 1.15);
+      mz2.position.x = ex*4.9; muzzles.push(mz2);
+    }
+  }
+
+  /* ---- health bar (billboarded planes above ship) ---- */
+  var barW = isFlag?4.8:2.4, barH = isFlag?0.55:0.30, topY = isFlag?4.1:1.25;
+  var bg = new BABYLON.Mesh("barBg", scene);
+  bg.geometry = geoPlane; bg.material = barBgMat;
+  bg.scaling.set(barW+0.22, barH+0.16, 1); bg.position.set(0, topY, 0); bg.parent = root;
+  bg.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL; bg.renderingGroupId = 1; bg.isPickable = false;
+  var fillMat = stdMat("barF");
+  fillMat.disableLighting = true; fillMat.diffuseColor = new BABYLON.Color3(0,0,0);
+  fillMat.emissiveColor = TEAMC[team].clone();
+  var fill = new BABYLON.Mesh("barFill", scene);
+  fill.geometry = geoPlane; fill.material = fillMat;
+  fill.scaling.set(barW, barH, 1); fill.position.set(0, topY, 0); fill.parent = root;
+  fill.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL; fill.renderingGroupId = 2; fill.isPickable = false;
+
+  /* ---- flagship engine point light ---- */
+  var engLight = null;
+  if (isFlag){
+    engLight = new BABYLON.PointLight("el", new BABYLON.Vector3(0,0,-4), scene);
+    engLight.parent = root;
+    engLight.diffuse = team==="blue" ? new BABYLON.Color3(0.4,0.65,1) : new BABYLON.Color3(1,0.55,0.3);
+    engLight.specular = engLight.diffuse; engLight.intensity = 28; engLight.range = 55;
+  }
+
+  var ship = {
+    team:team, isFlag:isFlag, root:root, body:body,
+    flames:flames, halos:halos, muzzles:muzzles, engLight:engLight,
+    barW:barW, barFill:fill, fillMat:fillMat,
+    maxHp: isFlag?320:100, hp: isFlag?320:100,
+    hitR: isFlag?4.0:1.75, chainWidth: isFlag?8.6:2.9,
+    vel: new BABYLON.Vector3((Math.random()-0.5)*3,(Math.random()-0.5)*2,(Math.random()-0.5)*3),
+    maxSpeed: isFlag ? 6+Math.random() : 9.5+Math.random()*2.5,
+    turnRate: isFlag ? 0.95+Math.random()*0.2 : 2.1+Math.random()*0.7,
+    accel: isFlag ? 2.2 : 3.2,
+    fireTimer: Math.random()*3,
+    orbitSign: Math.random()<0.5?-1:1,
+    weavePhase: Math.random()*10, weaveFreq: 0.8+Math.random()*0.8,
+    alive: true
+  };
+  root.computeWorldMatrix(true);
+  return ship;
+}
+
+/* ================= fleets ================= */
+var ships = [];
+var aliveCount = { blue:10, red:10 };
+
+function buildFleet(team){
+  var dirZ = team==="blue" ? 1 : -1;
+  var z0 = team==="blue" ? -48 : 48;
+  var yawBase = team==="blue" ? 0 : Math.PI;
+  var flag = makeShip(team, true);
+  flag.root.position.set(0, 0, z0);
+  flag.root.rotationQuaternion = BABYLON.Quaternion.RotationAxis(BABYLON.Vector3.Up(), yawBase);
+  ships.push(flag);
+  for (var i=0;i<9;i++){
+    var s = makeShip(team, false);
+    var a = (i/9)*Math.PI*2, r = 13 + (i%3)*4.5;
+    s.root.position.set(Math.cos(a)*r, Math.sin(a*2.0)*3.5, z0 - dirZ*(3 + (i%2)*5));
+    s.root.rotationQuaternion = BABYLON.Quaternion.RotationAxis(BABYLON.Vector3.Up(), yawBase + (Math.random()-0.5)*0.7);
+    ships.push(s);
+  }
+}
+buildFleet("blue");
+buildFleet("red");
+
+/* ================= projectiles ================= */
+function randDir(){
+  var v = new BABYLON.Vector3(Math.random()*2-1, Math.random()*2-1, Math.random()*2-1);
+  if (v.lengthSquared() < 1e-6) return randDir();
+  return v.normalize();
+}
+function spawnProjectile(team, pos, dir){
+  var core = take(poolProj); if (!core) return;
+  var halo = take(poolHalo);
+  core.material = team==="blue" ? projBlue : projRed;
+  core.scaling.setAll(0.24); core.position.copyFrom(pos); core.visibility = 1;
+  if (halo){ halo.material = team==="blue" ? haloBlueMat : haloRedMat; halo.scaling.setAll(1.5); halo.position.copyFrom(pos); halo.visibility = 1; }
+  fx.proj.push({ team:team, pos:pos.clone(), vel:dir.scale(PROJ_SPEED), life:PROJ_LIFE, core:core, halo:halo, trailT:0 });
+}
+function spawnTrail(pos, team){
+  var m = take(poolTrail); if (!m) return;
+  m.material = team==="blue" ? trailBlue : trailRed;
+  m.position.copyFrom(pos); m.visibility = 1;
+  var s = 0.30 + Math.random()*0.20;
+  m.scaling.setAll(s);
+  fx.trail.push({ m:m, t:0, life:0.38, s:s });
+}
+
+/* ================= explosions ================= */
+function spawnImpact(pos){
+  for (var i=0;i<6;i++){
+    var m = take(poolSpark); if (!m) break;
+    m.material = Math.random()<0.5 ? sparkY : sparkO;
+    m.position.copyFrom(pos); m.scaling.setAll(0.13); m.visibility = 1;
+    fx.spark.push({ m:m, vel:randDir().scale(6+Math.random()*10), t:0, life:0.25+Math.random()*0.2, drag:2, s0:0.13 });
+  }
+  var f = take(poolFire);
+  if (f){ f.material = fireY; f.position.copyFrom(pos); f.scaling.setAll(0.4); f.visibility = 1;
+    fx.fire.push({ m:f, t:0, life:0.25, s0:0.4, s1:1.1 }); }
+}
+function spawnBurst(pos, scale, big){
+  var i, m;
+  var nF = Math.round(4 + scale*4);
+  for (i=0;i<nF;i++){
+    m = take(poolFire); if (!m) break;
+    m.material = Math.random()<0.25 ? fireW : (Math.random()<0.5 ? fireY : fireO);
+    m.position.set(pos.x+(Math.random()-0.5)*scale*0.8, pos.y+(Math.random()-0.5)*scale*0.8, pos.z+(Math.random()-0.5)*scale*0.8);
+    var s0 = (0.5+Math.random()*0.5)*scale;
+    m.scaling.setAll(s0); m.visibility = 1;
+    fx.fire.push({ m:m, t:0, life:0.4+Math.random()*0.35, s0:s0, s1:s0*(4+Math.random()*3) });
+  }
+  if (big){
+    m = take(poolShock);
+    if (m){ m.material = shockM; m.position.copyFrom(pos); m.scaling.setAll(0.2); m.visibility = 0.8;
+      fx.shock.push({ m:m, t:0, life:0.75, s1:9*scale }); }
+    m = take(poolRing);
+    if (m){ m.material = fireY; m.position.copyFrom(pos); m.rotation.set(Math.random()*3,Math.random()*3,Math.random()*3);
+      m.scaling.setAll(0.5); m.visibility = 0.85;
+      fx.ring.push({ m:m, t:0, life:0.7, s1:10*scale }); }
+  }
+  var nS = Math.round(10 + 22*scale);
+  for (i=0;i<nS;i++){
+    m = take(poolSpark); if (!m) break;
+    m.material = Math.random()<0.5 ? sparkY : sparkO;
+    m.position.copyFrom(pos);
+    var s = 0.14+Math.random()*0.10;
+    m.scaling.setAll(s); m.visibility = 1;
+    fx.spark.push({ m:m, vel:randDir().scale((9+Math.random()*24)*Math.sqrt(scale)), t:0, life:0.45+Math.random()*0.75, drag:1.2, s0:s });
+  }
+  if (big){
+    var nD = Math.round(8 + 6*scale);
+    for (i=0;i<nD;i++){
+      m = Math.random()<0.5 ? take(poolDebBox) : take(poolDebTet); if (!m) break;
+      m.position.copyFrom(pos).addInPlace(randDir().scale(Math.random()*scale*0.5));
+      var s2 = (0.25+Math.random()*0.5)*Math.sqrt(scale);
+      m.scaling.set(s2, s2*(0.6+Math.random()*0.8), s2);
+      m.rotation.set(Math.random()*3, Math.random()*3, Math.random()*3);
+      m.visibility = 1;
+      fx.debris.push({ m:m, vel:randDir().scale((3+Math.random()*9)*Math.sqrt(scale)), axis:randDir(), rot:2+Math.random()*7, t:0, life:1.8+Math.random()*1.6 });
+    }
+  }
+  if (big){
+    flashLight.position.copyFrom(pos);
+    flashLight.intensity = 150 + 700*scale;
+    flashLight.range = 40 + 90*scale;
+    camShake = Math.min(camShake + 0.35*scale, 2.2);
+  }
+}
+
+/* ================= combat ================= */
+function nearestEnemy(s){
+  var best=null, bd=Infinity;
+  for (var i=0;i<ships.length;i++){
+    var o = ships[i];
+    if (!o.alive || o.team===s.team) continue;
+    var d = BABYLON.Vector3.DistanceSquared(s.root.position, o.root.position);
+    if (d<bd){ bd=d; best=o; }
+  }
+  return best;
+}
+function damage(s, d){
+  if (!s.alive) return;
+  s.hp -= d;
+  var pct = Math.max(0, s.hp/s.maxHp);
+  s.barFill.scaling.x = Math.max(0.001, pct);
+  s.barFill.position.x = -(s.barW/2)*(1-pct);
+  s.fillMat.emissiveColor.copyFrom(pct < 0.35 ? new BABYLON.Color3(1,0.15,0.1) : TEAMC[s.team]);
+  if (s.hp <= 0) explodeShip(s, false);
+  else spawnImpact(s.root.position);
+}
+function explodeShip(s, chained){
+  if (!s.alive) return;
+  s.alive = false;
+  var p = s.root.position.clone();
+  s.root.setEnabled(false);
+  spawnBurst(p, s.isFlag ? 2.5 : 1.05, true);
+  for (var i=0;i<ships.length;i++){
+    var o = ships[i];
+    if (o.alive && o!==s && BABYLON.Vector3.Distance(o.root.position, p) < s.chainWidth){
+      chains.push({ s:o, t:0.12+Math.random()*0.30 });
+    }
+  }
+  aliveCount[s.team]--;
+  document.getElementById(s.team==="blue" ? "bc" : "rc").textContent = aliveCount[s.team];
+  checkWin();
+}
+function checkWin(){
+  if (gameOver) return;
+  if (aliveCount.blue===0 || aliveCount.red===0){
+    gameOver = true;
+    var b = document.getElementById("banner");
+    if (aliveCount.blue===0 && aliveCount.red===0) b.textContent = "MUTUAL DESTRUCTION";
+    else b.textContent = (aliveCount.blue>0 ? "🔵 BLUE FLEET" : "🔴 RED FLEET") + " VICTORIOUS";
+    b.style.color = aliveCount.blue>0 ? "#5fc4ff" : "#ff6a55";
+    b.style.display = "block";
+  }
+}
+
+/* ================= per-frame updates ================= */
+function updateShips(dt, t){
+  for (var si=0; si<ships.length; si++){
+    var s = ships[si];
+    if (!s.alive) continue;
+    var target = nearestEnemy(s);
+    var pos = s.root.position;
+    var desired;
+    if (target){
+      var toT = target.root.position.subtract(pos);
+      var dist = Math.sqrt(toT.lengthSquared()) || 1;
+      var dir = toT.scale(1/dist);
+      if (dist > 30) desired = dir;
+      else {
+        var up = Math.abs(dir.y) > 0.9 ? new BABYLON.Vector3(1,0,0) : BABYLON.Vector3.Up();
+        var tangent = BABYLON.Vector3.Cross(dir, up).normalize();
+        var radial = dist > 21 ? -0.45 : 0.55;
+        desired = tangent.scale(s.orbitSign).add(dir.scale(radial)).normalize();
+      }
+      desired.addInPlace(BABYLON.Vector3.Up().scale(Math.sin(t*s.weaveFreq + s.weavePhase)*0.3));
+    } else {
+      desired = pos.lengthSquared() > 4 ? pos.scale(-1).normalize() : new BABYLON.Vector3(0,0,1);
+    }
+    /* separation from other ships */
+    for (var oi=0; oi<ships.length; oi++){
+      var o = ships[oi];
+      if (o===s || !o.alive) continue;
+      var d = BABYLON.Vector3.Distance(pos, o.root.position);
+      if (d < 5.5 && d > 0.001)
+        desired.addInPlace(pos.subtract(o.root.position).normalize().scale((5.5-d)/5.5*2.2));
+    }
+    /* arena bounds */
+    var r = pos.length();
+    if (r > 100) desired.addInPlace(pos.scale(-1).normalize().scale((r-100)*0.06));
+    if (desired.lengthSquared() > 1e-8) desired = desired.normalize();
+    else desired = new BABYLON.Vector3(0,0,1);
+
+    /* turn toward desired heading */
+    var fwd = s.root.getDirection(BABYLON.Vector3.Forward());
+    var dot = BABYLON.Vector3.Dot(fwd, desired);
+    var axis = BABYLON.Vector3.Cross(fwd, desired);
+    if (axis.lengthSquared() > 1e-8){
+      var ang = Math.acos(Math.min(1, Math.max(-1, dot)));
+      var q = BABYLON.Quaternion.RotationAxis(axis.normalize(), Math.min(ang, s.turnRate*dt));
+      s.root.rotationQuaternion = q.multiply(s.root.rotationQuaternion);
+    }
+    /* thrust along facing direction */
+    var fwd2 = s.root.getDirection(BABYLON.Vector3.Forward());
+    var tv = fwd2.scale(s.maxSpeed);
+    var k = 1 - Math.exp(-s.accel*dt);
+    s.vel.addInPlace(tv.subtract(s.vel).scale(k));
+    pos.addInPlace(s.vel.scale(dt));
+
+    /* cosmetic bobbing + engine flicker */
+    s.body.position.y = Math.sin(t*1.6 + s.weavePhase)*0.10;
+    s.body.rotation.z = Math.sin(t*1.1 + s.weavePhase*2)*0.045;
+    for (var fi=0; fi<s.flames.length; fi++){
+      var f = s.flames[fi], k2 = 0.7+Math.random()*0.7;
+      f.scaling.set(f.userData.bx*k2, f.userData.bx*k2, f.userData.bz*(0.7+Math.random()*0.7));
+    }
+    for (var hi=0; hi<s.halos.length; hi++){
+      var hh = s.halos[hi], k3 = 0.65+Math.random()*0.75;
+      hh.scaling.set(hh.userData.b*k3, hh.userData.b*k3, 1);
+    }
+    if (s.engLight) s.engLight.intensity = 22 + Math.random()*14;
+
+    /* firing — every 3 seconds; flagship fires 2 projectiles */
+    s.fireTimer -= dt;
+    if (s.fireTimer <= 0){
+      s.fireTimer = 3.0;
+      if (target && target.alive){
+        var count = s.isFlag ? 2 : 1;
+        for (var mi=0; mi<count; mi++){
+          var mz = s.muzzles[Math.min(mi, s.muzzles.length-1)];
+          mz.computeWorldMatrix(true);
+          var mp = mz.getAbsolutePosition();
+          var tp = target.root.position;
+          var dd = Math.max(1, BABYLON.Vector3.Distance(mp, tp));
+          var lead = dd / PROJ_SPEED;
+          var aim = tp.add(target.vel.scale(lead)).add(new BABYLON.Vector3((Math.random()-0.5)*2,(Math.random()-0.5)*2,(Math.random()-0.5)*2));
+          var d2 = aim.subtract(mp).normalize().add(randDir().scale(0.02)).normalize();
+          spawnProjectile(s.team, mp, d2);
+        }
+      }
+    }
+  }
+}
+
+function updateProjectiles(dt){
+  for (var i=fx.proj.length-1; i>=0; i--){
+    var p = fx.proj[i];
+    p.life -= dt;
+    p.pos.addInPlace(p.vel.scale(dt));
+    p.core.position.copyFrom(p.pos);
+    if (p.halo) p.halo.position.copyFrom(p.pos);
+    p.trailT -= dt;
+    if (p.trailT <= 0){ p.trailT = 0.045; spawnTrail(p.pos, p.team); }
+    var hit = false;
+    for (var si=0; si<ships.length; si++){
+      var s = ships[si];
+      if (!s.alive || s.team===p.team) continue;
+      var r = s.hitR + 0.15;
+      if (BABYLON.Vector3.DistanceSquared(p.pos, s.root.position) < r*r){ damage(s, PROJ_DMG); hit = true; break; }
+    }
+    if (hit || p.life <= 0 || p.pos.lengthSquared() > 320000){
+      release(p.core); release(p.halo);
+      fx.proj.splice(i,1);
+    }
+  }
+}
+
+function updateFx(dt){
+  var i, e, k;
+  for (i=fx.trail.length-1; i>=0; i--){
+    e = fx.trail[i]; e.t += dt; k = e.t/e.life;
+    if (k>=1){ release(e.m); fx.trail.splice(i,1); }
+    else { e.m.scaling.setAll(e.s*(1-k*0.75)); e.m.visibility = 1-k; }
+  }
+  for (i=fx.fire.length-1; i>=0; i--){
+    e = fx.fire[i]; e.t += dt; k = e.t/e.life;
+    if (k>=1){ release(e.m); fx.fire.splice(i,1); }
+    else { e.m.scaling.setAll(e.s0 + (e.s1-e.s0)*(1-Math.pow(1-k,3))); e.m.visibility = (1-k)*0.95; }
+  }
+  for (i=fx.shock.length-1; i>=0; i--){
+    e = fx.shock[i]; e.t += dt; k = e.t/e.life;
+    if (k>=1){ release(e.m); fx.shock.splice(i,1); }
+    else { e.m.scaling.setAll(e.s1*(1-Math.pow(1-k,2))); e.m.visibility = (1-k)*0.55; }
+  }
+  for (i=fx.ring.length-1; i>=0; i--){
+    e = fx.ring[i]; e.t += dt; k = e.t/e.life;
+    e.m.rotation.y += dt*3; e.m.rotation.x += dt*1.5;
+    if (k>=1){ release(e.m); fx.ring.splice(i,1); }
+    else { e.m.scaling.setAll(e.s1*(1-Math.pow(1-k,3))); e.m.visibility = (1-k)*0.8; }
+  }
+  for (i=fx.spark.length-1; i>=0; i--){
+    e = fx.spark[i]; e.t += dt; k = e.t/e.life;
+    if (k>=1){ release(e.m); fx.spark.splice(i,1); }
+    else {
+      e.m.position.addInPlace(e.vel.scale(dt));
+      e.vel.scaleInPlace(Math.max(0, 1 - e.drag*dt));
+      e.m.scaling.setAll(e.s0*(1-0.5*k));
+      e.m.visibility = 1-k;
+    }
+  }
+  for (i=fx.debris.length-1; i>=0; i--){
+    e = fx.debris[i]; e.t += dt; k = e.t/e.life;
+    if (k>=1){ release(e.m); fx.debris.splice(i,1); }
+    else {
+      e.m.position.addInPlace(e.vel.scale(dt));
+      e.m.rotate(e.axis, e.rot*dt);
+      e.m.visibility = k<0.6 ? 1 : (1-k)/0.4;
+    }
+  }
+}
+
+function updateChains(dt){
+  for (var i=chains.length-1; i>=0; i--){
+    var c = chains[i]; c.t -= dt;
+    if (c.t <= 0){ chains.splice(i,1); if (c.s.alive) explodeShip(c.s, true); }
+  }
+}
+
+/* ================= input & main loop ================= */
+canvas.addEventListener("pointerdown", function(){ lastInteract = performance.now(); });
+canvas.addEventListener("wheel", function(){ lastInteract = performance.now(); }, {passive:true});
+canvas.addEventListener("contextmenu", function(e){ e.preventDefault(); });
+window.addEventListener("keydown", function(e){ if (e.key==="r" || e.key==="R") location.reload(); });
+window.addEventListener("resize", function(){ engine.resize(); });
+
+/* allow more simultaneous lights (hemi + sun + rim + flash + 2 engine lights) */
+for (var mi=0; mi<scene.materials.length; mi++) scene.materials[mi].maxSimultaneousLights = 12;
+
+engine.runRenderLoop(function(){
+  var dt = Math.min(engine.getDeltaTime()/1000, 0.05);
+  simTime += dt;
+  updateShips(dt, simTime);
+  updateProjectiles(dt);
+  updateFx(dt);
+  updateChains(dt);
+  flashLight.intensity *= Math.exp(-6*dt);
+  sky.rotation.y += dt*0.004;
+  if (camShake > 0.01){
+    camShake *= Math.exp(-3.5*dt);
+    camera.setTarget(new BABYLON.Vector3((Math.random()-0.5)*camShake,(Math.random()-0.5)*camShake,(Math.random()-0.5)*camShake));
+    wasShaking = true;
+  } else if (wasShaking){
+    camera.setTarget(BABYLON.Vector3.Zero());
+    wasShaking = false;
+  }
+  if (performance.now() - lastInteract > 5000) camera.alpha += dt*0.045; /* cinematic idle orbit */
+  scene.render();
+});
+})();
+</script>
+</body>
+</html>

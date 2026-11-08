@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Island Defenders — Pirate Fleet Prototype</title>
+<style>
+  html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:#000; font-family:'Segoe UI', Arial, sans-serif; }
+  #c { width:100%; height:100%; display:block; outline:none; }
+
+  .panel { position:absolute; background:rgba(10,20,35,.78); color:#ffe9b0; border:1px solid rgba(255,215,120,.4);
+           border-radius:10px; padding:10px 14px; user-select:none; }
+
+  #top { top:12px; left:12px; min-width:260px; }
+  #top .row { display:flex; justify-content:space-between; margin:4px 0; font-size:15px; }
+  .bar { width:200px; height:14px; background:#333; border-radius:7px; overflow:hidden; display:inline-block; vertical-align:middle; }
+  #hpfill { height:100%; width:100%; background:linear-gradient(90deg,#e74c3c,#2ecc71); transition:width .3s; }
+
+  #msg { position:absolute; top:14%; left:50%; transform:translateX(-50%); font-size:34px; font-weight:bold;
+         color:#fff; text-shadow:0 0 14px #000, 0 0 30px #f1c40f; pointer-events:none; opacity:0; transition:opacity .4s; text-align:center; }
+
+  #bottom { bottom:12px; left:50%; transform:translateX(-50%); text-align:center; }
+  #bottom .row { margin:6px 0; }
+  button { background:#2c3e50; color:#ffe9b0; border:1px solid #f1c40f; border-radius:6px; padding:6px 12px;
+           margin:0 4px; cursor:pointer; font-size:14px; }
+  button:hover:not(:disabled) { background:#3d5670; }
+  button:disabled { opacity:.4; cursor:default; }
+  .sel { background:#f1c40f !important; color:#1a1a1a !important; font-weight:bold; }
+  #stats { font-size:13px; color:#cfe8ff; }
+  #hint { position:absolute; bottom:12px; left:12px; font-size:12px; color:#cfe8ff; }
+
+  #gameover { position:absolute; inset:0; display:none; align-items:center; justify-content:center;
+              background:rgba(0,0,0,.7); flex-direction:column; color:#fff; }
+  #gameover h1 { font-size:52px; color:#e74c3c; text-shadow:0 0 20px #000; }
+</style>
+<script src="https://cdn.babylonjs.com/babylon.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="top" class="panel">
+  <div class="row"><span>Wave</span><b id="wave">–</b></div>
+  <div class="row"><span>Gold</span><b id="gold">0</b></div>
+  <div class="row"><span>Island HP</span><span class="bar"><span id="hpfill"></span></span></div>
+  <div class="row"><span>Enemies</span><b id="enemies">0</b></div>
+</div>
+
+<div id="msg"></div>
+
+<div id="bottom" class="panel">
+  <div class="row">
+    <button id="ship0" onclick="selectShip(0)">Ship 1</button>
+    <button id="ship1" onclick="selectShip(1)">Ship 2</button>
+    <button id="ship2" onclick="selectShip(2)">Ship 3</button>
+  </div>
+  <div class="row" id="stats"></div>
+  <div class="row" id="upgrades">
+    <button id="upDmg">Cannon Dmg (50g)</button>
+    <button id="upRate">Fire Rate (50g)</button>
+    <button id="upSpd">Speed (50g)</button>
+  </div>
+  <div class="row" id="upnote" style="font-size:12px;color:#8fb8de;"></div>
+</div>
+
+<div id="hint" class="panel">
+  1-3 select · W/S throttle · A/D turn · SPACE fire · mouse orbit
+</div>
+
+<div id="gameover">
+  <h1>THE ISLAND HAS FALLEN</h1>
+  <p id="finalscore" style="font-size:22px;"></p>
+  <button onclick="location.reload()" style="font-size:18px;padding:10px 24px;">Sail Again</button>
+</div>
+
+<script>
+/* ============================================================
+   ISLAND DEFENDERS — single-file Babylon.js prototype
+   ============================================================ */
+
+// ---------- Engine / Scene ----------
+const canvas = document.getElementById('c');
+const engine = new BABYLON.Engine(canvas, true);
+const scene  = new BABYLON.Scene(engine);
+scene.clearColor = new BABYLON.Color4(0.55, 0.78, 0.95, 1);
+scene.fogMode    = BABYLON.Scene.FOGMODE_EXP2;
+scene.fogDensity = 0.004;
+scene.fogColor   = new BABYLON.Color3(0.55, 0.78, 0.95);
+
+const camera = new BABYLON.ArcRotateCamera('cam', -Math.PI/2, 1.05, 70,
+  new BABYLON.Vector3(0, 2, 0), scene);
+camera.attachControl(canvas, true);
+camera.lowerRadiusLimit = 15;
+camera.upperRadiusLimit = 130;
+camera.upperBetaLimit   = 1.45;
+
+scene.addLight(new BABYLON.HemisphericLight('hemi', new BABYLON.Vector3(0, 1, 0), scene).diffuse
+  .set(0.9, 0.9, 0.85));
+const sun = new BABYLON.DirectionalLight('sun', new BABYLON.Vector3(-0.5, -1, -0.3), scene);
+sun.intensity = 0.6;
+
+// ---------- Materials ----------
+const M = {};
+function std(name, hex, spec = 0.1) {
+  const m = new BABYLON.StandardMaterial(name, scene);
+  m.diffuseColor = BABYLON.Color3.FromHexString(hex);
+  m.specularColor = new BABYLON.Color3(spec, spec, spec);
+  return m;
+}
+M.sand   = std('sand',  '#e8d49a');
+M.grass  = std('grass', '#3fa34d');
+M.rock   = std('rock',  '#8a8a8a');
+M.trunk  = std('trunk', '#8b5a2b');
+M.leaf   = std('leaf',  '#2e8b3a');
+M.hullF  = std('hullF', '#7a4a21');
+M.hullE  = std('hullE', '#8e2b2b');
+M.mast   = std('mast',  '#5c3a1e');
+M.sailF  = std('sailF', '#f5f0e0');
+M.sailE  = std('sailE', '#c0392b');
+M.ball   = std('ball',  '#222222', .4);
+M.ring   = std('ring',  '#f1c40f'); M.ring.emissiveColor = new BABYLON.Color3(1, .8, 0);
+
+// ---------- Stylized animated water (small inline shader) ----------
+BABYLON.Effect.ShadersStore["waterVS"] = `
+  precision highp float;
+  attribute vec3 position;
+  uniform mat4 worldViewProjection;
+  uniform float time;
+  void main(){
+    vec3 p = position;
+    p.y += sin(p.x*0.25 + time*1.2)*0.25 + cos(p.z*0.20 + time*0.9)*0.25;
+    gl_Position = worldViewProjection * vec4(p, 1.0);
+  }`;
+BABYLON.Effect.ShadersStore["waterFS"] = `
+  precision highp float;
+  uniform float time;
+  void main(){
+    float w = 0.5 + 0.5*sin(time*1.5);
+    vec3 col = mix(vec3(0.05,0.35,0.55), vec3(0.12,0.52,0.72), w*0.35);
+    gl_FragColor = vec4(col, 1.0);
+  }`;
+const water = BABYLON.MeshBuilder.CreateGround('water', { width: 300, height: 300, subdivisions: 64 }, scene);
+const waterMat = new BABYLON.ShaderMaterial('waterMat', scene,
+  { vertex: 'waterVS', fragment: 'waterFS' },
+  { attributes: ['position'], uniforms: ['worldViewProjection', 'time'] });
+water.material = waterMat;
+
+// ---------- Island ----------
+const island = BABYLON.MeshBuilder.CreateCylinder('sandBase', { diameter: 12, height: 1.2 }, scene);
+island.position.y = 0.6; island.material = M.sand;
+const grass = BABYLON.MeshBuilder.CreateCylinder('grassTop', { diameter: 10, height: 0.8 }, scene);
+grass.position.y = 1.4; grass.material = M.grass;
+
+function makeRock(x, z, s) {
+  const r = BABYLON.MeshBuilder.CreateSphere('rock', { diameter: s }, scene);
+  r.position.set(x, 1.2 + s*0.35, z);
+  r.scaling.y = 0.6; r.material = M.rock;
+}
+makeRock(3.2, 2.4, 1.4); makeRock(-3.6, -1.8, 1.1); makeRock(1.0, -3.8, 0.9);
+
+function makePalm(x, z, tilt) {
+  const g = new BABYLON.TransformNode('palm', scene);
+  g.position.set(x, 1.8, z);
+  const trunk = BABYLON.MeshBuilder.CreateCylinder('trunk', { diameter: 0.3, height: 3 }, scene);
+  trunk.parent = g; trunk.position.y = 1.5; trunk.rotation.z = tilt; trunk.material = M.trunk;
+  for (let i = 0; i < 4; i++) {
+    const leaf = BABYLON.MeshBuilder.CreateBox('leaf', { width: 2.0, height: 0.08, depth: 0.55 }, scene);
+    leaf.parent = g;
+    leaf.position.set(Math.sin(tilt)*3, 3.05, 0);
+    leaf.rotation.y = i * Math.PI/2 + 0.4;
+    leaf.rotation.z = -0.35;
+    leaf.material = M.leaf;
+  }
+}
+makePalm(-2.5, 2.8, 0.18); makePalm(2.8, -2.2, -0.22); makePalm(-1.5, -3.2, 0.1);
+
+// ---------- Ship factory ----------
+function buildShip(hullMat, sailMat) {
+  const t = new BABYLON.TransformNode('ship', scene);
+  const hull = BABYLON.MeshBuilder.CreateBox('hull', { width: 1.6, height: 0.8, depth: 3.4 }, scene);
+  hull.parent = t; hull.material = hullMat;
+  const bow = BABYLON.MeshBuilder.CreateCone('bow', { diameter: 1.4, height: 1.2, tessellation: 4 }, scene);
+  bow.parent = t; bow.rotation.z = Math.PI/2; bow.rotation.y = Math.PI/4;
+  bow.position.set(0, 0, 2.2); bow.material = hullMat;
+  const mast = BABYLON.MeshBuilder.CreateCylinder('mast', { diameter: 0.15, height: 3 }, scene);
+  mast.parent = t; mast.position.y = 1.8; mast.material = M.mast;
+  const sail = BABYLON.MeshBuilder.CreateBox('sail', { width: 2.2, height: 1.7, depth: 0.1 }, scene);
+  sail.parent = t; sail.position.set(0, 2.1, -0.7); sail.material = sailMat;
+  return t;
+}
+
+// ---------- Game state ----------
+const G = {
+  gold: 60, wave: 0, islandHP: 100,
+  state: 'intermission', stateTimer: 6, toSpawn: 0, spawnTimer: 0,
+  over: false, kills: 0
+};
+const friendlies = [], enemies = [], cannonballs = [];
+let selected = 0;
+
+// selection ring
+const ring = BABYLON.MeshBuilder.CreateTorus('ring', { diameter: 4.2, thickness: 0.18, tessellation: 32 }, scene);
+ring.material = M.ring;
+
+// create 3 friendly ships around the island
+for (let i = 0; i < 3; i++) {
+  const a = i * (Math.PI * 2 / 3);
+  const node = buildShip(M.hullF, M.sailF);
+  node.position.set(Math.sin(a) * 14, 0.5, Math.cos(a) * 14);
+  friendlies.push({
+    node, heading: a + Math.PI/2, throttle: 0,
+    stats: { damage: 10, fireRate: 1, speed: 6 },
+    costs: { damage: 50, fireRate: 50, speed: 50 },
+    cooldown: 0, friendly: true
+  });
+}
+function selectShip(i) { selected = i; }
+window.selectShip = selectShip;
+
+// ---------- Waves & spawning ----------
+function startWave() {
+  G.wave++;
+  G.toSpawn = 3 + G.wave * 2;
+  G.state = 'combat';
+  showMsg('⚓ WAVE ' + G.wave + ' INCOMING ⚓');
+}
+function spawnEnemy() {
+  const a = Math.random() * Math.PI * 2, r = 75;
+  const node = buildShip(M.hullE, M.sailE);
+  node.position.set(Math.sin(a) * r, 0.5, Math.cos(a) * r);
+  node.rotation.y = a + Math.PI;
+  const hp = 15 + G.wave * 5;
+  enemies.push({ node, heading: a + Math.PI, hp, maxHP: hp,
+                 speed: 3.5 + G.wave * 0.3, friendly: false });
+}
+
+// ---------- Combat ----------
+function fireCannon(ship, target) {
+  const muzzle = ship.node.position.clone(); muzzle.y = 1.4;
+  const dir = target.node.position.clone().subtract(muzzle);
+  const dist = dir.length();
+  dir.normalize();
+  const ball = BABYLON.MeshBuilder.CreateSphere('ball', { diameter: 0.5 }, scene);
+  ball.material = M.ball; ball.position = muzzle;
+  cannonballs.push({ mesh: ball, vel: dir.scale(28), life: dist / 28 + 0.6,
+                     friendly: ship.friendly, damage: ship.stats.damage });
+}
+function nearestEnemy(ship, range) {
+  let best = null, bd = range;
+  for (const e of enemies) {
+    const d = e.node.position.distanceTo(ship.node.position);
+    if (d < bd) { bd = d; best = e; }
+  }
+  return best;
+}
+function removeShip(s) {
+  s.node.dispose();
+  const i = enemies.indexOf(s); if (i >= 0) enemies.splice(i, 1);
+}
+function explodeFlash(mesh) { // tiny scale-pop feedback
+  const anim = new BABYLON.Animation('pop', 'scaling', 30,
+    BABYLON.Animation.ANIMATIONTYPE_VECTOR3, BABYLON.Animation.ANIMATIONLOOPMODE_ONCE);
+  anim.setKeys([{ frame: 0, value: mesh.scaling.clone() },
+                { frame: 4, value: mesh.scaling.scale(1.6) }]);
+  mesh.animations = [anim];
+  scene.beginAnimation(mesh, 0, 0, 5);
+}
+
+// ---------- Input ----------
+const keys = {};
+window.addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (e.code === 'Digit1') selectShip(0);
+  if (e.code === 'Digit2') selectShip(1);
+  if (e.code === 'Digit3') selectShip(2);
+  if (e.code === 'Space') {
+    e.preventDefault();
+    const s = friendlies[selected], t = nearestEnemy(s, 45);
+    if (t) fireCannon(s, t);
+  }
+});
+window.addEventListener('keyup', e => keys[e.code] = false);
+
+// ---------- Upgrades ----------
+const upBtns = {
+  damage:   document.getElementById('upDmg'),
+  fireRate: document.getElementById('upRate'),
+  speed:    document.getElementById('upSpd')
+};
+function applyUpgrade(stat) {
+  const s = friendlies[selected];
+  const cost = s.costs[stat];
+  if (G.state !== 'intermission' || G.gold < cost || G.over) return;
+  G.gold -= cost;
+  s.stats[stat] += stat === 'fireRate' ? 0.5 : (stat === 'speed' ? 1 : 5);
+  s.costs[stat] = Math.ceil(cost * 1.6);
+}
+upBtns.damage.onclick   = () => applyUpgrade('damage');
+upBtns.fireRate.onclick = () => applyUpgrade('fireRate');
+upBtns.speed.onclick    = () => applyUpgrade('speed');
+
+// ---------- UI helpers ----------
+const $ = id => document.getElementById(id);
+function showMsg(txt) {
+  const m = $('msg'); m.textContent = txt; m.style.opacity = 1;
+  clearTimeout(m._t); m._t = setTimeout(() => m.style.opacity = 0, 2500);
+}
+function refreshUI() {
+  $('wave').textContent    = G.wave || '–';
+  $('gold').textContent    = G.gold;
+  $('enemies').textContent = enemies.length;
+  $('hpfill').style.width  = Math.max(0, G.islandHP) + '%';
+  for (let i = 0; i < 3; i++) $('ship' + i).className = (i === selected ? 'sel' : '');
+  const s = friendlies[selected];
+  $('stats').textContent =
+    `Ship ${selected + 1}  —  Dmg ${s.stats.damage}  ·  Rate ${s.stats.fireRate.toFixed(1)}/s  ·  Speed ${s.stats.speed}`;
+  const canUp = G.state === 'intermission' && !G.over;
+  upBtns.damage.textContent   = `Cannon Dmg (${s.costs.damage}g)`;
+  upBtns.fireRate.textContent = `Fire Rate (${s.costs.fireRate}g)`;
+  upBtns.speed.textContent    = `Speed (${s.costs.speed}g)`;
+  for (const k in upBtns) upBtns[k].disabled = !canUp || G.gold < s.costs[k];
+  $('upnote').textContent = canUp ? '⚓ Calm seas — upgrade your fleet now!' : 'Upgrades available between waves.';
+}
+
+// ---------- Main loop ----------
+let lastT = performance.now();
+engine.runRenderLoop(() => {
+  const now = performance.now();
+  let dt = Math.min((now - lastT) / 1000, 0.05);
+  lastT = now;
+  const t = now / 1000;
+  waterMat.setFloat('time', t);
+
+  if (!G.over) {
+    // --- wave state machine ---
+    if (G.state === 'intermission') {
+      G.stateTimer -= dt;
+      if (G.stateTimer <= 0) startWave();
+    } else {
+      if (G.toSpawn > 0) {
+        G.spawnTimer -= dt;
+        if (G.spawnTimer <= 0) {
+          spawnEnemy(); G.toSpawn--;
+          G.spawnTimer = Math.max(0.8, 3 - G.wave * 0.2);
+        }
+      } else if (enemies.length === 0) {
+        G.state = 'intermission';
+        G.stateTimer = 12;
+        G.gold += 20;
+        showMsg('Wave cleared! +20 gold — upgrade now');
+      }
+    }
+
+    // --- friendly ships: steering + auto-fire ---
+    for (let i = 0; i < friendlies.length; i++) {
+      const s = friendlies[i];
+      if (i === selected) {
+        if (keys['KeyA']) s.heading -= 2.2 * dt;
+        if (keys['KeyD']) s.heading += 2.2 * dt;
+        if (keys['KeyW']) s.throttle = 1;
+        else if (keys['KeyS']) s.throttle = -0.6;
+        else s.throttle = 0;
+      }
+      const fwd = new BABYLON.Vector3(Math.sin(s.heading), 0, Math.cos(s.heading));
+      s.node.position.addInPlace(fwd.scale(s.stats.speed * s.throttle * dt));
+      s.node.rotation.y = s.heading;
+      // keep ships in play area, off the island
+      const d = Math.hypot(s.node.position.x, s.node.position.z);
+      if (d < 7.5)  { const p = s.node.position; p.x *= 7.5 / d; p.z *= 7.5 / d; }
+      if (d > 58)   { const p = s.node.position; p.x *= 58 / d;  p.z *= 58 / d; }
+
+      s.cooldown -= dt;
+      if (s.cooldown <= 0) {
+        const target = nearestEnemy(s, 30);
+        if (target) { fireCannon(s, target); s.cooldown = 1 / s.stats.fireRate; }
+      }
+    }
+    // selection ring follows selected ship
+    const sel = friendlies[selected].node.position;
+    ring.position.set(sel.x, 0.3, sel.z);
+    ring.rotation.y += dt * 1.5;
+
+    // --- enemies: sail for the island, ram it ---
+    for (let i = enemies.length - 1; i >= 0; i--) {
+      const e = enemies[i];
+      const toC = new BABYLON.Vector3(-e.node.position.x, 0, -e.node.position.z);
+      const d = toC.length();
+      e.heading = Math.atan2(toC.x, toC.z);
+      e.node.rotation.y = e.heading;
+      if (d < 6.5) {
+        G.islandHP -= 15;
+        removeShip(e);
+        showMsg('💥 Enemy rammed the island!');
+        if (G.islandHP <= 0) {
+          G.over = true;
+          $('finalscore').textContent = `You survived ${G.wave} waves and sank ${G.kills} enemy ships.`;
+          $('gameover').style.display = 'flex';
+        }
+        continue;
+      }
+      e.node.position.addInPlace(toC.normalize().scale(e.speed * dt));
+    }
+
+    // --- cannonballs ---
+    for (let i = cannonballs.length - 1; i >= 0; i--) {
+      const b = cannonballs[i];
+      b.mesh.position.addInPlace(b.vel.scale(dt));
+      b.life -= dt;
+      let hit = false;
+      if (b.friendly) {
+        for (let j = enemies.length - 1; j >= 0; j--) {
+          const e = enemies[j];
+          if (e.node.position.distanceTo(b.mesh.position) < 1.8) {
+            e.hp -= b.damage;
+            explodeFlash(e.node);
+            if (e.hp <= 0) {
+              G.gold += 12 + G.wave * 2;
+              G.kills++;
+              removeShip(e);
+            }
+            hit = true; break;
+          }
+        }
+      }
+      if (hit || b.life <= 0) { b.mesh.dispose(); cannonballs.splice(i, 1); }
+    }
+  }
+
+  refreshUI();
+  scene.render();
+});
+window.addEventListener('resize', () => engine.resize());
+</script>
+</body>
+</html>

@@ -1,0 +1,1796 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Equal Earth Projection Engine — SVG.js Interactive World Map</title>
+  <!-- SVG.js v3.2 & TopoJSON Client for Vector World Geometries -->
+  <script src="https://cdn.jsdelivr.net/npm/@svgdotjs/svg.js@3.2.4/dist/svg.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
+  <style>
+    :root {
+      --bg-deep: #060d17;
+      --panel-bg: rgba(11, 22, 36, 0.86);
+      --panel-border: rgba(76, 138, 201, 0.25);
+      --panel-highlight: rgba(56, 189, 248, 0.12);
+      --text-main: #e2e8f0;
+      --text-muted: #8ba3be;
+      --accent-cyan: #38bdf8;
+      --accent-emerald: #10b981;
+      --accent-amber: #f59e0b;
+      --accent-rose: #f43f5e;
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body, html {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: radial-gradient(circle at 55% 50%, #0d1f33 0%, #050b14 100%);
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      user-select: none;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Fullscreen SVG Map Container */
+    #map-canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      cursor: crosshair;
+    }
+
+    #map-canvas.dragging {
+      cursor: grabbing;
+    }
+
+    /* Country hover effect */
+    .country-path {
+      transition: fill 0.15s ease;
+    }
+    .country-path:hover {
+      fill: #274c77;
+    }
+
+    /* Top Bar Header */
+    .top-bar {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      right: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      pointer-events: none;
+      z-index: 20;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .brand-pill, .layer-controls {
+      pointer-events: auto;
+      background: var(--panel-bg);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid var(--panel-border);
+      border-radius: 10px;
+      padding: 8px 14px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+    }
+
+    .brand-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 0.9rem;
+      letter-spacing: 0.04em;
+      color: #fff;
+    }
+
+    .brand-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--accent-cyan);
+      box-shadow: 0 0 10px var(--accent-cyan);
+    }
+
+    .brand-sub {
+      font-family: var(--font-mono);
+      font-size: 0.73rem;
+      color: var(--text-muted);
+      border-left: 1px solid var(--panel-border);
+      padding-left: 12px;
+    }
+
+    .toggle-btn {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: var(--text-muted);
+      font-size: 0.74rem;
+      font-weight: 600;
+      padding: 5px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .toggle-btn:hover {
+      color: #fff;
+      border-color: rgba(56, 189, 248, 0.4);
+    }
+
+    .toggle-btn.active {
+      background: rgba(56, 189, 248, 0.16);
+      color: var(--accent-cyan);
+      border-color: rgba(56, 189, 248, 0.5);
+    }
+
+    /* Left Workbench Sidebar */
+    .sidebar {
+      position: fixed;
+      top: 66px;
+      left: 14px;
+      bottom: 14px;
+      width: 350px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      z-index: 20;
+      overflow-y: auto;
+      padding-right: 2px;
+    }
+
+    .sidebar::-webkit-scrollbar {
+      width: 4px;
+    }
+    .sidebar::-webkit-scrollbar-thumb {
+      background: rgba(139, 163, 190, 0.25);
+      border-radius: 4px;
+    }
+
+    .panel {
+      background: var(--panel-bg);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid var(--panel-border);
+      border-radius: 10px;
+      padding: 13px 14px;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+      padding-bottom: 7px;
+    }
+
+    .panel-title {
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--accent-cyan);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .badge {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: rgba(56, 189, 248, 0.12);
+      color: var(--accent-cyan);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+    }
+
+    .badge.amber {
+      background: rgba(245, 158, 11, 0.14);
+      color: var(--accent-amber);
+      border-color: rgba(245, 158, 11, 0.3);
+    }
+
+    .badge.emerald {
+      background: rgba(16, 185, 129, 0.14);
+      color: var(--accent-emerald);
+      border-color: rgba(16, 185, 129, 0.3);
+    }
+
+    /* Form Controls */
+    .input-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .field.full {
+      grid-column: 1 / -1;
+    }
+
+    .field label {
+      font-size: 0.69rem;
+      color: var(--text-muted);
+      font-weight: 600;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .field input {
+      background: rgba(5, 11, 20, 0.7);
+      border: 1px solid rgba(139, 163, 190, 0.25);
+      border-radius: 6px;
+      padding: 7px 9px;
+      color: #fff;
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    .field input:focus {
+      border-color: var(--accent-cyan);
+      box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.15);
+    }
+
+    .btn-row {
+      display: flex;
+      gap: 7px;
+    }
+
+    .btn {
+      flex: 1;
+      padding: 8px 10px;
+      border-radius: 6px;
+      border: 1px solid transparent;
+      font-size: 0.76rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+      color: #fff;
+      border-color: rgba(56, 189, 248, 0.4);
+    }
+    .btn-primary:hover {
+      background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%);
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text-main);
+      border-color: rgba(255, 255, 255, 0.14);
+    }
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.12);
+    }
+
+    /* Preset Chips */
+    .preset-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+
+    .chip {
+      font-size: 0.68rem;
+      padding: 3px 7px;
+      border-radius: 5px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.12s;
+    }
+
+    .chip:hover {
+      color: #fff;
+      background: rgba(56, 189, 248, 0.15);
+      border-color: rgba(56, 189, 248, 0.4);
+    }
+
+    /* Data Readout Grid */
+    .telemetry-box {
+      background: rgba(4, 9, 17, 0.65);
+      border: 1px solid rgba(139, 163, 190, 0.16);
+      border-radius: 7px;
+      padding: 8px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+    }
+
+    .t-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .t-key {
+      color: var(--text-muted);
+      font-size: 0.68rem;
+    }
+
+    .t-val {
+      color: #f8fafc;
+      font-weight: 600;
+      text-align: right;
+      user-select: text;
+    }
+
+    .t-val.highlight-cyan { color: var(--accent-cyan); }
+    .t-val.highlight-amber { color: var(--accent-amber); }
+    .t-val.highlight-emerald { color: var(--accent-emerald); }
+    .t-val.highlight-rose { color: var(--accent-rose); }
+
+    /* Plotted Markers List & Console */
+    .marker-list {
+      max-height: 115px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .marker-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.07);
+      border-radius: 5px;
+      padding: 5px 8px;
+      font-size: 0.72rem;
+      cursor: pointer;
+      transition: background 0.12s;
+    }
+
+    .marker-item:hover {
+      background: rgba(56, 189, 248, 0.1);
+      border-color: rgba(56, 189, 248, 0.3);
+    }
+
+    .marker-item-left {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      overflow: hidden;
+    }
+
+    .marker-swatch {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .marker-coords {
+      font-family: var(--font-mono);
+      font-size: 0.67rem;
+      color: var(--text-muted);
+    }
+
+    .marker-del {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 0.85rem;
+      padding: 0 3px;
+    }
+    .marker-del:hover {
+      color: var(--accent-rose);
+    }
+
+    .console-log {
+      background: rgba(3, 7, 14, 0.8);
+      border: 1px solid rgba(139, 163, 190, 0.16);
+      border-radius: 6px;
+      padding: 7px 9px;
+      height: 105px;
+      overflow-y: auto;
+      font-family: var(--font-mono);
+      font-size: 0.67rem;
+      line-height: 1.45;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      user-select: text;
+    }
+
+    .log-entry {
+      border-left: 2px solid var(--accent-cyan);
+      padding-left: 6px;
+      color: #cbd5e1;
+    }
+    .log-entry.inverse {
+      border-left-color: var(--accent-amber);
+    }
+    .log-entry.warn {
+      border-left-color: var(--accent-rose);
+      color: #fda4af;
+    }
+
+    /* Floating On-Map Click Overlay Badge */
+    #click-overlay {
+      position: fixed;
+      pointer-events: auto;
+      background: rgba(9, 18, 30, 0.92);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(245, 158, 11, 0.55);
+      border-radius: 8px;
+      padding: 9px 12px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6);
+      z-index: 30;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      display: none;
+      min-width: 225px;
+      transform: translate(14px, -50%);
+    }
+
+    .overlay-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 5px;
+      padding-bottom: 4px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      color: var(--accent-amber);
+      font-weight: 700;
+      font-size: 0.68rem;
+      letter-spacing: 0.05em;
+    }
+
+    .overlay-close {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+    .overlay-close:hover { color: #fff; }
+
+    /* Bottom-Right Zoom & Live Cursor Bar */
+    .bottom-right-hud {
+      position: fixed;
+      right: 14px;
+      bottom: 14px;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 10px;
+      z-index: 20;
+      pointer-events: none;
+    }
+
+    .zoom-controls {
+      pointer-events: auto;
+      display: flex;
+      gap: 6px;
+      background: var(--panel-bg);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--panel-border);
+      padding: 6px;
+      border-radius: 9px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    }
+
+    .zoom-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.05);
+      color: #fff;
+      font-family: var(--font-mono);
+      font-size: 0.95rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s;
+    }
+
+    .zoom-btn.wide {
+      width: auto;
+      padding: 0 10px;
+      font-size: 0.72rem;
+    }
+
+    .zoom-btn:hover {
+      background: rgba(56, 189, 248, 0.2);
+      border-color: var(--accent-cyan);
+    }
+
+    .cursor-bar {
+      pointer-events: auto;
+      background: var(--panel-bg);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+      padding: 7px 13px;
+      font-family: var(--font-mono);
+      font-size: 0.73rem;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    }
+
+    .cursor-seg {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .cursor-label {
+      color: var(--text-muted);
+      font-size: 0.67rem;
+    }
+
+    @media (max-width: 820px) {
+      .sidebar {
+        width: 300px;
+      }
+      .brand-sub {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Interactive SVG.js World Map Container -->
+  <div id="map-canvas"></div>
+
+  <!-- Floating On-Map Click Readout Overlay -->
+  <div id="click-overlay">
+    <div class="overlay-head">
+      <span id="overlay-title">INVERSE PROJECTION PIN</span>
+      <button class="overlay-close" id="overlay-close-btn" title="Close">&times;</button>
+    </div>
+    <div class="t-row">
+      <span class="t-key">Lat / Lon:</span>
+      <span class="t-val highlight-amber" id="ov-latlon">--</span>
+    </div>
+    <div class="t-row">
+      <span class="t-key">DMS:</span>
+      <span class="t-val" id="ov-dms">--</span>
+    </div>
+    <div class="t-row">
+      <span class="t-key">Equal Earth (x, y):</span>
+      <span class="t-val highlight-cyan" id="ov-proj">--</span>
+    </div>
+    <div class="t-row">
+      <span class="t-key">Region:</span>
+      <span class="t-val highlight-emerald" id="ov-region">Ocean / Unclaimed</span>
+    </div>
+  </div>
+
+  <!-- Top Navigation & Layer Bar -->
+  <header class="top-bar">
+    <div class="brand-pill">
+      <div class="brand-title">
+        <span class="brand-dot"></span>
+        <span>EQUAL EARTH PROJECTION</span>
+      </div>
+      <div class="brand-sub" id="camera-readout">ZOOM: 1.00× | PAN: (0, 0)</div>
+    </div>
+
+    <div class="layer-controls">
+      <button class="toggle-btn active" id="toggle-graticule">Graticules (15°)</button>
+      <button class="toggle-btn active" id="toggle-crosshairs">Curvilinear Crosshair</button>
+      <button class="toggle-btn" id="toggle-tissot" title="Equal-area distortion ellipses (500km radius)">Tissot Indicatrix</button>
+      <button class="toggle-btn active" id="toggle-labels">Marker Labels</button>
+    </div>
+  </header>
+
+  <!-- Left Control & Mathematical Telemetry Sidebar -->
+  <aside class="sidebar">
+
+    <!-- 1. FORWARD PROJECTION PANEL -->
+    <section class="panel">
+      <div class="panel-header">
+        <div class="panel-title">1. Forward Projection</div>
+        <span class="badge">(Lat, Lon) &rarr; (x, y)</span>
+      </div>
+
+      <div class="input-grid">
+        <div class="field">
+          <label>Latitude (°) <span>[-90, 90]</span></label>
+          <input type="number" id="in-lat" step="0.0001" min="-90" max="90" value="35.6762" />
+        </div>
+        <div class="field">
+          <label>Longitude (°) <span>[-180, 180]</span></label>
+          <input type="number" id="in-lon" step="0.0001" min="-180" max="180" value="139.6503" />
+        </div>
+        <div class="field full">
+          <label>Marker Label <span>(Optional)</span></label>
+          <input type="text" id="in-label" placeholder="e.g., Tokyo Observatory" value="Tokyo" />
+        </div>
+      </div>
+
+      <div class="preset-chips" id="preset-container">
+        <span class="chip" data-lat="35.6762" data-lon="139.6503" data-name="Tokyo">Tokyo</span>
+        <span class="chip" data-lat="40.7128" data-lon="-74.0060" data-name="New York">New York</span>
+        <span class="chip" data-lat="51.5072" data-lon="-0.1276" data-name="London">London</span>
+        <span class="chip" data-lat="-33.8688" data-lon="151.2093" data-name="Sydney">Sydney</span>
+        <span class="chip" data-lat="-22.9068" data-lon="-43.1729" data-name="Rio">Rio</span>
+        <span class="chip" data-lat="64.1466" data-lon="-21.9426" data-name="Reykjavik">Reykjavik</span>
+        <span class="chip" data-lat="0.0000" data-lon="0.0000" data-name="Null Island">0°, 0°</span>
+      </div>
+
+      <!-- Live Forward Math Preview -->
+      <div class="telemetry-box">
+        <div class="t-row">
+          <span class="t-key">Parametric &theta; (rad):</span>
+          <span class="t-val" id="fwd-theta">--</span>
+        </div>
+        <div class="t-row">
+          <span class="t-key">Normalized Equal Earth (x, y):</span>
+          <span class="t-val highlight-cyan" id="fwd-norm">--</span>
+        </div>
+        <div class="t-row">
+          <span class="t-key">Projected Map SVG (X, Y):</span>
+          <span class="t-val" id="fwd-svg">--</span>
+        </div>
+        <div class="t-row">
+          <span class="t-key">Current Screen Pos (px):</span>
+          <span class="t-val highlight-emerald" id="fwd-screen">--</span>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-primary" id="btn-plot">Plot SVG Marker</button>
+        <button class="btn btn-secondary" id="btn-plot-fly">Plot &amp; Focus</button>
+      </div>
+    </section>
+
+    <!-- 2. INVERSE PROJECTION PANEL -->
+    <section class="panel">
+      <div class="panel-header">
+        <div class="panel-title">2. Inverse Projection</div>
+        <span class="badge amber">Click Map &rarr; (Lat, Lon)</span>
+      </div>
+
+      <div class="telemetry-box">
+        <div class="t-row">
+          <span class="t-key">Clicked Screen (px):</span>
+          <span class="t-val" id="inv-screen">Click anywhere on map</span>
+        </div>
+        <div class="t-row">
+          <span class="t-key">Unprojected Equal Earth (x, y):</span>
+          <span class="t-val highlight-cyan" id="inv-proj">--</span>
+        </div>
+        <div class="t-row">
+          <span class="t-key">Newton-Raphson &theta; (iters):</span>
+          <span class="t-val" id="inv-nr">--</span>
+        </div>
+        <div class="t-row">
+          <span class="t-key">Computed Latitude (&varphi;):</span>
+          <span class="t-val highlight-amber" id="inv-lat">--</span>
+        </div>
+        <div class="t-row">
+          <span class="t-key">Computed Longitude (&lambda;):</span>
+          <span class="t-val highlight-amber" id="inv-lon">--</span>
+        </div>
+        <div class="t-row">
+          <span class="t-key">Round-Trip Error (&Delta; deg):</span>
+          <span class="t-val highlight-emerald" id="inv-error">--</span>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-secondary" id="btn-promote-click">Save Click as Marker</button>
+        <button class="btn btn-secondary" id="btn-copy-click">Copy Lat, Lon</button>
+      </div>
+    </section>
+
+    <!-- 3. PLOTTED MARKERS & CONSOLE LOG -->
+    <section class="panel">
+      <div class="panel-header">
+        <div class="panel-title">3. Markers &amp; Math Console</div>
+        <span class="badge emerald" id="marker-count-badge">0 Markers</span>
+      </div>
+
+      <div class="marker-list" id="marker-list"></div>
+
+      <div class="console-log" id="console-log"></div>
+    </section>
+
+  </aside>
+
+  <!-- Bottom-Right Zoom & Live Cursor Telemetry -->
+  <div class="bottom-right-hud">
+    <div class="zoom-controls">
+      <button class="zoom-btn" id="btn-zoom-in" title="Zoom In">+</button>
+      <button class="zoom-btn" id="btn-zoom-out" title="Zoom Out">&minus;</button>
+      <button class="zoom-btn wide" id="btn-zoom-reset" title="Reset View">Reset View</button>
+    </div>
+
+    <div class="cursor-bar">
+      <div class="cursor-seg">
+        <span class="cursor-label">SCREEN:</span>
+        <span id="cur-screen">0, 0 px</span>
+      </div>
+      <div class="cursor-seg">
+        <span class="cursor-label">PROJ (x,y):</span>
+        <span id="cur-proj" style="color: var(--accent-cyan);">0.000, 0.000</span>
+      </div>
+      <div class="cursor-seg">
+        <span class="cursor-label">GEO:</span>
+        <span id="cur-geo" style="color: var(--accent-amber); min-width: 155px;">0.0000°, 0.0000°</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /*************************************************************************
+     * 1. EQUAL EARTH PROJECTION MATHEMATICS (Šavrič, Jenny, & Patterson 2018)
+     *
+     * Forward Equations (lon λ, lat φ in radians, unit sphere R = 1):
+     *   sin(θ) = (√3 / 2) * sin(φ)
+     *   x = (2√3 * λ * cos(θ)) / (3 * (A1 + 3*A2*θ² + 7*A3*θ⁶ + 9*A4*θ⁸))
+     *   y = A1*θ + A2*θ³ + A3*θ⁷ + A4*θ⁹
+     *
+     * Inverse Equations (given normalized x, y):
+     *   Solve P(θ) - y = 0 via Newton-Raphson iteration, then:
+     *   φ = arcsin((2 / √3) * sin(θ))
+     *   λ = (3 * x * P'(θ)) / (2√3 * cos(θ))
+     *************************************************************************/
+    const EqualEarth = (() => {
+      const A1 = 1.340264;
+      const A2 = -0.081106;
+      const A3 = 0.000893;
+      const A4 = 0.003796;
+      const SQRT3 = Math.sqrt(3);
+      const HALF_SQRT3 = SQRT3 / 2;
+      const DEG2RAD = Math.PI / 180;
+      const RAD2DEG = 180 / Math.PI;
+
+      // Maximum parametric angle θ at φ = ±90° is arcsin(√3 / 2) = π / 3
+      const MAX_THETA = Math.PI / 3;
+
+      function polyY(theta) {
+        const t2 = theta * theta;
+        const t3 = t2 * theta;
+        const t7 = t3 * t2 * t2;
+        const t9 = t7 * t2;
+        return A1 * theta + A2 * t3 + A3 * t7 + A4 * t9;
+      }
+
+      function dPolyY(theta) {
+        const t2 = theta * theta;
+        const t6 = t2 * t2 * t2;
+        const t8 = t6 * t2;
+        return A1 + 3 * A2 * t2 + 7 * A3 * t6 + 9 * A4 * t8;
+      }
+
+      const MAX_Y = polyY(MAX_THETA); // ~1.3173627
+
+      /**
+       * Forward Equal Earth Projection
+       * @param {number} latDeg Latitude in degrees [-90, 90]
+       * @param {number} lonDeg Longitude in degrees [-180, 180]
+       */
+      function forward(latDeg, lonDeg) {
+        const clampedLat = Math.max(-90, Math.min(90, latDeg));
+        const clampedLon = Math.max(-180, Math.min(180, lonDeg));
+
+        const phi = clampedLat * DEG2RAD;
+        const lam = clampedLon * DEG2RAD;
+
+        const sinTheta = Math.max(-1, Math.min(1, HALF_SQRT3 * Math.sin(phi)));
+        const theta = Math.asin(sinTheta);
+        const dP = dPolyY(theta);
+
+        const x = (2 * SQRT3 * lam * Math.cos(theta)) / (3 * dP);
+        const y = polyY(theta);
+
+        return { x, y, theta, dP, lat: clampedLat, lon: clampedLon };
+      }
+
+      /**
+       * Inverse Equal Earth Projection (Newton-Raphson)
+       * @param {number} x Normalized projected x
+       * @param {number} y Normalized projected y
+       */
+      function inverse(x, y) {
+        // Check vertical polar boundary
+        const insideY = Math.abs(y) <= MAX_Y + 1e-9;
+        const clampedY = Math.max(-MAX_Y, Math.min(MAX_Y, y));
+
+        // Newton-Raphson iteration to solve polyY(theta) - y = 0
+        let theta = clampedY / A1;
+        let iter = 0;
+        let delta = 0;
+        const maxIter = 12;
+
+        for (; iter < maxIter; iter++) {
+          const f = polyY(theta) - clampedY;
+          const df = dPolyY(theta);
+          delta = f / df;
+          theta -= delta;
+          if (Math.abs(delta) < 1e-13) {
+            iter++;
+            break;
+          }
+        }
+
+        // Convert parametric θ back to latitude φ
+        const sinPhi = (2 / SQRT3) * Math.sin(theta);
+        const phi = Math.asin(Math.max(-1, Math.min(1, sinPhi)));
+
+        // Convert x and θ back to longitude λ
+        const cosTheta = Math.cos(theta);
+        const dP = dPolyY(theta);
+        const lam = Math.abs(cosTheta) < 1e-12
+          ? 0
+          : (3 * x * dP) / (2 * SQRT3 * cosTheta);
+
+        const insideX = Math.abs(lam) <= Math.PI + 1e-7;
+        const valid = insideY && insideX;
+
+        const lat = phi * RAD2DEG;
+        const lon = Math.max(-180, Math.min(180, lam * RAD2DEG));
+
+        return {
+          valid,
+          lat,
+          lon,
+          rawLonDeg: lam * RAD2DEG,
+          theta,
+          iterations: iter,
+          residual: Math.abs(delta)
+        };
+      }
+
+      return { forward, inverse, MAX_Y };
+    })();
+
+    /*************************************************************************
+     * 2. APPLICATION STATE & COORDINATE TRANSFORMATION PIPELINE
+     *
+     * Coordinate Spaces:
+     *  1. Geographic Space: (lat, lon) in degrees
+     *  2. Normalized Equal Earth Space: (xProj, yProj) where R = 1
+     *  3. Base SVG Map Space:
+     *       xMap =  xProj * BASE_SCALE
+     *       yMap = -yProj * BASE_SCALE  (SVG +Y is down, Geographic +Y is up)
+     *  4. Screen Space (pixels relative to #map-canvas):
+     *       xScreen = panX + xMap * zoom
+     *       yScreen = panY + yMap * zoom
+     *************************************************************************/
+    const BASE_SCALE = 250; // Base radius R in SVG user units at zoom = 1
+
+    const state = {
+      zoom: 1,
+      panX: window.innerWidth / 2,
+      panY: window.innerHeight / 2,
+      minZoom: 0.45,
+      maxZoom: 60,
+      layers: {
+        graticule: true,
+        crosshairs: true,
+        tissot: false,
+        labels: true
+      },
+      markers: [],
+      nextMarkerId: 1,
+      lastClickedGeo: { lat: 35.6762, lon: 139.6503, region: 'Japan' },
+      animationFrame: null
+    };
+
+    // Coordinate Space Converters
+    function geoToMap(lat, lon) {
+      const proj = EqualEarth.forward(lat, lon);
+      const xMap = proj.x * BASE_SCALE;
+      const yMap = -proj.y * BASE_SCALE;
+      const xScreen = state.panX + xMap * state.zoom;
+      const yScreen = state.panY + yMap * state.zoom;
+      return {
+        ...proj,
+        xProj: proj.x,
+        yProj: proj.y,
+        xMap,
+        yMap,
+        xScreen,
+        yScreen
+      };
+    }
+
+    function screenToGeo(xScreen, yScreen) {
+      const xMap = (xScreen - state.panX) / state.zoom;
+      const yMap = (yScreen - state.panY) / state.zoom;
+      const xProj = xMap / BASE_SCALE;
+      const yProj = -yMap / BASE_SCALE;
+      const inv = EqualEarth.inverse(xProj, yProj);
+      return {
+        ...inv,
+        xScreen,
+        yScreen,
+        xMap,
+        yMap,
+        xProj,
+        yProj
+      };
+    }
+
+    // Formatters
+    function toDMS(deg, isLat) {
+      const dir = isLat ? (deg >= 0 ? 'N' : 'S') : (deg >= 0 ? 'E' : 'W');
+      const abs = Math.abs(deg);
+      const d = Math.floor(abs);
+      const mFloat = (abs - d) * 60;
+      const m = Math.floor(mFloat);
+      const s = ((mFloat - m) * 60).toFixed(1);
+      return `${d}°${String(m).padStart(2, '0')}'${String(s).padStart(4, '0')}"${dir}`;
+    }
+
+    /*************************************************************************
+     * 3. SVG.JS INITIALIZATION & SCENE GRAPH SETUP
+     *************************************************************************/
+    const draw = SVG().addTo('#map-canvas').size('100%', '100%');
+    const defs = draw.defs();
+
+    // Radial gradient for deep ocean sphere
+    const oceanGradient = defs.gradient('radial', function(add) {
+      add.stop(0, '#0f2947');
+      add.stop(0.65, '#0a1c33');
+      add.stop(1, '#061223');
+    });
+
+    // Master viewport group transformed by pan & zoom
+    const viewport = draw.group().id('equal-earth-viewport');
+
+    // Ordered cartographic layers inside viewport
+    const oceanLayer = viewport.group().id('layer-ocean');
+    const graticuleLayer = viewport.group().id('layer-graticule');
+    const landLayer = viewport.group().id('layer-land');
+    const tissotLayer = viewport.group().id('layer-tissot').hide();
+    const crosshairLayer = viewport.group().id('layer-crosshairs');
+    const clickPinLayer = viewport.group().id('layer-click-pin');
+    const markerLayer = viewport.group().id('layer-markers');
+
+    /*************************************************************************
+     * 4. VECTOR PATH BUILDERS (SPHERE OUTLINE, GRATICULES, TISSOT, COUNTRIES)
+     *************************************************************************/
+    function buildCurvePath(coords) {
+      if (!coords.length) return '';
+      let d = '';
+      for (let i = 0; i < coords.length; i++) {
+        const pt = geoToMap(coords[i][1], coords[i][0]);
+        d += (i === 0 ? 'M' : 'L') + pt.xMap.toFixed(2) + ',' + pt.yMap.toFixed(2);
+      }
+      return d;
+    }
+
+    // 4A. Render Equal Earth Globe Outline (Bounding Lobe)
+    function renderSphereBoundary() {
+      const boundaryCoords = [];
+      const steps = 180;
+      // Left meridian (-180°) from -90° to +90°
+      for (let i = 0; i <= steps; i++) {
+        boundaryCoords.push([-180, -90 + (180 * i) / steps]);
+      }
+      // North pole (+90°) from -180° to +180°
+      boundaryCoords.push([180, 90]);
+      // Right meridian (+180°) from +90° to -90°
+      for (let i = 0; i <= steps; i++) {
+        boundaryCoords.push([180, 90 - (180 * i) / steps]);
+      }
+      // Close along South pole (-90°)
+      const d = buildCurvePath(boundaryCoords) + 'Z';
+
+      // Outer subtle glow ring
+      oceanLayer.path(d)
+        .fill('none')
+        .stroke({ color: '#0284c7', width: 4, opacity: 0.18 })
+        .attr('vector-effect', 'non-scaling-stroke');
+
+      // Ocean fill & crisp border
+      oceanLayer.path(d)
+        .fill(oceanGradient)
+        .stroke({ color: '#38bdf8', width: 1.4, opacity: 0.65 })
+        .attr('vector-effect', 'non-scaling-stroke');
+    }
+
+    // 4B. Render 15° Graticules + Equator, Prime Meridian & Tropics
+    function renderGraticules() {
+      graticuleLayer.clear();
+
+      // Parallels (lines of constant latitude)
+      for (let lat = -75; lat <= 75; lat += 15) {
+        if (lat === 0) continue;
+        const pLeft = geoToMap(lat, -180);
+        const pRight = geoToMap(lat, 180);
+        graticuleLayer.line(pLeft.xMap, pLeft.yMap, pRight.xMap, pRight.yMap)
+          .stroke({ color: '#4776a8', width: 0.6, opacity: 0.28 })
+          .attr('vector-effect', 'non-scaling-stroke');
+      }
+
+      // Tropics (±23.436°) & Polar Circles (±66.564°)
+      [23.436, -23.436, 66.564, -66.564].forEach(lat => {
+        const pLeft = geoToMap(lat, -180);
+        const pRight = geoToMap(lat, 180);
+        graticuleLayer.line(pLeft.xMap, pLeft.yMap, pRight.xMap, pRight.yMap)
+          .stroke({ color: '#38bdf8', width: 0.7, opacity: 0.25, dasharray: '4,4' })
+          .attr('vector-effect', 'non-scaling-stroke');
+      });
+
+      // Meridians (curves of constant longitude)
+      for (let lon = -165; lon <= 165; lon += 15) {
+        if (lon === 0) continue;
+        const pts = [];
+        for (let lat = -90; lat <= 90; lat += 2) {
+          pts.push([lon, lat]);
+        }
+        graticuleLayer.path(buildCurvePath(pts))
+          .fill('none')
+          .stroke({ color: '#4776a8', width: 0.6, opacity: 0.28 })
+          .attr('vector-effect', 'non-scaling-stroke');
+      }
+
+      // Highlighted Equator (0° Lat) & Prime Meridian (0° Lon)
+      const eqLeft = geoToMap(0, -180);
+      const eqRight = geoToMap(0, 180);
+      graticuleLayer.line(eqLeft.xMap, eqLeft.yMap, eqRight.xMap, eqRight.yMap)
+        .stroke({ color: '#38bdf8', width: 1.0, opacity: 0.5 })
+        .attr('vector-effect', 'non-scaling-stroke');
+
+      const pmPts = [];
+      for (let lat = -90; lat <= 90; lat += 2) pmPts.push([0, lat]);
+      graticuleLayer.path(buildCurvePath(pmPts))
+        .fill('none')
+        .stroke({ color: '#38bdf8', width: 1.0, opacity: 0.5 })
+        .attr('vector-effect', 'non-scaling-stroke');
+    }
+
+    // 4C. Render Tissot's Indicatrix (Equal-Area Verification Circles of 550km radius)
+    function renderTissotIndicatrix() {
+      tissotLayer.clear();
+      const angularRadius = 5.0 * (Math.PI / 180); // 5 degrees spherical radius
+
+      for (let lat = -60; lat <= 60; lat += 30) {
+        for (let lon = -150; lon <= 150; lon += 30) {
+          const phi0 = lat * (Math.PI / 180);
+          const lam0 = lon * (Math.PI / 180);
+          const ring = [];
+
+          for (let a = 0; a <= 360; a += 10) {
+            const alpha = a * (Math.PI / 180);
+            const sinPhi = Math.sin(phi0) * Math.cos(angularRadius) +
+                           Math.cos(phi0) * Math.sin(angularRadius) * Math.cos(alpha);
+            const phi = Math.asin(Math.max(-1, Math.min(1, sinPhi)));
+            const dLam = Math.atan2(
+              Math.sin(alpha) * Math.sin(angularRadius) * Math.cos(phi0),
+              Math.cos(angularRadius) - Math.sin(phi0) * sinPhi
+            );
+            let lonPt = (lam0 + dLam) * (180 / Math.PI);
+            lonPt = Math.max(-180, Math.min(180, lonPt));
+            ring.push([lonPt, phi * (180 / Math.PI)]);
+          }
+
+          tissotLayer.path(buildCurvePath(ring) + 'Z')
+            .fill('#f59e0b')
+            .attr({ 'fill-opacity': 0.14, 'vector-effect': 'non-scaling-stroke' })
+            .stroke({ color: '#f59e0b', width: 1.0, opacity: 0.65 });
+        }
+      }
+    }
+
+    // 4D. Project GeoJSON Polygon Rings with Meridian Resampling
+    function projectRingToPath(ring) {
+      if (!ring || ring.length < 3) return '';
+      const densified = [];
+
+      for (let i = 0; i < ring.length; i++) {
+        const p1 = ring[i];
+        const p2 = ring[(i + 1) % ring.length];
+        densified.push(p1);
+
+        const dLon = p2[0] - p1[0];
+        const dLat = p2[1] - p1[1];
+        const isPolarEdge = p1[1] < -84 && p2[1] < -84;
+
+        // Subdivide long segments so vertical ±180° boundary cuts curve smoothly
+        if ((Math.abs(dLon) <= 180 || isPolarEdge) && Math.hypot(dLon, dLat) > 2.5) {
+          const steps = Math.min(45, Math.ceil(Math.hypot(dLon, dLat) / 2.0));
+          for (let s = 1; s < steps; s++) {
+            const t = s / steps;
+            densified.push([p1[0] + dLon * t, p1[1] + dLat * t]);
+          }
+        }
+      }
+
+      let d = '';
+      for (let i = 0; i < densified.length; i++) {
+        const pt = geoToMap(densified[i][1], densified[i][0]);
+        d += (i === 0 ? 'M' : 'L') + pt.xMap.toFixed(2) + ',' + pt.yMap.toFixed(2);
+      }
+      return d + 'Z';
+    }
+
+    function featureToPathString(geometry) {
+      if (!geometry) return '';
+      let pathStr = '';
+      if (geometry.type === 'Polygon') {
+        for (const ring of geometry.coordinates) {
+          pathStr += projectRingToPath(ring);
+        }
+      } else if (geometry.type === 'MultiPolygon') {
+        for (const poly of geometry.coordinates) {
+          for (const ring of poly) {
+            pathStr += projectRingToPath(ring);
+          }
+        }
+      }
+      return pathStr;
+    }
+
+    // Load World Vector Map (Natural Earth 110m via TopoJSON with fallback)
+    async function loadWorldMap() {
+      try {
+        const res = await fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json');
+        if (!res.ok) throw new Error('CDN fetch failed');
+        const world = await res.json();
+        const countries = topojson.feature(world, world.objects.countries).features;
+
+        landLayer.clear();
+        countries.forEach(feat => {
+          const d = featureToPathString(feat.geometry);
+          if (!d) return;
+          const name = (feat.properties && feat.properties.name) || 'Landmass';
+          landLayer.path(d)
+            .addClass('country-path')
+            .fill('#183454')
+            .stroke({ color: '#4c8ac9', width: 0.65, opacity: 0.75 })
+            .attr({
+              'vector-effect': 'non-scaling-stroke',
+              'data-country': name
+            });
+        });
+        logToConsole(`Loaded ${countries.length} vector country geometries in Equal Earth.`, 'forward');
+      } catch (err) {
+        renderFallbackContinents();
+        logToConsole('Rendered built-in continental vector outlines (offline mode).', 'warn');
+      }
+    }
+
+    // Built-in simplified continental outlines if offline
+    function renderFallbackContinents() {
+      const simplifiedLoops = [
+        // North America
+        [[-168,65],[-140,70],[-80,72],[-55,50],[-80,25],[-105,20],[-125,48],[-168,65]],
+        // South America
+        [[-80,10],[-35,-5],[-40,-22],[-68,-55],[-75,-45],[-70,-18],[-80,10]],
+        // Eurasia
+        [[-10,36],[0,52],[30,70],[100,73],[178,66],[140,35],[105,1],[80,8],[50,12],[35,32],[-10,36]],
+        // Africa
+        [[-17,15],[10,37],[33,31],[51,12],[40,-15],[20,-35],[12,-17],[8,4],[-17,15]],
+        // Australia
+        [[114,-22],[130,-12],[153,-26],[146,-40],[115,-34],[114,-22]]
+      ];
+      simplifiedLoops.forEach(loop => {
+        landLayer.path(projectRingToPath(loop))
+          .fill('#183454')
+          .stroke({ color: '#4c8ac9', width: 0.8 })
+          .attr('vector-effect', 'non-scaling-stroke');
+      });
+    }
+
+    /*************************************************************************
+     * 5. DYNAMIC CURVILINEAR CROSSHAIRS & INTERACTIVE MARKER ENGINE
+     *************************************************************************/
+
+    // Draw the exact Equal Earth meridian & parallel intersecting at (lat, lon)
+    function drawCurvilinearCrosshairs(lat, lon, color = '#f59e0b') {
+      crosshairLayer.clear();
+      if (!state.layers.crosshairs) return;
+
+      // Parallel line at constant latitude
+      const pLeft = geoToMap(lat, -180);
+      const pRight = geoToMap(lat, 180);
+      crosshairLayer.line(pLeft.xMap, pLeft.yMap, pRight.xMap, pRight.yMap)
+        .stroke({ color, width: 1.1, opacity: 0.6, dasharray: '5,4' })
+        .attr('vector-effect', 'non-scaling-stroke');
+
+      // Meridian curve at constant longitude
+      const merPts = [];
+      for (let phi = -90; phi <= 90; phi += 2) {
+        merPts.push([lon, phi]);
+      }
+      crosshairLayer.path(buildCurvePath(merPts))
+        .fill('none')
+        .stroke({ color, width: 1.1, opacity: 0.6, dasharray: '5,4' })
+        .attr('vector-effect', 'non-scaling-stroke');
+    }
+
+    // Render temporary Inverse-Projection Click Pin
+    let clickPinVisual = null;
+    function renderClickPin(lat, lon) {
+      clickPinLayer.clear();
+      const pt = geoToMap(lat, lon);
+
+      const anchor = clickPinLayer.group().attr('transform', `translate(${pt.xMap}, ${pt.yMap})`);
+      clickPinVisual = anchor.group().attr('transform', `scale(${1 / state.zoom})`);
+
+      // Outer target ring
+      clickPinVisual.circle(22).center(0, 0)
+        .fill('none')
+        .stroke({ color: '#f59e0b', width: 1.6, dasharray: '3,2' });
+
+      // Crosshair ticks
+      clickPinVisual.line(-14, 0, 14, 0).stroke({ color: '#f59e0b', width: 1.2 });
+      clickPinVisual.line(0, -14, 0, 14).stroke({ color: '#f59e0b', width: 1.2 });
+
+      // Center precision dot
+      clickPinVisual.circle(5).center(0, 0)
+        .fill('#f59e0b')
+        .stroke({ color: '#050b14', width: 1.2 });
+    }
+
+    // Plot a Forward-Projected Marker via SVG.js
+    const MARKER_COLORS = ['#38bdf8', '#10b981', '#f43f5e', '#a855f7', '#eab308', '#ec4899'];
+
+    function addForwardMarker(lat, lon, label = '') {
+      const proj = geoToMap(lat, lon);
+      const id = state.nextMarkerId++;
+      const color = MARKER_COLORS[(id - 1) % MARKER_COLORS.length];
+      const name = label.trim() || `Marker #${id}`;
+
+      // Outer group locked to exact Equal Earth projected coordinates (xMap, yMap)
+      const anchorGroup = markerLayer.group()
+        .attr('transform', `translate(${proj.xMap}, ${proj.yMap})`)
+        .style('cursor', 'pointer');
+
+      // Inner group counter-scaled by 1/zoom so marker remains crisp at any scale
+      const visualGroup = anchorGroup.group()
+        .attr('transform', `scale(${1 / state.zoom})`);
+
+      // Halo ring
+      visualGroup.circle(18).center(0, 0)
+        .fill(color)
+        .attr('fill-opacity', 0.22)
+        .stroke({ color, width: 1.2, opacity: 0.8 });
+
+      // Core circle
+      visualGroup.circle(7).center(0, 0)
+        .fill(color)
+        .stroke({ color: '#060d17', width: 1.5 });
+
+      // Text label pill
+      const labelGroup = visualGroup.group().addClass('marker-label-node');
+      if (!state.layers.labels) labelGroup.hide();
+
+      const pillText = `${name} (${proj.lat.toFixed(2)}°, ${proj.lon.toFixed(2)}°)`;
+      const estWidth = pillText.length * 6.2 + 12;
+
+      labelGroup.rect(estWidth, 18)
+        .move(11, -9)
+        .radius(4)
+        .fill('#07111f')
+        .attr('fill-opacity', 0.88)
+        .stroke({ color, width: 1, opacity: 0.7 });
+
+      labelGroup.text(pillText)
+        .font({ family: 'JetBrains Mono, monospace', size: 10, weight: '600' })
+        .fill('#f8fafc')
+        .move(17, -6);
+
+      const markerObj = {
+        id,
+        name,
+        lat: proj.lat,
+        lon: proj.lon,
+        xProj: proj.xProj,
+        yProj: proj.yProj,
+        xMap: proj.xMap,
+        yMap: proj.yMap,
+        color,
+        anchorGroup,
+        visualGroup,
+        labelGroup
+      };
+
+      anchorGroup.on('click', (e) => {
+        e.stopPropagation();
+        inspectCoordinate(markerObj.lat, markerObj.lon, markerObj.name);
+      });
+
+      state.markers.push(markerObj);
+      drawCurvilinearCrosshairs(proj.lat, proj.lon, color);
+      renderMarkerListUI();
+
+      logToConsole(
+        `FWD [${name}]: (${proj.lat.toFixed(4)}°, ${proj.lon.toFixed(4)}°) → EqualEarth(${proj.xProj.toFixed(4)}, ${proj.yProj.toFixed(4)})`,
+        'forward'
+      );
+
+      return markerObj;
+    }
+
+    function removeMarker(id) {
+      const idx = state.markers.findIndex(m => m.id === id);
+      if (idx === -1) return;
+      state.markers[idx].anchorGroup.remove();
+      state.markers.splice(idx, 1);
+      renderMarkerListUI();
+    }
+
+    /*************************************************************************
+     * 6. CAMERA TRANSFORM (ZOOM & PAN) KEEPING PROJECTION EXACT AT ANY SCALE
+     *************************************************************************/
+    function updateCamera() {
+      viewport.attr('transform', `translate(${state.panX}, ${state.panY}) scale(${state.zoom})`);
+
+      // Keep markers and click pin at constant screen size regardless of zoom level
+      const invScale = `scale(${1 / state.zoom})`;
+      for (const m of state.markers) {
+        m.visualGroup.attr('transform', invScale);
+      }
+      if (clickPinVisual) {
+        clickPinVisual.attr('transform', invScale);
+      }
+
+      // Update camera status header & forward preview screen coords
+      document.getElementById('camera-readout').textContent =
+        `ZOOM: ${state.zoom.toFixed(2)}× | PAN: (${Math.round(state.panX)}, ${Math.round(state.panY)})`;
+
+      updateForwardPreviewUI();
+    }
+
+    // Smooth animated camera flight to a target (lat, lon)
+    function flyToCoordinate(lat, lon, targetZoom = Math.max(state.zoom, 2.8)) {
+      if (state.animationFrame) cancelAnimationFrame(state.animationFrame);
+
+      const pt = geoToMap(lat, lon);
+      const startZoom = state.zoom;
+      const startPanX = state.panX;
+      const startPanY = state.panY;
+
+      const endZoom = Math.min(state.maxZoom, Math.max(state.minZoom, targetZoom));
+      const endPanX = window.innerWidth / 2 - pt.xMap * endZoom;
+      const endPanY = window.innerHeight / 2 - pt.yMap * endZoom;
+
+      const duration = 480;
+      const startTime = performance.now();
+
+      function step(now) {
+        const t = Math.min(1, (now - startTime) / duration);
+        const ease = 1 - Math.pow(1 - t, 3); // Cubic ease-out
+
+        state.zoom = startZoom + (endZoom - startZoom) * ease;
+        state.panX = startPanX + (endPanX - startPanX) * ease;
+        state.panY = startPanY + (endPanY - startPanY) * ease;
+        updateCamera();
+
+        if (t < 1) {
+          state.animationFrame = requestAnimationFrame(step);
+        } else {
+          state.animationFrame = null;
+        }
+      }
+
+      state.animationFrame = requestAnimationFrame(step);
+    }
+
+    /*************************************************************************
+     * 7. MOUSE WHEEL ZOOM, DRAG PAN, & CLICK-TO-INVERSE-PROJECT HANDLERS
+     *************************************************************************/
+    const mapContainer = document.getElementById('map-canvas');
+    let pointerDown = false;
+    let isDragging = false;
+    let dragStartX = 0;
+    let dragStartY = 0;
+    let startPanX = 0;
+    let startPanY = 0;
+
+    // Wheel Zoom (centered mathematically around cursor position)
+    mapContainer.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      if (state.animationFrame) {
+        cancelAnimationFrame(state.animationFrame);
+        state.animationFrame = null;
+      }
+
+      const rect = mapContainer.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      const zoomFactor = Math.exp(-e.deltaY * 0.0016);
+      const newZoom = Math.min(state.maxZoom, Math.max(state.minZoom, state.zoom * zoomFactor));
+
+      // Adjust panX, panY so the projected point under (mouseX, mouseY) stays invariant
+      state.panX = mouseX - (mouseX - state.panX) * (newZoom / state.zoom);
+      state.panY = mouseY - (mouseY - state.panY) * (newZoom / state.zoom);
+      state.zoom = newZoom;
+
+      hideClickOverlay();
+      updateCamera();
+      updateLiveCursorTelemetry(mouseX, mouseY);
+    }, { passive: false });
+
+    // Pointer Down (start potential pan or click)
+    mapContainer.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      pointerDown = true;
+      isDragging = false;
+      dragStartX = e.clientX;
+      dragStartY = e.clientY;
+      startPanX = state.panX;
+      startPanY = state.panY;
+    });
+
+    // Pointer Move (update pan if dragging + live inverse projection telemetry)
+    window.addEventListener('pointermove', (e) => {
+      const rect = mapContainer.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      updateLiveCursorTelemetry(mouseX, mouseY);
+
+      if (!pointerDown) return;
+      const dx = e.clientX - dragStartX;
+      const dy = e.clientY - dragStartY;
+
+      if (!isDragging && Math.hypot(dx, dy) > 4) {
+        isDragging = true;
+        mapContainer.classList.add('dragging');
+        hideClickOverlay();
+      }
+
+      if (isDragging) {
+        state.panX = startPanX + dx;
+        state.panY = startPanY + dy;
+        updateCamera();
+      }
+    });
+
+    // Pointer Up (if not dragged, execute Inverse Projection Click)
+    window.addEventListener('pointerup', (e) => {
+      if (!pointerDown) return;
+      const wasDragging = isDragging;
+      pointerDown = false;
+      isDragging = false;
+      mapContainer.classList.remove('dragging');
+
+      if (!wasDragging && e.target.closest('#map-canvas')) {
+        const rect = mapContainer.getBoundingClientRect();
+        const clickX = e.clientX - rect.left;
+        const clickY = e.clientY - rect.top;
+        const hoveredCountry = e.target.getAttribute('data-country') || 'Ocean / International Waters';
+        handleMapInverseClick(clickX, clickY, e.clientX, e.clientY, hoveredCountry);
+      }
+    });
+
+    // Execute Inverse Projection on Map Click
+    function handleMapInverseClick(xScreen, yScreen, clientX, clientY, regionName) {
+      const inv = screenToGeo(xScreen, yScreen);
+
+      document.getElementById('inv-screen').textContent =
+        `(${xScreen.toFixed(1)}, ${yScreen.toFixed(1)}) @ ${state.zoom.toFixed(2)}×`;
+      document.getElementById('inv-proj').textContent =
+        `(${inv.xProj.toFixed(5)}, ${inv.yProj.toFixed(5)})`;
+      document.getElementById('inv-nr').textContent =
+        `${inv.theta.toFixed(6)} rad (${inv.iterations} iters)`;
+
+      if (!inv.valid) {
+        document.getElementById('inv-lat').textContent = 'OUTSIDE GLOBE LOBE';
+        document.getElementById('inv-lon').textContent = 'OUTSIDE GLOBE LOBE';
+        document.getElementById('inv-error').textContent = 'N/A (Exterior click)';
+        hideClickOverlay();
+        logToConsole(
+          `INV CLICK: Screen(${xScreen.toFixed(0)}, ${yScreen.toFixed(0)}) → Proj(${inv.xProj.toFixed(3)}, ${inv.yProj.toFixed(3)}) is outside Equal Earth boundary.`,
+          'warn'
+        );
+        return;
+      }
+
+      // Verify Round-Trip Accuracy: Forward(Inverse(x, y))
+      const roundTrip = EqualEarth.forward(inv.lat, inv.lon);
+      const errHypot = Math.hypot(roundTrip.x - inv.xProj, roundTrip.y - inv.yProj);
+
+      document.getElementById('inv-lat').textContent =
+        `${inv.lat.toFixed(5)}° (${toDMS(inv.lat, true)})`;
+      document.getElementById('inv-lon').textContent =
+        `${inv.lon.toFixed(5)}° (${toDMS(inv.lon, false)})`;
+      document.getElementById('inv-error').textContent =
+        `${errHypot.toExponential(2)} rad`;
+
+      state.lastClickedGeo = { lat: inv.lat, lon: inv.lon, region: regionName };
+
+      // Render click target pin & curvilinear crosshairs on the SVG map
+      renderClickPin(inv.lat, inv.lon);
+      drawCurvilinearCrosshairs(inv.lat, inv.lon, '#f59e0b');
+
+      // Show floating on-map overlay readout
+      showClickOverlay(clientX, clientY, inv, regionName);
+
+      // Also sync inputs in Forward Panel for quick experimentation
+      document.getElementById('in-lat').value = inv.lat.toFixed(4);
+      document.getElementById('in-lon').value = inv.lon.toFixed(4);
+      document.getElementById('in-label').value = regionName !== 'Ocean / International Waters' ? regionName : 'Pin';
+      updateForwardPreviewUI();
+
+      logToConsole(
+        `INV CLICK: Screen(${xScreen.toFixed(0)},${yScreen.toFixed(0)}) → Proj(${inv.xProj.toFixed(4)},${inv.yProj.toFixed(4)}) → (${inv.lat.toFixed(4)}°, ${inv.lon.toFixed(4)}°)`,
+        'inverse'
+      );
+    }
+
+    function inspectCoordinate(lat, lon, label) {
+      const pt = geoToMap(lat, lon);
+      handleMapInverseClick(pt.xScreen, pt.yScreen, pt.xScreen, pt.yScreen, label);
+    }
+
+    /*************************************************************************
+     * 8. UI CONTROLS, OVERLAYS & TELEMETRY UPDATERS
+     *************************************************************************/
+    const clickOverlay = document.getElementById('click-overlay');
+
+    function showClickOverlay(clientX, clientY, inv, regionName) {
+      document.getElementById('ov-latlon').textContent =
+        `${inv.lat.toFixed(4)}°, ${inv.lon.toFixed(4)}°`;
+      document.getElementById('ov-dms').textContent =
+        `${toDMS(inv.lat, true)} ${toDMS(inv.lon, false)}`;
+      document.getElementById('ov-proj').textContent =
+        `x: ${inv.xProj.toFixed(4)}, y: ${inv.yProj.toFixed(4)}`;
+      document.getElementById('ov-region').textContent = regionName;
+
+      // Keep overlay inside viewport bounds
+      const maxX = window.innerWidth - 260;
+      const maxY = window.innerHeight - 90;
+      const clampedX = Math.max(365, Math.min(maxX, clientX));
+      const clampedY = Math.max(80, Math.min(maxY, clientY));
+
+      clickOverlay.style.left = `${clampedX}px`;
+      clickOverlay.style.top = `${clampedY}px`;
+      clickOverlay.style.display = 'block';
+    }
+
+    function hideClickOverlay() {
+      clickOverlay.style.display = 'none';
+    }
+
+    document.getElementById('overlay-close-btn').addEventListener('click', hideClickOverlay);
+
+    function updateLiveCursorTelemetry(xScreen, yScreen) {
+      const inv = screenToGeo(xScreen, yScreen);
+      document.getElementById('cur-screen').textContent =
+        `${Math.round(xScreen)}, ${Math.round(yScreen)} px`;
+      document.getElementById('cur-proj').textContent =
+        `${inv.xProj.toFixed(3)}, ${inv.yProj.toFixed(3)}`;
+
+      const geoEl = document.getElementById('cur-geo');
+      if (inv.valid) {
+        geoEl.textContent = `${inv.lat.toFixed(4)}°, ${inv.lon.toFixed(4)}°`;
+        geoEl.style.color = 'var(--accent-amber)';
+      } else {
+        geoEl.textContent = 'OUTSIDE GLOBE';
+        geoEl.style.color = 'var(--text-muted)';
+      }
+    }
+
+    function updateForwardPreviewUI() {
+      const lat = parseFloat(document.getElementById('in-lat').value) || 0;
+      const lon = parseFloat(document.getElementById('in-lon').value) || 0;
+      const res = geoToMap(lat, lon);
+
+      document.getElementById('fwd-theta').textContent = `${res.theta.toFixed(6)} rad`;
+      document.getElementById('fwd-norm').textContent = `(${res.xProj.toFixed(5)}, ${res.yProj.toFixed(5)})`;
+      document.getElementById('fwd-svg').textContent = `(${res.xMap.toFixed(2)}, ${res.yMap.toFixed(2)})`;
+      document.getElementById('fwd-screen').textContent = `(${res.xScreen.toFixed(1)}, ${res.yScreen.toFixed(1)}) px`;
+    }
+
+    function renderMarkerListUI() {
+      const listEl = document.getElementById('marker-list');
+      document.getElementById('marker-count-badge').textContent =
+        `${state.markers.length} Marker${state.markers.length === 1 ? '' : 's'}`;
+
+      listEl.innerHTML = '';
+      state.markers.slice().reverse().forEach(m => {
+        const row = document.createElement('div');
+        row.className = 'marker-item';
+        row.innerHTML = `
+          <div class="marker-item-left">
+            <span class="marker-swatch" style="background:${m.color}"></span>
+            <strong>${m.name}</strong>
+            <span class="marker-coords">(${m.lat.toFixed(2)}°, ${m.lon.toFixed(2)}°)</span>
+          </div>
+          <button class="marker-del" title="Remove Marker">&times;</button>
+        `;
+
+        row.addEventListener('click', (e) => {
+          if (e.target.closest('.marker-del')) {
+            removeMarker(m.id);
+            return;
+          }
+          drawCurvilinearCrosshairs(m.lat, m.lon, m.color);
+          flyToCoordinate(m.lat, m.lon, Math.max(state.zoom, 3.2));
+        });
+
+        listEl.appendChild(row);
+      });
+    }
+
+    function logToConsole(msg, type = 'forward') {
+      const box = document.getElementById('console-log');
+      const div = document.createElement('div');
+      div.className = `log-entry ${type}`;
+      const time = new Date().toLocaleTimeString([], { hour12: false });
+      div.textContent = `[${time}] ${msg}`;
+      box.prepend(div);
+    }
+
+    // Bind Forward Projection Form Events
+    ['in-lat', 'in-lon'].forEach(id => {
+      document.getElementById(id).addEventListener('input', updateForwardPreviewUI);
+    });
+
+    document.getElementById('btn-plot').addEventListener('click', () => {
+      const lat = parseFloat(document.getElementById('in-lat').value) || 0;
+      const lon = parseFloat(document.getElementById('in-lon').value) || 0;
+      const label = document.getElementById('in-label').value;
+      addForwardMarker(lat, lon, label);
+    });
+
+    document.getElementById('btn-plot-fly').addEventListener('click', () => {
+      const lat = parseFloat(document.getElementById('in-lat').value) || 0;
+      const lon = parseFloat(document.getElementById('in-lon').value) || 0;
+      const label = document.getElementById('in-label').value;
+      const m = addForwardMarker(lat, lon, label);
+      flyToCoordinate(m.lat, m.lon, 3.5);
+    });
+
+    // Preset City Chips
+    document.getElementById('preset-container').addEventListener('click', (e) => {
+      const chip = e.target.closest('.chip');
+      if (!chip) return;
+      const lat = parseFloat(chip.dataset.lat);
+      const lon = parseFloat(chip.dataset.lon);
+      const name = chip.dataset.name;
+
+      document.getElementById('in-lat').value = lat;
+      document.getElementById('in-lon').value = lon;
+      document.getElementById('in-label').value = name;
+      updateForwardPreviewUI();
+
+      addForwardMarker(lat, lon, name);
+      flyToCoordinate(lat, lon, Math.max(state.zoom, 2.2));
+    });
+
+    // Inverse Panel Actions
+    document.getElementById('btn-promote-click').addEventListener('click', () => {
+      const { lat, lon, region } = state.lastClickedGeo;
+      addForwardMarker(lat, lon, region);
+    });
+
+    document.getElementById('btn-copy-click').addEventListener('click', () => {
+      const { lat, lon } = state.lastClickedGeo;
+      const text = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+      navigator.clipboard?.writeText(text);
+      logToConsole(`Copied coordinates to clipboard: ${text}`, 'inverse');
+    });
+
+    // Layer Toggle Buttons
+    function bindToggle(btnId, layerKey, onToggle) {
+      const btn = document.getElementById(btnId);
+      btn.addEventListener('click', () => {
+        state.layers[layerKey] = !state.layers[layerKey];
+        btn.classList.toggle('active', state.layers[layerKey]);
+        onToggle(state.layers[layerKey]);
+      });
+    }
+
+    bindToggle('toggle-graticule', 'graticule', (vis) => {
+      vis ? graticuleLayer.show() : graticuleLayer.hide();
+    });
+
+    bindToggle('toggle-crosshairs', 'crosshairs', (vis) => {
+      vis ? crosshairLayer.show() : crosshairLayer.hide();
+    });
+
+    bindToggle('toggle-tissot', 'tissot', (vis) => {
+      vis ? tissotLayer.show() : tissotLayer.hide();
+    });
+
+    bindToggle('toggle-labels', 'labels', (vis) => {
+      state.markers.forEach(m => vis ? m.labelGroup.show() : m.labelGroup.hide());
+    });
+
+    // Zoom Buttons
+    function zoomAboutScreenCenter(factor) {
+      const cx = window.innerWidth / 2;
+      const cy = window.innerHeight / 2;
+      const newZoom = Math.min(state.maxZoom, Math.max(state.minZoom, state.zoom * factor));
+      state.panX = cx - (cx - state.panX) * (newZoom / state.zoom);
+      state.panY = cy - (cy - state.panY) * (newZoom / state.zoom);
+      state.zoom = newZoom;
+      hideClickOverlay();
+      updateCamera();
+    }
+
+    document.getElementById('btn-zoom-in').addEventListener('click', () => zoomAboutScreenCenter(1.45));
+    document.getElementById('btn-zoom-out').addEventListener('click', () => zoomAboutScreenCenter(1 / 1.45));
+
+    function resetCameraToFit() {
+      const availWidth = window.innerWidth - 380;
+      const availHeight = window.innerHeight - 100;
+      const mapWidth = 2.71 * 2 * BASE_SCALE;
+      const mapHeight = 1.32 * 2 * BASE_SCALE;
+      const fitZoom = Math.max(0.55, Math.min(availWidth / mapWidth, availHeight / mapHeight) * 0.92);
+
+      state.zoom = fitZoom;
+      state.panX = 360 + availWidth / 2;
+      state.panY = 40 + availHeight / 2;
+      hideClickOverlay();
+      updateCamera();
+    }
+
+    document.getElementById('btn-zoom-reset').addEventListener('click', resetCameraToFit);
+    window.addEventListener('resize', resetCameraToFit);
+
+    /*************************************************************************
+     * 9. BOOTSTRAP APPLICATION
+     *************************************************************************/
+    function init() {
+      renderSphereBoundary();
+      renderGraticules();
+      renderTissotIndicatrix();
+      resetCameraToFit();
+      loadWorldMap();
+
+      // Seed initial showcase markers demonstrating Forward Projection
+      const initialCities = [
+        { lat: 0, lon: 0, name: 'Null Island (Origin)' },
+        { lat: 40.7128, lon: -74.0060, name: 'New York' },
+        { lat: 51.5072, lon: -0.1276, name: 'London' },
+        { lat: 35.6762, lon: 139.6503, name: 'Tokyo' },
+        { lat: -33.8688, lon: 151.2093, name: 'Sydney' }
+      ];
+      initialCities.forEach(c => addForwardMarker(c.lat, c.lon, c.name));
+
+      updateForwardPreviewUI();
+    }
+
+    init();
+  </script>
+</body>
+</html>

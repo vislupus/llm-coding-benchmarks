@@ -1,0 +1,2687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>KOWLOON-9 // LIVING ASCII 3D CITY</title>
+<style>
+  :root {
+    --neon-cyan: #00f3ff;
+    --neon-magenta: #ff007f;
+    --neon-amber: #ffb800;
+    --neon-green: #00ff66;
+    --neon-red: #ff2a55;
+    --bg-dark: rgba(4, 8, 14, 0.84);
+    --border-glow: rgba(0, 243, 255, 0.45);
+    --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', 'Courier New', monospace;
+  }
+
+  * {
+    box-sizing: border-box;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #020408;
+    color: var(--neon-cyan);
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+
+  #canvas-container {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+  }
+
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  /* CRT Scanline & Vignette Overlay */
+  #crt-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 2;
+    pointer-events: none;
+    background:
+      linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.28) 50%),
+      radial-gradient(circle at center, transparent 58%, rgba(0, 4, 10, 0.68) 100%);
+    background-size: 100% 3px, 100% 100%;
+  }
+
+  /* HUD Layer */
+  #hud {
+    position: fixed;
+    inset: 0;
+    z-index: 3;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 14px 18px;
+    text-shadow: 0 0 6px currentColor;
+  }
+
+  .hud-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 14px;
+  }
+
+  .hud-panel {
+    background: var(--bg-dark);
+    border: 1px solid var(--border-glow);
+    box-shadow: 0 0 16px rgba(0, 243, 255, 0.14), inset 0 0 12px rgba(0, 243, 255, 0.06);
+    padding: 10px 14px;
+    backdrop-filter: blur(4px);
+    pointer-events: auto;
+  }
+
+  .hud-title {
+    color: var(--neon-amber);
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    margin-bottom: 6px;
+    font-size: 11px;
+    border-bottom: 1px dashed rgba(255, 184, 0, 0.4);
+    padding-bottom: 4px;
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .stat-grid {
+    display: grid;
+    grid-template-columns: auto auto;
+    gap: 3px 14px;
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
+  .stat-label {
+    color: rgba(0, 243, 255, 0.68);
+  }
+
+  .stat-val {
+    color: #ffffff;
+    font-weight: 600;
+    text-align: right;
+  }
+
+  .stat-val.highlight {
+    color: var(--neon-green);
+  }
+
+  .stat-val.magenta {
+    color: var(--neon-magenta);
+  }
+
+  /* Minimap Radar */
+  #radar-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  #radar-canvas {
+    width: 156px;
+    height: 156px;
+    border: 1px solid rgba(0, 243, 255, 0.4);
+    background: rgba(2, 6, 12, 0.9);
+    image-rendering: pixelated;
+  }
+
+  .radar-legend {
+    margin-top: 5px;
+    font-size: 10px;
+    color: rgba(0, 243, 255, 0.75);
+    display: flex;
+    gap: 8px;
+  }
+
+  /* Center Reticle & Interaction Prompt */
+  #center-hud {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 3;
+    pointer-events: none;
+    text-align: center;
+  }
+
+  #reticle {
+    font-size: 15px;
+    color: rgba(0, 243, 255, 0.65);
+    letter-spacing: 2px;
+    transition: transform 0.15s ease, color 0.15s ease;
+  }
+
+  #reticle.active {
+    color: var(--neon-amber);
+    transform: scale(1.25);
+    text-shadow: 0 0 10px var(--neon-amber);
+  }
+
+  #interact-prompt {
+    margin-top: 26px;
+    background: rgba(4, 10, 18, 0.92);
+    border: 1px solid var(--neon-amber);
+    color: var(--neon-amber);
+    padding: 6px 14px;
+    font-size: 12px;
+    letter-spacing: 1px;
+    box-shadow: 0 0 16px rgba(255, 184, 0, 0.3);
+    display: none;
+    white-space: nowrap;
+  }
+
+  #district-banner {
+    position: fixed;
+    top: 16%;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 3;
+    pointer-events: none;
+    text-align: center;
+    opacity: 0;
+    transition: opacity 0.6s ease;
+  }
+
+  #district-banner.visible {
+    opacity: 1;
+  }
+
+  .banner-frame {
+    background: rgba(3, 8, 16, 0.88);
+    border-top: 2px solid var(--neon-magenta);
+    border-bottom: 2px solid var(--neon-cyan);
+    padding: 10px 28px;
+    box-shadow: 0 0 25px rgba(255, 0, 127, 0.3);
+  }
+
+  .banner-sub {
+    font-size: 10px;
+    color: var(--neon-magenta);
+    letter-spacing: 3px;
+  }
+
+  .banner-main {
+    font-size: 20px;
+    font-weight: 800;
+    color: #fff;
+    letter-spacing: 4px;
+    margin: 4px 0;
+    text-shadow: 0 0 12px var(--neon-cyan);
+  }
+
+  /* Bottom Log & Controls */
+  #log-panel {
+    width: 390px;
+    max-width: 44vw;
+    height: 112px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  #log-feed {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    font-size: 11px;
+    line-height: 1.4;
+    gap: 2px;
+  }
+
+  .log-entry {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .log-time {
+    color: rgba(0, 243, 255, 0.45);
+    margin-right: 5px;
+  }
+
+  #controls-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    align-items: flex-end;
+  }
+
+  .btn-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: flex-end;
+  }
+
+  .cyber-btn {
+    background: rgba(0, 243, 255, 0.08);
+    border: 1px solid rgba(0, 243, 255, 0.45);
+    color: var(--neon-cyan);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 5px 9px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    text-shadow: 0 0 5px currentColor;
+  }
+
+  .cyber-btn:hover, .cyber-btn.active {
+    background: var(--neon-cyan);
+    color: #02050a;
+    text-shadow: none;
+    box-shadow: 0 0 12px var(--neon-cyan);
+    font-weight: 700;
+  }
+
+  .key-hint {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.65);
+    letter-spacing: 0.5px;
+  }
+
+  .key-hint b {
+    color: var(--neon-amber);
+  }
+
+  /* Interactive Terminal Modal */
+  #terminal-modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 540px;
+    max-width: 92vw;
+    background: rgba(3, 9, 16, 0.96);
+    border: 2px solid var(--neon-cyan);
+    box-shadow: 0 0 40px rgba(0, 243, 255, 0.35), inset 0 0 20px rgba(0, 243, 255, 0.1);
+    z-index: 10;
+    padding: 18px 22px;
+    display: none;
+    pointer-events: auto;
+  }
+
+  #terminal-modal.open {
+    display: block;
+  }
+
+  .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid rgba(0, 243, 255, 0.4);
+    padding-bottom: 8px;
+    margin-bottom: 12px;
+    color: var(--neon-amber);
+    font-weight: 700;
+    font-size: 14px;
+  }
+
+  .modal-ascii-art {
+    font-size: 11px;
+    line-height: 1.15;
+    color: var(--neon-magenta);
+    white-space: pre;
+    margin-bottom: 12px;
+    text-align: center;
+    overflow-x: hidden;
+  }
+
+  .modal-body {
+    color: #e2f9ff;
+    font-size: 12px;
+    line-height: 1.55;
+    margin-bottom: 16px;
+    white-space: pre-wrap;
+  }
+
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+  }
+
+  /* Boot / Start Screen */
+  #boot-screen {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    background: radial-gradient(circle at center, rgba(6, 16, 28, 0.88) 0%, rgba(2, 4, 8, 0.96) 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    backdrop-filter: blur(4px);
+  }
+
+  .boot-box {
+    max-width: 680px;
+    width: 100%;
+    border: 1px solid var(--neon-cyan);
+    background: rgba(4, 10, 18, 0.94);
+    box-shadow: 0 0 50px rgba(0, 243, 255, 0.25);
+    padding: 24px 30px;
+    text-align: center;
+  }
+
+  .boot-ascii {
+    font-size: 10px;
+    line-height: 1.15;
+    color: var(--neon-cyan);
+    white-space: pre;
+    margin-bottom: 14px;
+    text-shadow: 0 0 8px var(--neon-cyan);
+    overflow-x: auto;
+  }
+
+  .boot-sub {
+    color: var(--neon-magenta);
+    letter-spacing: 3px;
+    font-size: 12px;
+    font-weight: 700;
+    margin-bottom: 14px;
+  }
+
+  .boot-desc {
+    color: #c6e9f5;
+    font-size: 12px;
+    line-height: 1.6;
+    text-align: left;
+    border-left: 2px solid var(--neon-amber);
+    padding-left: 14px;
+    margin-bottom: 18px;
+  }
+
+  .boot-controls-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px 16px;
+    text-align: left;
+    font-size: 11px;
+    background: rgba(0, 243, 255, 0.05);
+    border: 1px dashed rgba(0, 243, 255, 0.3);
+    padding: 10px 14px;
+    margin-bottom: 20px;
+  }
+
+  #enter-city-btn {
+    background: var(--neon-cyan);
+    color: #02060d;
+    border: none;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: 2px;
+    padding: 12px 32px;
+    cursor: pointer;
+    box-shadow: 0 0 20px var(--neon-cyan);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+
+  #enter-city-btn:hover {
+    transform: scale(1.04);
+    box-shadow: 0 0 30px var(--neon-amber);
+    background: var(--neon-amber);
+  }
+</style>
+</head>
+<body>
+
+<div id="canvas-container"></div>
+<div id="crt-overlay"></div>
+
+<!-- Center Reticle & District Notification -->
+<div id="district-banner">
+  <div class="banner-frame">
+    <div class="banner-sub" id="banner-sub">// SECTOR TRANSITION //</div>
+    <div class="banner-main" id="banner-main">CENTRAL NEXUS PLAZA</div>
+  </div>
+</div>
+
+<div id="center-hud">
+  <div id="reticle">[ + ]</div>
+  <div id="interact-prompt">╔═[ PRESS E : INTERACT ]═╗</div>
+</div>
+
+<!-- Main Terminal HUD -->
+<div id="hud">
+  <div class="hud-row">
+    <!-- Left Status Panel -->
+    <div class="hud-panel">
+      <div class="hud-title">
+        <span>╔═ KOWLOON-9 // OS v9.4 ═╗</span>
+        <span id="hud-fps">60 FPS</span>
+      </div>
+      <div class="stat-grid">
+        <span class="stat-label">DISTRICT:</span>
+        <span class="stat-val magenta" id="hud-district">CENTRAL NEXUS</span>
+        <span class="stat-label">COORDS / ALT:</span>
+        <span class="stat-val" id="hud-coords">X:000 Z:000 Y:1.7m</span>
+        <span class="stat-label">MEMORY SHARDS:</span>
+        <span class="stat-val highlight" id="hud-shards">0 / 8 [░░░░░░░░]</span>
+        <span class="stat-label">CREDITS / BUFF:</span>
+        <span class="stat-val" id="hud-credits">¥1,250 // NOMINAL</span>
+        <span class="stat-label">ATMOSPHERE:</span>
+        <span class="stat-val" id="hud-weather">NEON DOWNPOUR // 00:42</span>
+        <span class="stat-label">RENDER MATRIX:</span>
+        <span class="stat-val highlight" id="hud-mode">HYBRID 3D-ASCII</span>
+      </div>
+    </div>
+
+    <!-- Right Radar Minimap -->
+    <div class="hud-panel" id="radar-box">
+      <div class="hud-title" style="width:100%">
+        <span>╚═ TACTICAL GLYPH RADAR ═╝</span>
+      </div>
+      <canvas id="radar-canvas" width="156" height="156"></canvas>
+      <div class="radar-legend">
+        <span style="color:#00ff66">◆SHARD</span>
+        <span style="color:#ffb800">▣TERM</span>
+        <span style="color:#ff007f">●NPC</span>
+        <span style="color:#00f3ff">═RAIL</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom Row: Comm Log & Quick Controls -->
+  <div class="hud-row" style="align-items: flex-end;">
+    <div class="hud-panel" id="log-panel">
+      <div class="hud-title">
+        <span>// LIVE SIGNAL STREAM</span>
+        <span id="scanner-status" style="color:var(--neon-green)">SCANNER: READY [F]</span>
+      </div>
+      <div id="log-feed"></div>
+    </div>
+
+    <div class="hud-panel" id="controls-panel">
+      <div class="btn-bar">
+        <button class="cyber-btn" id="btn-mode" title="Toggle 3D Surface ASCII vs Full Screen-Space Terminal Matrix">[V] MATRIX: HYBRID</button>
+        <button class="cyber-btn" id="btn-palette" title="Cycle Phosphor / Neon Color Palette">[C] PALETTE: CYBER</button>
+        <button class="cyber-btn" id="btn-weather" title="Cycle Dynamic Weather">[G] WEATHER</button>
+        <button class="cyber-btn" id="btn-time" title="Shift Time / Ambience">[T] TIME</button>
+        <button class="cyber-btn" id="btn-scan" title="Emit 3D ASCII Scanner Wave">[F] SCAN PULSE</button>
+        <button class="cyber-btn" id="btn-audio" title="Toggle Synth Audio">[M] AUDIO: ON</button>
+      </div>
+      <div class="key-hint">
+        <b>WASD</b> MOVE &nbsp;|&nbsp; <b>SHIFT</b> SPRINT &nbsp;|&nbsp; <b>SPACE</b> JUMP / LIFT &nbsp;|&nbsp; <b>E</b> INTERACT &nbsp;|&nbsp; <b>CLICK/DRAG</b> LOOK
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Interactive Terminal / Dialogue Modal -->
+<div id="terminal-modal">
+  <div class="modal-header">
+    <span id="modal-title">// TERMINAL NODE //</span>
+    <span style="font-size:11px; color:var(--neon-cyan)">[ESC / E TO CLOSE]</span>
+  </div>
+  <div class="modal-ascii-art" id="modal-ascii"></div>
+  <div class="modal-body" id="modal-body"></div>
+  <div class="modal-actions" id="modal-actions"></div>
+</div>
+
+<!-- Start / Boot Overlay -->
+<div id="boot-screen">
+  <div class="boot-box">
+    <div class="boot-ascii">
+ ██╗  ██╗ ██████╗ ██╗    ██╗██╗      ██████╗  ██████╗ ███╗   ██╗       █████╗ 
+ ██║ ██╔╝██╔═══██╗██║    ██║██║     ██╔═══██╗██╔═══██╗████╗  ██║      ██╔══██╗
+ █████╔╝ ██║   ██║██║ █╗ ██║██║     ██║   ██║██║   ██║██╔██╗ ██║█████╗╚██████║
+ ██╔═██╗ ██║   ██║██║███╗██║██║     ██║   ██║██║   ██║██║╚██╗██║╚════╝ ╚═══██║
+ ██║  ██╗╚██████╔╝╚███╔███╔╝███████╗╚██████╔╝╚██████╔╝██║ ╚████║       █████╔╝
+ ╚═╝  ╚═╝ ╚═════╝  ╚══╝╚══╝ ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝       ╚════╝ </div>
+    <div class="boot-sub">// LIVING 3D ASCII CYBER-METROPOLIS //</div>
+    <div class="boot-desc">
+      Welcome, <b>Signal Diver</b>. You are jacking into <b>KOWLOON-9</b>, an autonomous city compiled entirely from living typography, reactive ASCII shaders, and forgotten memories.<br><br>
+      Explore four distinct districts—from the neon stalls of <b>Tsukumo Alley</b> and the elevated <b>Sky-Rail</b> to the torii gates of the <b>Mnemonic Shrine</b>. Emit scanner pulses, ride gravity lifts to the sky-walkways, converse with wandering inhabitants, and recover all <b>8 Memory Shards</b>.
+    </div>
+    <div class="boot-controls-grid">
+      <div><b style="color:var(--neon-amber)">[W,A,S,D]</b> Walk / Strafe</div>
+      <div><b style="color:var(--neon-amber)">[MOUSE / DRAG]</b> Look Around</div>
+      <div><b style="color:var(--neon-amber)">[SHIFT]</b> Overclock Sprint</div>
+      <div><b style="color:var(--neon-amber)">[SPACE]</b> Jump / Ride Gravity Lifts</div>
+      <div><b style="color:var(--neon-amber)">[E]</b> Interact (Shards, Shops, NPCs)</div>
+      <div><b style="color:var(--neon-amber)">[F]</b> Emit 3D ASCII Scanner Wave</div>
+      <div><b style="color:var(--neon-amber)">[V]</b> Switch Hybrid / Pure ASCII Matrix</div>
+      <div><b style="color:var(--neon-amber)">[G / T / C]</b> Weather, Time & Palette</div>
+    </div>
+    <button id="enter-city-btn">╔══ INITIALIZE NEURAL LINK ══╗</button>
+  </div>
+</div>
+
+<!-- Three.js CDN -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+<script>
+(() => {
+  'use strict';
+
+  // ============================================================================
+  // 1. PROCEDURAL WEBAUDIO SYNTHESIZER & SOUND ENGINE
+  // ============================================================================
+  class CyberAudioEngine {
+    constructor() {
+      this.ctx = null;
+      this.muted = false;
+      this.initialized = false;
+      this.masterGain = null;
+      this.arpTimer = null;
+      this.scale = [110.0, 130.81, 146.83, 164.81, 196.0, 220.0, 261.63, 293.66, 329.63, 392.0];
+      this.stepIndex = 0;
+    }
+
+    init() {
+      if (this.initialized) return;
+      try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        this.ctx = new AudioCtx();
+        this.masterGain = this.ctx.createGain();
+        this.masterGain.gain.value = 0.28;
+        this.masterGain.connect(this.ctx.destination);
+
+        this.startAmbientDrone();
+        this.startRainNoise();
+        this.startArpeggiator();
+        this.initialized = true;
+      } catch (e) {
+        console.warn('WebAudio unavailable:', e);
+      }
+    }
+
+    toggleMute() {
+      if (!this.initialized) this.init();
+      this.muted = !this.muted;
+      if (this.masterGain && this.ctx) {
+        this.masterGain.gain.setTargetAtTime(this.muted ? 0.0 : 0.28, this.ctx.currentTime, 0.1);
+      }
+      return !this.muted;
+    }
+
+    startAmbientDrone() {
+      if (!this.ctx) return;
+      const freqs = [55.0, 82.41, 110.0];
+      freqs.forEach((f, idx) => {
+        const osc = this.ctx.createOscillator();
+        const filter = this.ctx.createBiquadFilter();
+        const gain = this.ctx.createGain();
+
+        osc.type = idx === 1 ? 'sawtooth' : 'triangle';
+        osc.frequency.value = f;
+        osc.detune.value = (idx - 1) * 7;
+
+        filter.type = 'lowpass';
+        filter.frequency.value = 240;
+
+        gain.gain.value = 0.12;
+        osc.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.masterGain);
+        osc.start();
+      });
+    }
+
+    startRainNoise() {
+      if (!this.ctx) return;
+      const bufferSize = this.ctx.sampleRate * 2;
+      const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+      for (let i = 0; i < bufferSize; i++) {
+        const white = Math.random() * 2 - 1;
+        b0 = 0.99886 * b0 + white * 0.0555179;
+        b1 = 0.99332 * b1 + white * 0.0750759;
+        b2 = 0.96900 * b2 + white * 0.1538520;
+        b3 = 0.86650 * b3 + white * 0.3104856;
+        b4 = 0.55000 * b4 + white * 0.5329522;
+        b5 = -0.7616 * b5 - white * 0.0168980;
+        data[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362) * 0.02;
+        b6 = white * 0.115926;
+      }
+
+      const noise = this.ctx.createBufferSource();
+      noise.buffer = buffer;
+      noise.loop = true;
+
+      this.rainFilter = this.ctx.createBiquadFilter();
+      this.rainFilter.type = 'bandpass';
+      this.rainFilter.frequency.value = 1100;
+      this.rainFilter.Q.value = 0.7;
+
+      this.rainGain = this.ctx.createGain();
+      this.rainGain.gain.value = 0.22;
+
+      noise.connect(this.rainFilter);
+      this.rainFilter.connect(this.rainGain);
+      this.rainGain.connect(this.masterGain);
+      noise.start();
+    }
+
+    startArpeggiator() {
+      if (!this.ctx) return;
+      const pattern = [0, 2, 4, 5, 7, 5, 4, 2, 1, 3, 5, 8];
+      this.arpTimer = setInterval(() => {
+        if (this.muted || !this.ctx || this.ctx.state !== 'running') return;
+        if (Math.random() < 0.25) return;
+        const noteIdx = pattern[this.stepIndex % pattern.length];
+        this.stepIndex++;
+        const freq = this.scale[noteIdx % this.scale.length] * (Math.random() < 0.2 ? 2 : 1);
+
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const filter = this.ctx.createBiquadFilter();
+        const gain = this.ctx.createGain();
+
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, now);
+
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(900, now);
+        filter.frequency.exponentialRampToValueAtTime(180, now + 0.55);
+
+        gain.gain.setValueAtTime(0.001, now);
+        gain.gain.linearRampToValueAtTime(0.055, now + 0.03);
+        gain.gain.exponentialRampToValueAtTime(0.0008, now + 0.65);
+
+        osc.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.masterGain);
+
+        osc.start(now);
+        osc.stop(now + 0.68);
+      }, 360);
+    }
+
+    playFootstep(elevated = false) {
+      if (!this.initialized || this.muted || !this.ctx) return;
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = elevated ? 'triangle' : 'sine';
+      osc.frequency.setValueAtTime(elevated ? 190 : 95, now);
+      osc.frequency.exponentialRampToValueAtTime(32, now + 0.07);
+
+      gain.gain.setValueAtTime(0.06, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.075);
+
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+      osc.start(now);
+      osc.stop(now + 0.08);
+    }
+
+    playScanPulse() {
+      if (!this.initialized || this.muted || !this.ctx) return;
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(180, now);
+      osc.frequency.exponentialRampToValueAtTime(1240, now + 0.45);
+      osc.frequency.exponentialRampToValueAtTime(220, now + 1.2);
+
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.linearRampToValueAtTime(0.14, now + 0.06);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 1.25);
+
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+      osc.start(now);
+      osc.stop(now + 1.3);
+    }
+
+    playInteract(isShard = false) {
+      if (!this.initialized || this.muted || !this.ctx) return;
+      const now = this.ctx.currentTime;
+      const notes = isShard ? [440, 554.37, 659.25, 880] : [523.25, 659.25];
+      notes.forEach((f, i) => {
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(f, now + i * 0.075);
+        gain.gain.setValueAtTime(0.065, now + i * 0.075);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.075 + 0.25);
+        osc.connect(gain);
+        gain.connect(this.masterGain);
+        osc.start(now + i * 0.075);
+        osc.stop(now + i * 0.075 + 0.26);
+      });
+    }
+
+    playJump(isLift = false) {
+      if (!this.initialized || this.muted || !this.ctx) return;
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(140, now);
+      osc.frequency.exponentialRampToValueAtTime(isLift ? 760 : 340, now + (isLift ? 0.45 : 0.18));
+      gain.gain.setValueAtTime(0.1, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + (isLift ? 0.48 : 0.2));
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+      osc.start(now);
+      osc.stop(now + (isLift ? 0.5 : 0.22));
+    }
+  }
+
+  const audio = new CyberAudioEngine();
+
+  // ============================================================================
+  // 2. PROCEDURAL ASCII GLYPH ATLAS GENERATOR (16x6 = 96 CRISP GLYPHS)
+  // ============================================================================
+  function createGlyphAtlas() {
+    const cols = 16;
+    const rows = 6;
+    const cellW = 64;
+    const cellH = 64;
+    const canvas = document.createElement('canvas');
+    canvas.width = cols * cellW;
+    canvas.height = rows * cellH;
+    const ctx = canvas.getContext('2d');
+
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const glyphRows = [
+      // Row 0: Brightness / Density Ramp (0..15)
+      [' ', '.', '·', ':', '-', '=', '+', '*', 'x', '#', '%', '&', '@', '▒', '▓', '█'],
+      // Row 1: Box Drawing & Structural Architecture
+      ['│', '─', '┌', '┐', '└', '┘', '├', '┤', '┬', '┴', '┼', '║', '═', '╬', '╔', '╝'],
+      // Row 2: Cyber-Katakana & Matrix Runes
+      ['ｱ', 'ｲ', 'ｳ', 'ｴ', 'ｵ', 'ｶ', 'ｷ', 'ｸ', 'ｹ', 'ｺ', 'ｻ', 'ｼ', 'ｽ', 'ｾ', 'ｿ', 'ﾀ'],
+      // Row 3: Hexadecimal & Data Digits
+      ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'],
+      // Row 4: Street Markings, Brackets & Currency
+      ['<', '>', '^', 'v', '/', '\\', '[', ']', '{', '}', '(', ')', '¥', '$', '~', '≡'],
+      // Row 5: Cyber-Fantasy & Shrine Symbols
+      ['◈', '◇', '◆', '▲', '▼', '●', '○', '◎', '★', '☆', '╬', '⛩', '☯', '⚡', '⌘', '∞']
+    ];
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const ch = glyphRows[r][c] || '#';
+        const cx = c * cellW + cellW * 0.5;
+        const cy = r * cellH + cellH * 0.52;
+
+        // Subtle outer glow for crisp readability at oblique 3D angles
+        ctx.font = 'bold 46px "JetBrains Mono", "Consolas", "Courier New", monospace';
+        ctx.shadowColor = '#ffffff';
+        ctx.shadowBlur = 4;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(ch, cx, cy);
+      }
+    }
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.wrapS = THREE.ClampToEdgeWrapping;
+    texture.wrapT = THREE.ClampToEdgeWrapping;
+    texture.needsUpdate = true;
+    return texture;
+  }
+
+  const glyphAtlasTex = createGlyphAtlas();
+
+  // ============================================================================
+  // 3. CUSTOM GLSL SHADERS (3D WORLD-SPACE ASCII + SCREEN-SPACE MATRIX PASS)
+  // ============================================================================
+  const sharedUniforms = {
+    uTime: { value: 0 },
+    uGlyphAtlas: { value: glyphAtlasTex },
+    uPlayerPos: { value: new THREE.Vector3(0, 1.7, 18) },
+    uScanOrigin: { value: new THREE.Vector3(0, 0, 0) },
+    uScanRadius: { value: -100.0 },
+    uFogColor: { value: new THREE.Color(0x030812) },
+    uFogDensity: { value: 0.0115 },
+    uPaletteMode: { value: 0 }, // 0: Cyber-Neon, 1: Matrix Green, 2: Amber CRT, 3: Crimson Eclipse
+    uDaylight: { value: 0.0 }
+  };
+
+  // 3A. Living ASCII Skyscraper & Architecture Shader
+  const buildingVertexShader = `
+    varying vec3 vWorldPos;
+    varying vec3 vNormal;
+    varying vec2 vUv;
+    varying vec3 vColor;
+
+    void main() {
+      vUv = uv;
+      vColor = color;
+      vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+      vWorldPos = worldPosition.xyz;
+      vNormal = normalize(mat3(modelMatrix) * normal);
+      gl_Position = projectionMatrix * viewMatrix * worldPosition;
+    }
+  `;
+
+  const buildingFragmentShader = `
+    uniform float uTime;
+    uniform sampler2D uGlyphAtlas;
+    uniform vec3 uPlayerPos;
+    uniform vec3 uScanOrigin;
+    uniform float uScanRadius;
+    uniform vec3 uFogColor;
+    uniform float uFogDensity;
+    uniform int uPaletteMode;
+    uniform float uDaylight;
+
+    varying vec3 vWorldPos;
+    varying vec3 vNormal;
+    varying vec2 vUv;
+    varying vec3 vColor;
+
+    float hash21(vec2 p) {
+      p = fract(p * vec2(234.34, 435.345));
+      p += dot(p, p + 34.23);
+      return fract(p.x * p.y);
+    }
+
+    vec3 applyPalette(vec3 col) {
+      float lum = dot(col, vec3(0.299, 0.587, 0.114));
+      if (uPaletteMode == 1) return vec3(0.05, 1.0, 0.35) * lum * 1.45;
+      if (uPaletteMode == 2) return vec3(1.0, 0.68, 0.08) * lum * 1.45;
+      if (uPaletteMode == 3) return mix(vec3(1.0, 0.12, 0.3), vec3(0.3, 0.9, 1.0), col.b) * lum * 1.4;
+      return col;
+    }
+
+    void main() {
+      // Determine planar world-space coordinates for crisp character cells
+      vec2 planeCoord;
+      bool isRoof = abs(vNormal.y) > 0.5;
+      if (isRoof) {
+        planeCoord = vWorldPos.xz;
+      } else if (abs(vNormal.x) > 0.5) {
+        planeCoord = vec2(vWorldPos.z, vWorldPos.y);
+      } else {
+        planeCoord = vec2(vWorldPos.x, vWorldPos.y);
+      }
+
+      // 2.5 ASCII character cells per meter
+      float cellScale = 2.5;
+      vec2 gridPos = planeCoord * cellScale;
+      vec2 cellId = floor(gridPos);
+      vec2 cellUv = fract(gridPos);
+
+      float h = hash21(cellId + floor(vColor.xy * 13.0));
+      float colHash = hash21(vec2(cellId.x, floor(vColor.z * 19.0)));
+
+      // Architectural structural grid (columns, floors, windows, data-streams)
+      float isBorderX = step(abs(fract(planeCoord.x * 0.25) - 0.5), 0.06);
+      float isFloorLine = step(abs(fract(planeCoord.y * 0.333) - 0.5), 0.08);
+      float rowIdx = 0.0;
+      float colIdx = 2.0;
+
+      vec3 baseHue = vColor;
+      vec3 secHue = vec3(vColor.b, vColor.r, vColor.g);
+      vec3 cellColor = baseHue * 0.28;
+
+      if (isRoof) {
+        rowIdx = 1.0;
+        colIdx = mod(cellId.x + cellId.y, 14.0);
+        cellColor = baseHue * 0.22;
+      } else if (isBorderX > 0.5 && isFloorLine > 0.5) {
+        // Structural corner joint '╬'
+        rowIdx = 1.0;
+        colIdx = 13.0;
+        cellColor = baseHue * 0.85;
+      } else if (isBorderX > 0.5) {
+        // Vertical pillar '║'
+        rowIdx = 1.0;
+        colIdx = 11.0;
+        cellColor = baseHue * 0.65;
+      } else if (isFloorLine > 0.5) {
+        // Horizontal floor beam '═'
+        rowIdx = 1.0;
+        colIdx = 12.0;
+        cellColor = baseHue * 0.55;
+      } else {
+        // Interior facade: either scrolling Katakana matrix strip or apartment/office window
+        if (colHash > 0.84) {
+          // Vertical scrolling neon data waterfall
+          float scroll = floor(uTime * (3.0 + colHash * 4.0) + cellId.y * 0.7);
+          float streamHead = fract((cellId.y + uTime * 3.5) * 0.08 + colHash);
+          rowIdx = 2.0; // Katakana row
+          colIdx = mod(floor(hash21(vec2(cellId.x, scroll)) * 16.0), 16.0);
+          float trail = smoothstep(0.35, 0.98, streamHead);
+          cellColor = mix(baseHue * 0.18, vec3(0.3, 1.0, 0.75) * 1.4, trail);
+        } else {
+          // Window room cell
+          vec2 roomCell = floor(planeCoord * vec2(0.75, 0.333));
+          float roomRand = hash21(roomCell + floor(vWorldPos.xz * 0.05));
+          float flicker = sin(uTime * (1.2 + roomRand * 3.0) + roomRand * 30.0);
+          bool windowLit = (roomRand > 0.38) && (flicker > -0.85);
+
+          if (windowLit) {
+            rowIdx = 0.0;
+            // Distance & time reactive ASCII density
+            float bright = 0.55 + 0.45 * sin(uTime * 0.8 + roomRand * 12.0 + cellId.x * 0.3);
+            colIdx = clamp(floor(bright * 14.0), 4.0, 14.0);
+            cellColor = mix(baseHue, secHue, step(0.68, roomRand)) * (0.75 + 0.45 * bright);
+          } else {
+            rowIdx = 0.0;
+            colIdx = mod(floor(h * 4.0), 4.0) + 1.0; // '.', ':', '-'
+            cellColor = baseHue * 0.22;
+          }
+        }
+      }
+
+      // Ground-floor storefront neon band (Y < 3.6m)
+      if (!isRoof && vWorldPos.y < 3.6 && vWorldPos.y > 0.25) {
+        if (abs(vWorldPos.y - 3.35) < 0.35) {
+          rowIdx = 4.0;
+          colIdx = mod(floor(cellId.x + uTime * 4.0), 16.0);
+          cellColor = vec3(1.0, 0.72, 0.15) * 1.35;
+        }
+      }
+
+      // Player proximity flashlight / aura
+      float distToPlayer = length(vWorldPos - uPlayerPos);
+      float playerLight = smoothstep(18.0, 2.0, distToPlayer);
+      if (playerLight > 0.05) {
+        cellColor += vec3(0.0, 0.45, 0.55) * playerLight * 0.55;
+      }
+
+      // 3D Scanner Pulse Wave [F]
+      if (uScanRadius > 0.0) {
+        float dScan = length(vWorldPos - uScanOrigin);
+        float scanBand = 1.0 - smoothstep(0.0, 4.5, abs(dScan - uScanRadius));
+        if (scanBand > 0.01) {
+          rowIdx = 3.0; // Switch to Hex digits during scan sweep!
+          colIdx = mod(floor(h * 16.0 + uTime * 20.0), 16.0);
+          cellColor = mix(cellColor, vec3(0.0, 1.0, 0.88) * 2.1, scanBand);
+        }
+      }
+
+      // Sample crisp ASCII character from atlas
+      vec2 atlasUv = (vec2(colIdx, 5.0 - rowIdx) + vec2(cellUv.x, 1.0 - cellUv.y)) / vec2(16.0, 6.0);
+      float glyphMask = texture2D(uGlyphAtlas, atlasUv).r;
+
+      // Subtle dark cell background with glowing character foreground
+      vec3 bgCol = cellColor * (0.11 + uDaylight * 0.12);
+      vec3 fgCol = cellColor * (1.35 + 0.25 * sin(vWorldPos.y * 0.5 + uTime));
+      vec3 finalCol = mix(bgCol, fgCol, glyphMask);
+
+      // Subtle cell grid wireframe
+      float gridEdge = step(0.92, max(cellUv.x, cellUv.y));
+      finalCol += cellColor * gridEdge * 0.08;
+
+      finalCol = applyPalette(finalCol);
+
+      // Exponential atmospheric depth fog
+      float fogDist = length(vWorldPos - cameraPosition);
+      float fogFactor = 1.0 - exp(- (uFogDensity * fogDist) * (uFogDensity * fogDist));
+      finalCol = mix(finalCol, uFogColor, clamp(fogFactor, 0.0, 1.0));
+
+      gl_FragColor = vec4(finalCol, 1.0);
+    }
+  `;
+
+  // 3B. Rain-Slicked ASCII Street, Sidewalk & Canal Shader
+  const groundVertexShader = `
+    varying vec3 vWorldPos;
+    varying vec2 vUv;
+
+    void main() {
+      vUv = uv;
+      vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+      vWorldPos = worldPosition.xyz;
+      gl_Position = projectionMatrix * viewMatrix * worldPosition;
+    }
+  `;
+
+  const groundFragmentShader = `
+    uniform float uTime;
+    uniform sampler2D uGlyphAtlas;
+    uniform vec3 uPlayerPos;
+    uniform vec3 uScanOrigin;
+    uniform float uScanRadius;
+    uniform vec3 uFogColor;
+    uniform float uFogDensity;
+    uniform int uPaletteMode;
+
+    varying vec3 vWorldPos;
+    varying vec2 vUv;
+
+    float hash21(vec2 p) {
+      p = fract(p * vec2(123.34, 456.21));
+      p += dot(p, p + 45.32);
+      return fract(p.x * p.y);
+    }
+
+    vec3 applyPalette(vec3 col) {
+      float lum = dot(col, vec3(0.299, 0.587, 0.114));
+      if (uPaletteMode == 1) return vec3(0.05, 1.0, 0.35) * lum * 1.45;
+      if (uPaletteMode == 2) return vec3(1.0, 0.68, 0.08) * lum * 1.45;
+      if (uPaletteMode == 3) return mix(vec3(1.0, 0.12, 0.3), vec3(0.3, 0.9, 1.0), col.b) * lum * 1.4;
+      return col;
+    }
+
+    void main() {
+      vec2 wp = vWorldPos.xz;
+      float cellScale = 2.4;
+      vec2 gridPos = wp * cellScale;
+      vec2 cellId = floor(gridPos);
+      vec2 cellUv = fract(gridPos);
+      float h = hash21(cellId);
+
+      // City block grid layout (blocks every 32m, avenues at X=0, Z=0, +/-32, +/-64)
+      float modX = abs(mod(wp.x + 16.0, 32.0) - 16.0);
+      float modZ = abs(mod(wp.y + 16.0, 32.0) - 16.0);
+      bool onRoadX = modX < 4.5;
+      bool onRoadZ = modZ < 4.5;
+      bool onSidewalk = (modX < 6.2 || modZ < 6.2) && !(onRoadX || onRoadZ);
+      bool isPlaza = length(wp) < 22.0;
+      bool isCanal = (wp.y > 50.0 && wp.y < 62.0);
+
+      float rowIdx = 0.0;
+      float colIdx = 1.0;
+      vec3 col = vec3(0.04, 0.12, 0.18);
+
+      if (isCanal && !onRoadX) {
+        // Shimmering Cyber-Canal ASCII water ('~', '≡', '=')
+        rowIdx = 4.0;
+        colIdx = 14.0 + mod(floor(cellId.x * 0.5 + uTime * 3.0 + sin(cellId.y * 0.5 + uTime)), 2.0);
+        float wave = 0.5 + 0.5 * sin(wp.x * 0.8 + uTime * 2.5 + wp.y * 0.4);
+        col = mix(vec3(0.0, 0.35, 0.55), vec3(0.0, 0.95, 1.0), wave);
+      } else if (isPlaza) {
+        // Central Nexus Plaza geometric mandala
+        float r = length(wp);
+        float ring = abs(fract(r * 0.25 - uTime * 0.15) - 0.5);
+        rowIdx = (ring < 0.12) ? 5.0 : 1.0;
+        colIdx = mod(floor(r + h * 8.0), 14.0);
+        col = mix(vec3(0.05, 0.22, 0.32), vec3(0.0, 0.85, 0.95), step(ring, 0.12));
+      } else if (onRoadX || onRoadZ) {
+        // Asphalt street with lane markings & wet neon puddle reflections
+        rowIdx = 0.0;
+        colIdx = 1.0 + floor(h * 3.0);
+        col = vec3(0.03, 0.07, 0.12);
+
+        // Center dashed neon lane line
+        if ((onRoadX && modX < 0.25 && fract(wp.y * 0.25) > 0.4) ||
+            (onRoadZ && modZ < 0.25 && fract(wp.x * 0.25) > 0.4)) {
+          rowIdx = 4.0;
+          colIdx = 15.0; // '≡'
+          col = vec3(1.0, 0.72, 0.05);
+        }
+        // Crosswalk stripes near intersections
+        if ((onRoadX && abs(modZ - 5.2) < 0.9 && fract(wp.x * 0.8) > 0.4) ||
+            (onRoadZ && abs(modX - 5.2) < 0.9 && fract(wp.y * 0.8) > 0.4)) {
+          rowIdx = 0.0;
+          colIdx = 13.0; // '▓'
+          col = vec3(0.35, 0.85, 0.95);
+        }
+
+        // Wet neon puddle reflections & raindrop ripples
+        float puddleNoise = sin(wp.x * 0.22) * cos(wp.y * 0.22) + 0.4 * sin(wp.x * 0.6 + wp.y * 0.5);
+        if (puddleNoise > 0.25) {
+          float ripple = sin(length(fract(wp * 0.35) - 0.5) * 28.0 - uTime * 9.0);
+          rowIdx = 0.0;
+          colIdx = clamp(floor((puddleNoise + ripple * 0.25) * 12.0), 3.0, 12.0);
+          vec3 neonRefl = mix(vec3(1.0, 0.08, 0.55), vec3(0.0, 0.92, 1.0), 0.5 + 0.5 * sin(wp.x * 0.08 + wp.y * 0.08));
+          col = mix(col, neonRefl * 0.75, smoothstep(0.25, 0.85, puddleNoise));
+        }
+      } else if (onSidewalk) {
+        rowIdx = 1.0;
+        colIdx = 10.0; // '┼' pavement tiles
+        col = vec3(0.08, 0.24, 0.32);
+      } else {
+        // Alleyway floor
+        rowIdx = 0.0;
+        colIdx = 2.0 + floor(h * 3.0);
+        col = vec3(0.04, 0.14, 0.20);
+      }
+
+      // Player aura on ground
+      float dPlayer = length(vWorldPos.xz - uPlayerPos.xz);
+      if (dPlayer < 9.0) {
+        float aura = smoothstep(9.0, 1.0, dPlayer);
+        col += vec3(0.0, 0.5, 0.65) * aura * 0.45;
+      }
+
+      // 3D Scanner Pulse Ring
+      if (uScanRadius > 0.0) {
+        float dScan = length(vWorldPos - uScanOrigin);
+        float scanBand = 1.0 - smoothstep(0.0, 3.5, abs(dScan - uScanRadius));
+        if (scanBand > 0.01) {
+          rowIdx = 3.0;
+          colIdx = mod(floor(h * 16.0 + uTime * 24.0), 16.0);
+          col = mix(col, vec3(0.0, 1.0, 0.85) * 1.9, scanBand);
+        }
+      }
+
+      vec2 atlasUv = (vec2(colIdx, 5.0 - rowIdx) + vec2(cellUv.x, 1.0 - cellUv.y)) / vec2(16.0, 6.0);
+      float glyph = texture2D(uGlyphAtlas, atlasUv).r;
+
+      vec3 finalCol = mix(col * 0.16, col * 1.35, glyph);
+      finalCol = applyPalette(finalCol);
+
+      float fogDist = length(vWorldPos - cameraPosition);
+      float fogFactor = 1.0 - exp(- (uFogDensity * fogDist) * (uFogDensity * fogDist));
+      finalCol = mix(finalCol, uFogColor, clamp(fogFactor, 0.0, 1.0));
+
+      gl_FragColor = vec4(finalCol, 1.0);
+    }
+  `;
+
+  // 3C. Screen-Space Full Terminal ASCII Matrix Post-Processor
+  const postVertexShader = `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = vec4(position.xy, 0.0, 1.0);
+    }
+  `;
+
+  const postFragmentShader = `
+    uniform sampler2D tDiffuse;
+    uniform sampler2D uGlyphAtlas;
+    uniform vec2 uResolution;
+    uniform float uTime;
+    uniform int uMatrixMode; // 0: Hybrid 3D-ASCII, 1: Pure Terminal Screen-Space ASCII
+    uniform int uPaletteMode;
+
+    varying vec2 vUv;
+
+    vec3 applyPalette(vec3 col) {
+      float lum = dot(col, vec3(0.299, 0.587, 0.114));
+      if (uPaletteMode == 1) return vec3(0.06, 1.0, 0.36) * lum * 1.35;
+      if (uPaletteMode == 2) return vec3(1.0, 0.68, 0.08) * lum * 1.35;
+      if (uPaletteMode == 3) return mix(vec3(1.0, 0.1, 0.28), vec3(0.25, 0.9, 1.0), col.b) * lum * 1.3;
+      return col;
+    }
+
+    void main() {
+      if (uMatrixMode == 0) {
+        // Hybrid Mode: Crisp 3D surface ASCII + subtle chromatic edge & terminal glow
+        vec2 offset = (vUv - 0.5) * 0.0018;
+        float r = texture2D(tDiffuse, vUv + offset).r;
+        float g = texture2D(tDiffuse, vUv).g;
+        float b = texture2D(tDiffuse, vUv - offset).b;
+        vec3 col = vec3(r, g, b);
+        gl_FragColor = vec4(col, 1.0);
+        return;
+      }
+
+      // Pure Terminal Matrix Mode: Quantize entire viewport into live ASCII cells!
+      vec2 cellSize = vec2(9.0, 14.0);
+      vec2 gridCount = floor(uResolution / cellSize);
+      vec2 cellIndex = floor(vUv * gridCount);
+      vec2 cellCenterUv = (cellIndex + 0.5) / gridCount;
+      vec2 localUv = fract(vUv * gridCount);
+
+      vec3 sceneCol = texture2D(tDiffuse, cellCenterUv).rgb;
+      float lum = dot(sceneCol, vec3(0.299, 0.587, 0.114));
+      float boostedLum = clamp(pow(lum, 0.75) * 1.35, 0.0, 1.0);
+
+      // Map luminance to Row 0 brightness ramp (0..15)
+      float colIdx = floor(boostedLum * 15.0);
+      float rowIdx = 0.0;
+
+      // High-energy neon highlights cycle katakana/hex glyphs
+      if (boostedLum > 0.82 && fract(sin(dot(cellIndex, vec2(12.9898, 78.233))) * 43758.5453) > 0.55) {
+        rowIdx = 2.0;
+        colIdx = mod(floor(cellIndex.x + cellIndex.y + uTime * 6.0), 16.0);
+      }
+
+      vec2 atlasUv = (vec2(colIdx, 5.0 - rowIdx) + vec2(localUv.x, 1.0 - localUv.y)) / vec2(16.0, 6.0);
+      float glyph = texture2D(uGlyphAtlas, atlasUv).r;
+
+      vec3 normCol = normalize(sceneCol + vec3(0.05)) * max(boostedLum * 1.45, 0.18);
+      normCol = applyPalette(normCol);
+      vec3 finalCol = mix(normCol * 0.09, normCol * 1.35, glyph);
+
+      gl_FragColor = vec4(finalCol, 1.0);
+    }
+  `;
+
+  // ============================================================================
+  // 4. SCENE, CAMERA & RENDER TARGET SETUP
+  // ============================================================================
+  const container = document.getElementById('canvas-container');
+  const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
+  container.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x030812);
+
+  const camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.15, 230);
+  const cameraRig = new THREE.Group();
+  camera.position.set(0, 0, 0);
+  cameraRig.position.set(0, 1.75, 19);
+  cameraRig.add(camera);
+  scene.add(cameraRig);
+
+  // Offscreen RenderTarget for Screen-Space ASCII Matrix Pass
+  let renderTarget = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight, {
+    minFilter: THREE.LinearFilter,
+    magFilter: THREE.LinearFilter,
+    format: THREE.RGBAFormat
+  });
+
+  const postScene = new THREE.Scene();
+  const postCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  const postMaterial = new THREE.ShaderMaterial({
+    vertexShader: postVertexShader,
+    fragmentShader: postFragmentShader,
+    uniforms: {
+      tDiffuse: { value: renderTarget.texture },
+      uGlyphAtlas: { value: glyphAtlasTex },
+      uResolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
+      uTime: sharedUniforms.uTime,
+      uMatrixMode: { value: 0 },
+      uPaletteMode: sharedUniforms.uPaletteMode
+    }
+  });
+  postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), postMaterial));
+
+  // ============================================================================
+  // 5. HELPER: 3D ASCII NEON BILLBOARD & SIGN GENERATOR
+  // ============================================================================
+  function createAsciiSignMesh(lines, fgColor = '#00f3ff', borderColor = '#ff007f', width = 6, height = 2.2, doubleSided = true) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = Math.max(128, Math.round(512 * (height / width)));
+    const ctx = canvas.getContext('2d');
+
+    ctx.fillStyle = 'rgba(2, 6, 14, 0.88)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // ASCII Box Border
+    ctx.strokeStyle = borderColor;
+    ctx.lineWidth = 5;
+    ctx.strokeRect(6, 6, canvas.width - 12, canvas.height - 12);
+
+    ctx.fillStyle = fgColor;
+    ctx.shadowColor = fgColor;
+    ctx.shadowBlur = 10;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    const lineCount = lines.length;
+    const fontSize = Math.min(44, Math.floor((canvas.height - 28) / lineCount * 0.78));
+    ctx.font = `bold ${fontSize}px "JetBrains Mono", "Consolas", monospace`;
+
+    lines.forEach((line, idx) => {
+      const y = (canvas.height / (lineCount + 1)) * (idx + 1);
+      ctx.fillText(line, canvas.width / 2, y);
+    });
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.minFilter = THREE.LinearFilter;
+    const mat = new THREE.MeshBasicMaterial({
+      map: tex,
+      transparent: true,
+      side: doubleSided ? THREE.DoubleSide : THREE.FrontSide
+    });
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, height), mat);
+    return { mesh, canvas, ctx, tex };
+  }
+
+  // ============================================================================
+  // 6. WORLD BUILDER: DISTRICTS, SKYSCRAPERS, SKY-RAIL, SHRINE & SECRETS
+  // ============================================================================
+  const buildingColliders = []; // { minX, maxX, minZ, maxZ, maxY }
+  const elevatedPlatforms = []; // Walkable elevated surfaces { minX, maxX, minZ, maxZ, y }
+  const gravityLifts = [];      // { x, z, radius, targetY }
+  const interactiveNodes = [];  // Shards, shops, terminals, NPCs
+  const minimapBuildings = [];  // For fast HUD radar rendering
+
+  const buildingMaterial = new THREE.ShaderMaterial({
+    vertexShader: buildingVertexShader,
+    fragmentShader: buildingFragmentShader,
+    uniforms: sharedUniforms,
+    vertexColors: true
+  });
+
+  const groundMaterial = new THREE.ShaderMaterial({
+    vertexShader: groundVertexShader,
+    fragmentShader: groundFragmentShader,
+    uniforms: sharedUniforms
+  });
+
+  // Ground Plane
+  const groundMesh = new THREE.Mesh(new THREE.PlaneGeometry(320, 320), groundMaterial);
+  groundMesh.rotation.x = -Math.PI / 2;
+  scene.add(groundMesh);
+
+  // Cyber Wireframe Sky-Dome with ASCII Star Constellation
+  function buildSkyDome() {
+    const skyGeo = new THREE.SphereGeometry(195, 24, 16);
+    const skyMat = new THREE.MeshBasicMaterial({
+      color: 0x092238,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.22
+    });
+    const skyDome = new THREE.Mesh(skyGeo, skyMat);
+    scene.add(skyDome);
+    return skyDome;
+  }
+  const skyDome = buildSkyDome();
+
+  // Merge static skyscraper geometry for rock-solid 60 FPS performance
+  const mergedBuildingGeos = [];
+
+  function addColoredBox(x, y, z, w, h, d, colorHex, addCollider = true) {
+    const geo = new THREE.BoxGeometry(w, h, d);
+    geo.translate(x, y + h / 2, z);
+    const col = new THREE.Color(colorHex);
+    const count = geo.attributes.position.count;
+    const colors = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      colors[i * 3] = col.r;
+      colors[i * 3 + 1] = col.g;
+      colors[i * 3 + 2] = col.b;
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    mergedBuildingGeos.push(geo);
+
+    if (addCollider) {
+      buildingColliders.push({
+        minX: x - w / 2 - 0.45,
+        maxX: x + w / 2 + 0.45,
+        minZ: z - d / 2 - 0.45,
+        maxZ: z + d / 2 + 0.45,
+        maxY: y + h
+      });
+      minimapBuildings.push({ x: x - w / 2, z: z - d / 2, w, d });
+    }
+  }
+
+  // Deterministic pseudo-random for city layout
+  let seed = 9029;
+  function rand() {
+    seed = (seed * 16807) % 2147483647;
+    return (seed - 1) / 2147483646;
+  }
+
+  const districtPalettes = {
+    'NEON TSUKUMO ALLEY': [0xff007f, 0xffaa00, 0x00f3ff, 0xff2a55],
+    'THE VERMILION SPINDLE': [0x00f3ff, 0x0088ff, 0x00ff88, 0x7700ff],
+    'MNEMONIC SHRINE': [0xff2a55, 0xffaa00, 0xff007f],
+    'SUB-ZERO CANAL HUB': [0x00ff66, 0x00f3ff, 0x4488ff]
+  };
+
+  function getDistrictAt(x, z) {
+    if (Math.hypot(x, z) < 25) return 'CENTRAL NEXUS PLAZA';
+    if (z < -42 && Math.abs(x) < 42) return 'MNEMONIC SHRINE';
+    if (z > 42 && Math.abs(x) < 42) return 'SUB-ZERO CANAL HUB';
+    if (x < 0) return 'NEON TSUKUMO ALLEY';
+    return 'THE VERMILION SPINDLE';
+  }
+
+  // Generate City Blocks, Alleys, Stepped Megastructures & Signs
+  const signSlogans = [
+    ['╔═[ 龍 DRAGON RAMEN ]═╗', '║ 24H SYNTH-NOODLES ║'],
+    ['╔═[ KOWLOON-9 BANK ]═╗', '║ KARMA // BIT-YEN  ║'],
+    ['╬═[ CYBERWARE CLINIC ]═╬', '║  OPTICS & NEURAL   ║'],
+    ['╔═[ TSUKUMO ARCADE ]═╗', '║  INSERT COIN [¥]   ║'],
+    ['>>> SKY-RAIL TRANSIT >>>', '[ ELEVATED PLATFORM ]'],
+    ['╔═[ GHOST PROTOCOL ]═╗', '║  MEMORY BROKERS   ║'],
+    ['╬═[ 神社 MNEMONIC ]═╬', '║  DIGITAL SHRINE   ║'],
+    ['╔═[ OMNI-CORP DATA ]═╗', '║  SECTOR 09 CORE   ║'],
+    ['╔═[ ACID TEA HOUSE ]═╗', '║  MATCHA .EXE v4.2 ║'],
+    ['╔═[ SUB-ZERO CRYO ]══╗', '║  COOLING TOWERS   ║']
+  ];
+
+  for (let bx = -3; bx <= 3; bx++) {
+    for (let bz = -3; bz <= 3; bz++) {
+      const centerX = bx * 32;
+      const centerZ = bz * 32;
+
+      // Keep Central Nexus Plaza (0,0) and Mnemonic Shrine Sanctuary (0,-2) open for landmarks
+      if (bx === 0 && bz === 0) continue;
+      if (bx === 0 && bz === -2) continue;
+
+      const distName = getDistrictAt(centerX, centerZ);
+      const pal = districtPalettes[distName] || districtPalettes['THE VERMILION SPINDLE'];
+
+      // Each 32x32 cell has a 20x20 buildable footprint subdivided by an alley into 2 or 4 towers
+      const subTowers = [
+        { ox: -5.2, oz: -5.2 },
+        { ox: 5.2, oz: -5.2 },
+        { ox: -5.2, oz: 5.2 },
+        { ox: 5.2, oz: 5.2 }
+      ];
+
+      subTowers.forEach((st, idx) => {
+        const tx = centerX + st.ox;
+        const tz = centerZ + st.oz;
+
+        // Leave canal waterway clear at Z = 50..62
+        if (tz > 47 && tz < 65) return;
+
+        const w = 7.2 + rand() * 2.2;
+        const d = 7.2 + rand() * 2.2;
+        const isSpindle = tx > 15;
+        const h1 = (isSpindle ? 26 : 16) + rand() * (isSpindle ? 42 : 24);
+        const col1 = pal[Math.floor(rand() * pal.length)];
+
+        addColoredBox(tx, 0, tz, w, h1, d, col1, true);
+
+        // Stepped upper tier & antenna spire
+        if (rand() > 0.3) {
+          const h2 = 8 + rand() * 16;
+          const col2 = pal[Math.floor(rand() * pal.length)];
+          addColoredBox(tx, h1, tz, w * 0.68, h2, d * 0.68, col2, false);
+
+          if (rand() > 0.45) {
+            addColoredBox(tx, h1 + h2, tz, 0.8, 10 + rand() * 12, 0.8, 0x00f3ff, false);
+          }
+        }
+
+        // Attach hanging 3D ASCII Neon Signs facing streets/alleys
+        if (rand() > 0.32) {
+          const slogan = signSlogans[(Math.abs(bx * 7 + bz * 3 + idx)) % signSlogans.length];
+          const fg = ['#00f3ff', '#ff007f', '#ffb800', '#00ff66'][idx % 4];
+          const brd = ['#ff007f', '#00f3ff', '#ff2a55', '#ffb800'][idx % 4];
+          const signObj = createAsciiSignMesh(slogan, fg, brd, 5.4, 1.75);
+          const signY = 4.8 + (idx % 3) * 3.8;
+          if (idx % 2 === 0) {
+            signObj.mesh.position.set(tx, signY, tz + (st.oz > 0 ? d / 2 + 0.35 : -d / 2 - 0.35));
+          } else {
+            signObj.mesh.rotation.y = Math.PI / 2;
+            signObj.mesh.position.set(tx + (st.ox > 0 ? w / 2 + 0.35 : -w / 2 - 0.35), signY, tz);
+          }
+          scene.add(signObj.mesh);
+        }
+      });
+
+      // Overhead Skybridge connecting towers across alleys
+      if (rand() > 0.45) {
+        addColoredBox(centerX, 14 + Math.floor(rand() * 3) * 6, centerZ, 12, 2.2, 3.2, pal[0], false);
+      }
+    }
+  }
+
+  // ============================================================================
+  // 7. LANDMARKS: CENTRAL NEXUS OBELISK, ELEVATED SKY-RAIL & MNEMONIC SHRINE
+  // ============================================================================
+
+  // 7A. Central Nexus Plaza Rotating ASCII Holo-Spindle
+  const nexusGroup = new THREE.Group();
+  nexusGroup.position.set(0, 0, 0);
+  scene.add(nexusGroup);
+
+  // Pedestal base
+  addColoredBox(0, 0, 0, 5.2, 2.4, 5.2, 0x00f3ff, true);
+
+  const obeliskGeo = new THREE.OctahedronGeometry(3.2, 0);
+  const obeliskWire = new THREE.Mesh(
+    obeliskGeo,
+    new THREE.MeshBasicMaterial({ color: 0x00f3ff, wireframe: true })
+  );
+  obeliskWire.position.set(0, 7.5, 0);
+  obeliskWire.scale.set(1, 2.2, 1);
+  nexusGroup.add(obeliskWire);
+
+  // Dynamic Plaza Broadcast Billboard (Hackable by player!)
+  const plazaBillboard = createAsciiSignMesh(
+    ['╔══[ KOWLOON-9 CORE NEXUS ]══╗', '║ STATUS: AUTONOMOUS MATRIX  ║', '╚══[ COLLECT 8 SHARDS ]══════╝'],
+    '#00f3ff',
+    '#ff007f',
+    8.5,
+    3.0
+  );
+  plazaBillboard.mesh.position.set(0, 14.5, 0);
+  nexusGroup.add(plazaBillboard.mesh);
+
+  // 7B. Elevated Sky-Rail Track & Walkable Sky-Walkway (Y = 8.5m along Z = -16)
+  const skyWalkY = 8.5;
+  // Walkable elevated station & sky-corridor running X: -72 .. +72, Z: -19 .. -13
+  addColoredBox(0, skyWalkY - 0.6, -16, 144, 0.6, 5.6, 0x00f3ff, false);
+  elevatedPlatforms.push({ minX: -72, maxX: 72, minZ: -18.8, maxZ: -13.2, y: skyWalkY });
+
+  // Support pillars along the Sky-Rail
+  for (let px = -64; px <= 64; px += 32) {
+    addColoredBox(px, 0, -16, 1.8, skyWalkY - 0.6, 1.8, 0x0088ff, true);
+  }
+
+  // Gravity Lifts [^^^] allowing the player to launch up to the Sky-Walkway!
+  function createGravityLift(x, z, targetY, labelText) {
+    gravityLifts.push({ x, z, radius: 2.3, targetY });
+    const ringGeo = new THREE.RingGeometry(1.1, 1.85, 16);
+    const ringMat = new THREE.MeshBasicMaterial({ color: 0x00ff66, side: THREE.DoubleSide });
+    const ring = new THREE.Mesh(ringGeo, ringMat);
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.set(x, 0.08, z);
+    scene.add(ring);
+
+    // Vertical beam of rising ASCII chevrons
+    const liftSign = createAsciiSignMesh(['[ ▲ GRAVITY LIFT ▲ ]', labelText, '  ^^^ STEP IN ^^^  '], '#00ff66', '#00f3ff', 3.4, 1.8);
+    liftSign.mesh.position.set(x, 2.8, z);
+    scene.add(liftSign.mesh);
+    return liftSign.mesh;
+  }
+
+  const liftMeshes = [
+    createGravityLift(-12, -12, skyWalkY, '// TO SKY-RAIL //'),
+    createGravityLift(46, -12, skyWalkY, '// TO SPINDLE DECK //')
+  ];
+
+  // 7C. Mnemonic Shrine Sanctuary (North Sector: X: 0, Z: -64)
+  // Row of glowing Vermilion ASCII Torii Gates leading into the shrine
+  for (let tz = -34; tz >= -54; tz -= 6.5) {
+    addColoredBox(-3.2, 0, tz, 0.7, 6.2, 0.7, 0xff2a55, true);
+    addColoredBox(3.2, 0, tz, 0.7, 6.2, 0.7, 0xff2a55, true);
+    addColoredBox(0, 5.8, tz, 8.6, 0.75, 0.9, 0xff2a55, false);
+    addColoredBox(0, 4.6, tz, 6.8, 0.45, 0.6, 0xffaa00, false);
+  }
+  // Shrine Sanctuary Pavilion
+  addColoredBox(0, 0, -68, 14, 1.2, 12, 0xff2a55, false);
+  elevatedPlatforms.push({ minX: -7, maxX: 7, minZ: -74, maxZ: -62, y: 1.2 });
+  addColoredBox(0, 1.2, -69, 9, 6.5, 7, 0xff007f, true);
+  addColoredBox(0, 7.7, -69, 13, 1.8, 10, 0xffaa00, false);
+
+  const shrineSign = createAsciiSignMesh(
+    ['⛩ ╔═[ MNEMONIC SHRINE // 記憶神社 ]═╗ ⛩', '   ║ PRAY IN HEXADECIMAL // OMIKUJI ║   '],
+    '#ffb800',
+    '#ff2a55',
+    7.5,
+    1.8
+  );
+  shrineSign.mesh.position.set(0, 5.2, -65.1);
+  scene.add(shrineSign.mesh);
+
+  // Merge all static building & structure geometries into ONE draw call
+  function mergeBufferGeometries(geos) {
+    let totalVerts = 0;
+    let totalIndices = 0;
+    geos.forEach(g => {
+      totalVerts += g.attributes.position.count;
+      totalIndices += g.index ? g.index.count : 0;
+    });
+
+    const positions = new Float32Array(totalVerts * 3);
+    const normals = new Float32Array(totalVerts * 3);
+    const uvs = new Float32Array(totalVerts * 2);
+    const colors = new Float32Array(totalVerts * 3);
+    const indices = new Uint32Array(totalIndices);
+
+    let vOffset = 0;
+    let iOffset = 0;
+
+    geos.forEach(g => {
+      const pos = g.attributes.position.array;
+      const norm = g.attributes.normal.array;
+      const uv = g.attributes.uv.array;
+      const col = g.attributes.color.array;
+      const count = g.attributes.position.count;
+
+      positions.set(pos, vOffset * 3);
+      normals.set(norm, vOffset * 3);
+      uvs.set(uv, vOffset * 2);
+      colors.set(col, vOffset * 3);
+
+      if (g.index) {
+        const idxArr = g.index.array;
+        for (let i = 0; i < idxArr.length; i++) {
+          indices[iOffset + i] = idxArr[i] + vOffset;
+        }
+        iOffset += idxArr.length;
+      }
+      vOffset += count;
+    });
+
+    const merged = new THREE.BufferGeometry();
+    merged.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    merged.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+    merged.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+    merged.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    merged.setIndex(new THREE.BufferAttribute(indices, 1));
+    return merged;
+  }
+
+  const cityMergedMesh = new THREE.Mesh(mergeBufferGeometries(mergedBuildingGeos), buildingMaterial);
+  scene.add(cityMergedMesh);
+
+  // ============================================================================
+  // 8. INTERACTIVE NODES: 8 MEMORY SHARDS, SHOPS, TERMINALS & SECRETS
+  // ============================================================================
+  const shardDefinitions = [
+    {
+      id: 'shard_1',
+      name: 'SHARD 01 // GENESIS KERNEL',
+      pos: new THREE.Vector3(0, 1.7, 9),
+      ascii: '   .---.\n  / 0x1 \\\n  \\     /\n   \'---\'',
+      lore: 'DECRYPTED LOG [2094.11.02]:\n"When the sea rose over Old Kowloon, the municipal architects refused to evacuate. Instead, they scanned every neon sign, noodle recipe, and citizen consciousness into an recursive ASCII lattice: KOWLOON-9."'
+    },
+    {
+      id: 'shard_2',
+      name: 'SHARD 02 // PHOSPHOR TEARS',
+      pos: new THREE.Vector3(-32, 1.7, -8),
+      ascii: '  ╔═════╗\n  ║ ｱｲｳ ║\n  ╚═════╝',
+      lore: 'DECRYPTED LOG [2096.03.19]:\n"Look closely at the skyscraper windows in Tsukumo Alley. The characters change density when you approach—those are dormant apartment processes waking up to greet a passerby."'
+    },
+    {
+      id: 'shard_3',
+      name: 'SHARD 03 // SUTRA OF HEX',
+      pos: new THREE.Vector3(0, 2.9, -63.5),
+      ascii: '   ⛩ ╬ ⛩\n  [0xFF7A]',
+      lore: 'DECRYPTED LOG [2097.08.14]:\n"At the Mnemonic Shrine, the monk-drones compile lost memories into glowing torii gates. They believe every deleted file returns to the Great Framebuffer."'
+    },
+    {
+      id: 'shard_4',
+      name: 'SHARD 04 // SKY-RAIL ECHO',
+      pos: new THREE.Vector3(0, skyWalkY + 1.5, -16),
+      ascii: ' [===|===]>\n ══════════',
+      lore: 'DECRYPTED LOG [2098.01.29]:\n"Standing on the elevated Sky-Rail walkway above the rain, you can see the whole city pulse in unison. The trains carry encrypted dreams between the Vermilion Spindle and the Night Market."'
+    },
+    {
+      id: 'shard_5',
+      name: 'SHARD 05 // CANAL REFLECTIONS',
+      pos: new THREE.Vector3(0, 1.7, 48),
+      ascii: '  ~~~≡~~~\n  ≈≈≈╬≈≈≈',
+      lore: 'DECRYPTED LOG [2098.06.04]:\n"The Sub-Zero Canal cools the quantum cores beneath the streets. Its water is pure liquid typography—rippling with tildes and equivalence symbols."'
+    },
+    {
+      id: 'shard_6',
+      name: 'SHARD 06 // SPINDLE OVERCLOCK',
+      pos: new THREE.Vector3(32, 1.7, 16),
+      ascii: '   ║█▓▒║\n   ║▒▓█║',
+      lore: 'DECRYPTED LOG [2098.11.11]:\n"In the Vermilion Spindle, high-frequency trading algorithms build new floors out of box-drawing characters faster than human eyes can parse."'
+    },
+    {
+      id: 'shard_7',
+      name: 'SHARD 07 // BACK-ALLEY GHOST',
+      pos: new THREE.Vector3(-32, 1.7, 32),
+      ascii: '  /\\_/\\\n ( o.o )\n  > ^ <',
+      lore: 'DECRYPTED LOG [2099.02.01]:\n"Stray cyber-cats and unindexed processes hide in the southern alleys. If you trigger your [F] Scanner Pulse, hidden hex signatures bloom across the wet concrete."'
+    },
+    {
+      id: 'shard_8',
+      name: 'SHARD 08 // CROWN OF LIGHT',
+      pos: new THREE.Vector3(46, skyWalkY + 1.5, -16),
+      ascii: '   ★ ◈ ★\n  ╔═════╗\n  ║OMEGA║',
+      lore: 'DECRYPTED LOG [2099.09.09]:\n"FINAL FRAGMENT: You have synchronized with the core topology of Kowloon-9. The city recognizes you not as a visitor, but as a co-author of its endless night."'
+    }
+  ];
+
+  // Spawn 3D floating Memory Shards
+  shardDefinitions.forEach(sd => {
+    const group = new THREE.Group();
+    group.position.copy(sd.pos);
+
+    const oct = new THREE.Mesh(
+      new THREE.OctahedronGeometry(0.65, 0),
+      new THREE.MeshBasicMaterial({ color: 0x00ff66, wireframe: true })
+    );
+    group.add(oct);
+
+    const tag = createAsciiSignMesh([`◆ ${sd.name.split('//')[0].trim()} ◆`, '[ PRESS E TO DECRYPT ]'], '#00ff66', '#00f3ff', 2.6, 0.85);
+    tag.mesh.position.set(0, 1.15, 0);
+    group.add(tag.mesh);
+
+    scene.add(group);
+    interactiveNodes.push({
+      type: 'shard',
+      id: sd.id,
+      title: sd.name,
+      ascii: sd.ascii,
+      body: sd.lore,
+      pos: sd.pos,
+      mesh: group,
+      collected: false
+    });
+  });
+
+  // Spawn Interactive Shops, Terminals & Payphones
+  const terminalConfigs = [
+    {
+      id: 'shop_ramen',
+      type: 'shop',
+      title: 'TETSUO\'S RAM-RAMEN NOODLE BAR',
+      pos: new THREE.Vector3(-18, 1.6, -4),
+      color: '#ffb800',
+      ascii: '   ( ( (  \n  ╔═══════╗\n  ║ 🍜 ¥  ║\n  ╚═══════╝',
+      body: 'Chef Tetsuo-09 wipes down the counter with a phosphor cloth.\n\n"Rainy cycle tonight, Diver. Care for a bowl of Overclocked Tonkotsu .EXE? Warms the neural pathways and boosts your sprint & jump servos by +35%."',
+      actionLabel: 'BUY TONKOTSU .EXE [¥250]'
+    },
+    {
+      id: 'shrine_altar',
+      type: 'shrine',
+      title: 'SACRED OMIKUJI FORTUNE TERMINAL',
+      pos: new THREE.Vector3(0, 2.7, -66),
+      color: '#ff2a55',
+      ascii: '  ⛩ ╔═══╗ ⛩\n    ║吉凶║\n    ╚═══╝',
+      body: 'Incense smoke rises in curling hexadecimal characters.\nInsert ¥100 to compile a Sacred Cyber-Omikuji fortune from the Shrine Mainframe.',
+      actionLabel: 'DRAW CYBER-OMIKUJI [¥100]'
+    },
+    {
+      id: 'plaza_console',
+      type: 'hack',
+      title: 'CENTRAL PLAZA HOLO-OVERRIDE DECK',
+      pos: new THREE.Vector3(4.5, 1.6, 4.5),
+      color: '#00f3ff',
+      ascii: '  ╔══════════╗\n  ║ >_ HACK  ║\n  ╚══════════╝',
+      body: 'Root access port connected to the giant Central Nexus Holo-Billboard overhead.\nSelect a new city-wide ASCII broadcast signal to transmit across Kowloon-9.',
+      actionLabel: 'TRANSMIT OVERRIDE SIGNAL'
+    },
+    {
+      id: 'payphone_node',
+      type: 'phone',
+      title: 'ENCRYPTED PAYPHONE // LINE 09',
+      pos: new THREE.Vector3(-8, 1.6, 12),
+      color: '#ff007f',
+      ascii: '  ╔═══╗\n  ║ ☎ ║  *RING*\n  ╚═══╝',
+      body: 'Static crackles through the handset:\n\n"Diver... can you hear me? Two of the Memory Shards are high above the street on the Elevated Sky-Rail Walkway (Z = -16). Step into the green Gravity Lifts [^^^] to launch up there!"',
+      actionLabel: 'TRACE SIGNAL (+¥300 BOUNTY)'
+    },
+    {
+      id: 'skyrail_console',
+      type: 'transit',
+      title: 'SKY-RAIL ELEVATED STATION CONSOLE',
+      pos: new THREE.Vector3(-4, skyWalkY + 1.4, -14.5),
+      color: '#00f3ff',
+      ascii: '  ╔═════════════════╗\n  ║ <[===|===|===]> ║\n  ╚═════════════════╝',
+      body: 'Sky-Rail Transit Control Deck (Altitude: 8.5m).\nFrom here you can toggle Express Overdrive on the elevated ASCII Monorail trains or warp between elevated sector platforms.',
+      actionLabel: 'TOGGLE EXPRESS MONORAIL'
+    }
+  ];
+
+  terminalConfigs.forEach(tc => {
+    const group = new THREE.Group();
+    group.position.copy(tc.pos);
+
+    const kiosk = new THREE.Mesh(
+      new THREE.BoxGeometry(0.9, 2.1, 0.9),
+      new THREE.MeshBasicMaterial({ color: tc.color, wireframe: true })
+    );
+    group.add(kiosk);
+
+    const sign = createAsciiSignMesh([`▣ ${tc.title.split('//')[0].trim()}`, '[ PRESS E : TERMINAL ]'], tc.color, '#00f3ff', 3.2, 1.0);
+    sign.mesh.position.set(0, 1.65, 0);
+    group.add(sign.mesh);
+
+    scene.add(group);
+    interactiveNodes.push({
+      ...tc,
+      mesh: group,
+      usedCount: 0
+    });
+  });
+
+  // ============================================================================
+  // 9. LIVING ENTITIES: SKY-RAIL TRAINS, HOVER-TRAFFIC & WANDERING NPCS
+  // ============================================================================
+
+  // 9A. Elevated Sky-Rail Articulated ASCII Trains
+  const skyTrains = [];
+  let trainSpeedMultiplier = 1.0;
+
+  for (let t = 0; t < 2; t++) {
+    const trainGroup = new THREE.Group();
+    const numCars = 4;
+    for (let c = 0; c < numCars; c++) {
+      const carSign = createAsciiSignMesh(
+        ['╔══════════════════════╗', `║ SKY-RAIL CAR 0${c + 1} [▓▓] ║`, '╚══ oo ══════════ oo ══╝'],
+        t === 0 ? '#00f3ff' : '#ffb800',
+        '#ff007f',
+        6.2,
+        1.95
+      );
+      carSign.mesh.position.x = c * 6.6;
+      trainGroup.add(carSign.mesh);
+    }
+    const zTrack = t === 0 ? -15.6 : -16.4;
+    trainGroup.position.set(t === 0 ? -80 : 80, skyWalkY + 2.1, zTrack);
+    scene.add(trainGroup);
+    skyTrains.push({
+      group: trainGroup,
+      dir: t === 0 ? 1 : -1,
+      speed: 14 + t * 3
+    });
+  }
+
+  // 9B. Hover-Vehicles & Spinners in Multi-Altitude Lanes
+  const hoverVehicles = [];
+  const vehicleArt = [
+    [' ▄███▄ ', '◄██╬██►'],
+    [' ╔═══╗ ', '◄╬═¥═╬►'],
+    ['  ◢█◣  ', '◄═███═►']
+  ];
+
+  for (let i = 0; i < 28; i++) {
+    const alongX = i % 2 === 0;
+    const laneCoord = (Math.floor(i / 4) - 3) * 32;
+    const alt = (i % 3 === 0) ? 1.3 : (6.5 + (i % 4) * 4.5);
+    const dir = (i % 2 === 0) ? 1 : -1;
+    const col = dir > 0 ? '#00f3ff' : '#ff2a55';
+
+    const vSign = createAsciiSignMesh(vehicleArt[i % vehicleArt.length], col, '#ffb800', 2.8, 1.1);
+    if (!alongX) vSign.mesh.rotation.y = Math.PI / 2;
+
+    const startPos = (Math.random() - 0.5) * 180;
+    vSign.mesh.position.set(
+      alongX ? startPos : laneCoord + (dir * 2.2),
+      alt,
+      alongX ? laneCoord + (dir * 2.2) : startPos
+    );
+    scene.add(vSign.mesh);
+
+    hoverVehicles.push({
+      mesh: vSign.mesh,
+      alongX,
+      dir,
+      speed: 10 + Math.random() * 14
+    });
+  }
+
+  // 9C. Wandering ASCII Citizens / Pedestrians (Interactive!)
+  const npcArchetypes = [
+    {
+      role: 'GLITCH-MONK // 0xA4',
+      color: '#ffb800',
+      art: ['   _☂_   ', '  (o_o)  ', '  /|╬|\\  ', '   / \\   '],
+      quote: '"Every raindrop in Kowloon-9 is a 32-bit packet from the upper cloud servers. May your framerate remain eternal, Diver."'
+    },
+    {
+      role: 'NEON COURIER // KANA',
+      color: '#00f3ff',
+      art: ['   ___   ', '  /[•]\\  ', '  /|█|\\  ', '   d b   '],
+      quote: '"Delivering hot optical drives to the Vermilion Spindle! Have you tried jumping into the green Gravity Lifts [^^^] at (X:-12, Z:-12)?"'
+    },
+    {
+      role: 'MEMORY BROKER // VEX',
+      color: '#ff007f',
+      art: ['  .---.  ', '  |@ @|  ', '  /|¥|\\  ', '   | |   '],
+      quote: '"I trade in vintage 2080 dreams. Press [V] if you want to switch your optic nerve into Pure Screen-Space Terminal Matrix mode!"'
+    },
+    {
+      role: 'SYNTH-ARCHIVIST // RYU',
+      color: '#00ff66',
+      art: ['   ╔╦╗   ', '   ╚╬╝   ', '  /│▓│\\  ', '   ┘ └   '],
+      quote: '"Your [F] Scanner Pulse temporarily reveals the underlying hexadecimal lattice of every building in a 65-meter radius."'
+    }
+  ];
+
+  const npcs = [];
+  for (let i = 0; i < 26; i++) {
+    const arch = npcArchetypes[i % npcArchetypes.length];
+    const npcSign = createAsciiSignMesh(arch.art, arch.color, '#00f3ff', 1.35, 2.1);
+
+    // Place along sidewalks
+    const alongX = i % 2 === 0;
+    const avenue = (Math.floor(i / 4) - 2) * 32;
+    const sidewalkOffset = (i % 4 < 2) ? 5.2 : -5.2;
+    const posAlong = (Math.random() - 0.5) * 120;
+
+    const pos = new THREE.Vector3(
+      alongX ? posAlong : avenue + sidewalkOffset,
+      1.1,
+      alongX ? avenue + sidewalkOffset : posAlong
+    );
+    npcSign.mesh.position.copy(pos);
+    scene.add(npcSign.mesh);
+
+    const npcNode = {
+      type: 'npc',
+      id: `npc_${i}`,
+      title: `CITIZEN // ${arch.role}`,
+      ascii: arch.art.join('\n'),
+      body: arch.quote,
+      pos: npcSign.mesh.position,
+      mesh: npcSign.mesh,
+      alongX,
+      dir: Math.random() > 0.5 ? 1 : -1,
+      speed: 1.6 + Math.random() * 1.1,
+      phase: Math.random() * Math.PI * 2
+    };
+    npcs.push(npcNode);
+    interactiveNodes.push(npcNode);
+  }
+
+  // ============================================================================
+  // 10. WEATHER PARTICLE SYSTEM (3D ASCII RAIN / DATA SPORES / SAKURA)
+  // ============================================================================
+  const particleCount = 1800;
+  const particleGeo = new THREE.BufferGeometry();
+  const pPositions = new Float32Array(particleCount * 3);
+  const pVelocities = new Float32Array(particleCount);
+
+  for (let i = 0; i < particleCount; i++) {
+    pPositions[i * 3] = (Math.random() - 0.5) * 90;
+    pPositions[i * 3 + 1] = Math.random() * 42;
+    pPositions[i * 3 + 2] = (Math.random() - 0.5) * 90;
+    pVelocities[i] = 16 + Math.random() * 10;
+  }
+  particleGeo.setAttribute('position', new THREE.BufferAttribute(pPositions, 3));
+
+  // Create a crisp '|' / '*' ASCII rain sprite
+  const rainCanvas = document.createElement('canvas');
+  rainCanvas.width = 64;
+  rainCanvas.height = 64;
+  const rCtx = rainCanvas.getContext('2d');
+  rCtx.fillStyle = '#ffffff';
+  rCtx.font = 'bold 48px monospace';
+  rCtx.textAlign = 'center';
+  rCtx.textBaseline = 'middle';
+  rCtx.fillText('│', 32, 32);
+  const rainTex = new THREE.CanvasTexture(rainCanvas);
+
+  const particleMat = new THREE.PointsMaterial({
+    color: 0x00f3ff,
+    size: 0.75,
+    map: rainTex,
+    transparent: true,
+    opacity: 0.72,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending
+  });
+
+  const weatherParticles = new THREE.Points(particleGeo, particleMat);
+  scene.add(weatherParticles);
+
+  // ============================================================================
+  // 11. PLAYER STATE, CONTROLS, PHYSICS & INTERACTION ENGINE
+  // ============================================================================
+  const player = {
+    pos: cameraRig.position,
+    vel: new THREE.Vector3(),
+    yaw: 0,
+    pitch: 0,
+    height: 1.75,
+    groundY: 0,
+    onGround: true,
+    speedBuff: 1.0,
+    credits: 1250,
+    shardsCollected: 0,
+    totalShards: shardDefinitions.length,
+    currentDistrict: 'CENTRAL NEXUS PLAZA',
+    stepAccum: 0
+  };
+
+  const keys = {};
+  let isPointerLocked = false;
+  let isDragging = false;
+  let prevMouse = { x: 0, y: 0 };
+  let modalOpen = false;
+  let focusedNode = null;
+
+  // Comm-Log Helper
+  const logFeed = document.getElementById('log-feed');
+  function addLog(msg, color = '#00f3ff') {
+    const now = new Date();
+    const ts = `${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+    const div = document.createElement('div');
+    div.className = 'log-entry';
+    div.innerHTML = `<span class="log-time">[${ts}]</span><span style="color:${color}">${msg}</span>`;
+    logFeed.appendChild(div);
+    while (logFeed.children.length > 6) {
+      logFeed.removeChild(logFeed.firstChild);
+    }
+  }
+
+  addLog('Neural link established. Welcome to KOWLOON-9.', '#00ff66');
+  addLog('Press [F] to emit a 3D ASCII Scanner Wave.', '#00f3ff');
+  addLog('Collect all 8 Memory Shards [◆] on the radar.', '#ffb800');
+
+  // District Banner Alert
+  let bannerTimeout = null;
+  function showDistrictBanner(name) {
+    const banner = document.getElementById('district-banner');
+    document.getElementById('banner-main').textContent = name;
+    banner.classList.add('visible');
+    if (bannerTimeout) clearTimeout(bannerTimeout);
+    bannerTimeout = setTimeout(() => banner.classList.remove('visible'), 3200);
+  }
+
+  // Scanner Wave Trigger [F]
+  let scanActive = false;
+  function triggerScannerWave() {
+    sharedUniforms.uScanOrigin.value.copy(player.pos);
+    sharedUniforms.uScanRadius.value = 0.5;
+    scanActive = true;
+    audio.playScanPulse();
+    addLog('SCANNER PULSE: Revealing hex architecture & shards...', '#00ff66');
+    document.getElementById('scanner-status').textContent = 'SCANNER: SWEEPING...';
+    document.getElementById('scanner-status').style.color = '#ffb800';
+  }
+
+  // Visual Modes, Palettes, Weather & Time Cycling
+  const weatherModes = [
+    { name: 'NEON DOWNPOUR', glyph: '│', color: 0x00f3ff, speed: 1.0, fog: 0.0115 },
+    { name: 'ACID DATA-FOG', glyph: 'ｱ', color: 0x00ff66, speed: 0.35, fog: 0.0165 },
+    { name: 'CYBER-SAKURA DRIFT', glyph: '❀', color: 0xff007f, speed: 0.25, fog: 0.0085 },
+    { name: 'SOLAR OVERLOAD', glyph: '⚡', color: 0xffb800, speed: 1.35, fog: 0.0105 }
+  ];
+  let weatherIdx = 0;
+
+  function cycleWeather() {
+    weatherIdx = (weatherIdx + 1) % weatherModes.length;
+    const wm = weatherModes[weatherIdx];
+    rCtx.clearRect(0, 0, 64, 64);
+    rCtx.fillStyle = '#ffffff';
+    rCtx.fillText(wm.glyph, 32, 32);
+    rainTex.needsUpdate = true;
+    particleMat.color.setHex(wm.color);
+    sharedUniforms.uFogDensity.value = wm.fog;
+    updateHudText();
+    addLog(`Atmosphere shifted to: ${wm.name}`, '#ffb800');
+  }
+
+  const timeModes = [
+    { name: '00:42 MIDNIGHT', bg: 0x030812, daylight: 0.0 },
+    { name: '05:18 CYBER-DAWN', bg: 0x120924, daylight: 0.28 },
+    { name: '19:45 VERMILION DUSK', bg: 0x1a0714, daylight: 0.42 },
+    { name: '03:00 DEEP ECLIPSE', bg: 0x010306, daylight: 0.0 }
+  ];
+  let timeIdx = 0;
+
+  function cycleTime() {
+    timeIdx = (timeIdx + 1) % timeModes.length;
+    const tm = timeModes[timeIdx];
+    scene.background.setHex(tm.bg);
+    sharedUniforms.uFogColor.value.setHex(tm.bg);
+    sharedUniforms.uDaylight.value = tm.daylight;
+    updateHudText();
+    addLog(`Chrono-shift: ${tm.name}`, '#00f3ff');
+  }
+
+  const paletteNames = ['CYBER-NEON', 'MATRIX GREEN', 'AMBER CRT', 'CRIMSON ECLIPSE'];
+  function cyclePalette() {
+    sharedUniforms.uPaletteMode.value = (sharedUniforms.uPaletteMode.value + 1) % 4;
+    const pName = paletteNames[sharedUniforms.uPaletteMode.value];
+    document.getElementById('btn-palette').textContent = `[C] PALETTE: ${pName.split(' ')[0]}`;
+    addLog(`Phosphor palette set to: ${pName}`, '#00ff66');
+  }
+
+  function toggleMatrixMode() {
+    postMaterial.uniforms.uMatrixMode.value = postMaterial.uniforms.uMatrixMode.value === 0 ? 1 : 0;
+    const isPure = postMaterial.uniforms.uMatrixMode.value === 1;
+    document.getElementById('hud-mode').textContent = isPure ? 'PURE TERMINAL ASCII' : 'HYBRID 3D-ASCII';
+    document.getElementById('btn-mode').textContent = isPure ? '[V] MATRIX: PURE' : '[V] MATRIX: HYBRID';
+    document.getElementById('btn-mode').classList.toggle('active', isPure);
+    addLog(`Render Mode: ${isPure ? 'PURE SCREEN-SPACE TERMINAL MATRIX' : 'HYBRID 3D SURFACE ASCII'}`, '#00f3ff');
+  }
+
+  function updateHudText() {
+    const bar = '█'.repeat(player.shardsCollected) + '░'.repeat(player.totalShards - player.shardsCollected);
+    document.getElementById('hud-shards').textContent = `${player.shardsCollected} / ${player.totalShards} [${bar}]`;
+    document.getElementById('hud-credits').textContent =
+      `¥${player.credits.toLocaleString()} // ${player.speedBuff > 1 ? 'OVERCLOCK +35%' : 'NOMINAL'}`;
+    document.getElementById('hud-weather').textContent =
+      `${weatherModes[weatherIdx].name} // ${timeModes[timeIdx].name.split(' ')[0]}`;
+  }
+
+  // Modal Interaction Handler
+  const modalEl = document.getElementById('terminal-modal');
+  function openNodeModal(node) {
+    modalOpen = true;
+    if (document.pointerLockElement) document.exitPointerLock();
+
+    document.getElementById('modal-title').textContent = `// ${node.title} //`;
+    document.getElementById('modal-ascii').textContent = node.ascii || '';
+    document.getElementById('modal-body').textContent = node.body;
+
+    const actionsEl = document.getElementById('modal-actions');
+    actionsEl.innerHTML = '';
+
+    if (node.type === 'shard' && !node.collected) {
+      node.collected = true;
+      node.mesh.visible = false;
+      player.shardsCollected++;
+      player.credits += 500;
+      audio.playInteract(true);
+      updateHudText();
+      addLog(`DECRYPTED ${node.title} (+¥500)`, '#00ff66');
+      if (player.shardsCollected === player.totalShards) {
+        addLog('★ ALL 8 MEMORY SHARDS SYNCHRONIZED! ARCHON CLEARANCE GRANTED ★', '#ffb800');
+      }
+    } else {
+      audio.playInteract(false);
+    }
+
+    // Node-specific interactive button
+    if (node.actionLabel) {
+      const actBtn = document.createElement('button');
+      actBtn.className = 'cyber-btn';
+      actBtn.textContent = node.actionLabel;
+      actBtn.onclick = () => {
+        if (node.type === 'shop') {
+          if (player.credits >= 250) {
+            player.credits -= 250;
+            player.speedBuff = 1.35;
+            updateHudText();
+            document.getElementById('modal-body').textContent =
+              '>>> TONKOTSU .EXE CONSUMED!\nServo speed and jump thrusters overclocked by +35%. Enjoy the neon breeze, Diver!';
+            audio.playInteract(true);
+            addLog('BUFF ACTIVE: Overclocked Tonkotsu (+35% Speed & Jump)', '#ffb800');
+          } else {
+            document.getElementById('modal-body').textContent = '>>> INSUFFICIENT BIT-YEN [¥250 REQUIRED].';
+          }
+        } else if (node.type === 'shrine') {
+          if (player.credits >= 100) {
+            player.credits -= 100;
+            const fortunes = [
+              '╔═[ GREAT BLESSING // DAI-KICHI 0xFF ]═╗\n"The neon dragons favor your packet routing. Hidden rooftops shall open to you."',
+              '╔═[ CYBER FORTUNE // CHUU-KICHI 0x88 ]═╗\n"Follow the elevated Sky-Rail east toward the Vermilion Spindle."',
+              '╔═[ QUANTUM LUCK // KICHI 0x42 ]═╗\n"When rain falls in katakana, your signal clarity doubles."'
+            ];
+            document.getElementById('modal-body').textContent =
+              fortunes[Math.floor(Math.random() * fortunes.length)];
+            updateHudText();
+            triggerScannerWave();
+          }
+        } else if (node.type === 'hack') {
+          const messages = [
+            ['╔══[ HACKED BY SIGNAL DIVER ]══╗', '║   ALL YOUR GLYPHS ARE OURS   ║', '╚══[ FREEDOM FOR KOWLOON-9 ]═══╝'],
+            ['╔══[ SYSTEM OVERRIDE 0x99 ]════╗', '║  DRINK TETSUO SYNTH-RAMEN!   ║', '╚══[ TSUKUMO NIGHT MARKET ]════╝'],
+            ['╔══[ GHOST IN THE TERMINAL ]═══╗', '║  WE ARE LIVING TYPOGRAPHY    ║', '╚══[ SIGNAL CLEARANCE: MAX ]═══╝']
+          ];
+          const chosen = messages[node.usedCount % messages.length];
+          node.usedCount++;
+          const ctx = plazaBillboard.ctx;
+          const cvs = plazaBillboard.canvas;
+          ctx.fillStyle = 'rgba(2, 6, 14, 0.92)';
+          ctx.fillRect(0, 0, cvs.width, cvs.height);
+          ctx.strokeStyle = '#00ff66';
+          ctx.lineWidth = 6;
+          ctx.strokeRect(6, 6, cvs.width - 12, cvs.height - 12);
+          ctx.fillStyle = '#ffb800';
+          chosen.forEach((l, idx) => ctx.fillText(l, cvs.width / 2, (cvs.height / 4) * (idx + 1)));
+          plazaBillboard.tex.needsUpdate = true;
+          document.getElementById('modal-body').textContent =
+            '>>> HOLO-BILLBOARD OVERRIDDEN!\nLook up at the Central Nexus Spire to see your broadcasted ASCII transmission.';
+          audio.playInteract(true);
+          addLog('Central Plaza Holo-Billboard hacked!', '#00ff66');
+        } else if (node.type === 'phone') {
+          if (node.usedCount === 0) {
+            player.credits += 300;
+            node.usedCount++;
+            updateHudText();
+          }
+          triggerScannerWave();
+          document.getElementById('modal-body').textContent =
+            '>>> TRACE COMPLETE (+¥300). Scanner wave emitted to highlight nearby Memory Shards.';
+        } else if (node.type === 'transit') {
+          trainSpeedMultiplier = trainSpeedMultiplier > 1.5 ? 1.0 : 2.6;
+          document.getElementById('modal-body').textContent =
+            `>>> SKY-RAIL MONORAIL VELOCITY SET TO: ${trainSpeedMultiplier > 1.5 ? 'EXPRESS OVERDRIVE (260%)' : 'STANDARD CRUISE (100%)'}.`;
+          audio.playInteract(true);
+        }
+      };
+      actionsEl.appendChild(actBtn);
+    }
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'cyber-btn';
+    closeBtn.textContent = 'CLOSE [ESC]';
+    closeBtn.onclick = closeNodeModal;
+    actionsEl.appendChild(closeBtn);
+
+    modalEl.classList.add('open');
+  }
+
+  function closeNodeModal() {
+    modalOpen = false;
+    modalEl.classList.remove('open');
+  }
+
+  // Input Event Listeners
+  window.addEventListener('keydown', e => {
+    const code = e.code;
+    keys[code] = true;
+
+    if (modalOpen) {
+      if (code === 'Escape' || code === 'KeyE' || code === 'Space') {
+        e.preventDefault();
+        closeNodeModal();
+      }
+      return;
+    }
+
+    if (code === 'KeyE' && focusedNode) {
+      e.preventDefault();
+      openNodeModal(focusedNode);
+    } else if (code === 'KeyF') {
+      triggerScannerWave();
+    } else if (code === 'KeyV') {
+      toggleMatrixMode();
+    } else if (code === 'KeyC') {
+      cyclePalette();
+    } else if (code === 'KeyG') {
+      cycleWeather();
+    } else if (code === 'KeyT') {
+      cycleTime();
+    } else if (code === 'KeyM') {
+      const on = audio.toggleMute();
+      document.getElementById('btn-audio').textContent = `[M] AUDIO: ${on ? 'ON' : 'OFF'}`;
+    } else if (code === 'Space' && player.onGround) {
+      player.vel.y = 7.8 * Math.sqrt(player.speedBuff);
+      player.onGround = false;
+      audio.playJump(false);
+    }
+  });
+
+  window.addEventListener('keyup', e => {
+    keys[e.code] = false;
+  });
+
+  // HUD Button Click Bindings
+  document.getElementById('btn-mode').onclick = toggleMatrixMode;
+  document.getElementById('btn-palette').onclick = cyclePalette;
+  document.getElementById('btn-weather').onclick = cycleWeather;
+  document.getElementById('btn-time').onclick = cycleTime;
+  document.getElementById('btn-scan').onclick = triggerScannerWave;
+  document.getElementById('btn-audio').onclick = () => {
+    const on = audio.toggleMute();
+    document.getElementById('btn-audio').textContent = `[M] AUDIO: ${on ? 'ON' : 'OFF'}`;
+  };
+
+  // Boot Screen & Pointer Lock / Drag-Look Fallback
+  const bootScreen = document.getElementById('boot-screen');
+  document.getElementById('enter-city-btn').addEventListener('click', () => {
+    bootScreen.style.display = 'none';
+    audio.init();
+    showDistrictBanner('CENTRAL NEXUS PLAZA');
+    try {
+      renderer.domElement.requestPointerLock();
+    } catch (_) {}
+  });
+
+  renderer.domElement.addEventListener('mousedown', e => {
+    if (modalOpen || bootScreen.style.display !== 'none') return;
+    isDragging = true;
+    prevMouse.x = e.clientX;
+    prevMouse.y = e.clientY;
+    if (!isPointerLocked) {
+      try {
+        renderer.domElement.requestPointerLock();
+      } catch (_) {}
+    }
+  });
+
+  window.addEventListener('mouseup', () => {
+    isDragging = false;
+  });
+
+  document.addEventListener('pointerlockchange', () => {
+    isPointerLocked = document.pointerLockElement === renderer.domElement;
+  });
+
+  window.addEventListener('mousemove', e => {
+    if (modalOpen) return;
+    const sensitivity = 0.0022;
+    if (isPointerLocked) {
+      player.yaw -= e.movementX * sensitivity;
+      player.pitch = Math.max(-1.42, Math.min(1.42, player.pitch - e.movementY * sensitivity));
+    } else if (isDragging) {
+      const dx = e.clientX - prevMouse.x;
+      const dy = e.clientY - prevMouse.y;
+      prevMouse.x = e.clientX;
+      prevMouse.y = e.clientY;
+      player.yaw -= dx * sensitivity * 1.3;
+      player.pitch = Math.max(-1.42, Math.min(1.42, player.pitch - dy * sensitivity * 1.3));
+    }
+  });
+
+  // ============================================================================
+  // 12. TACTICAL ASCII RADAR MINIMAP RENDERER
+  // ============================================================================
+  const radarCanvas = document.getElementById('radar-canvas');
+  const radarCtx = radarCanvas.getContext('2d');
+
+  function renderRadarMinimap() {
+    const w = radarCanvas.width;
+    const h = radarCanvas.height;
+    const cx = w / 2;
+    const cy = h / 2;
+    const scale = 1.05; // pixels per world meter
+
+    radarCtx.fillStyle = 'rgba(2, 6, 12, 0.92)';
+    radarCtx.fillRect(0, 0, w, h);
+
+    radarCtx.save();
+    radarCtx.translate(cx, cy);
+    radarCtx.rotate(player.yaw);
+
+    // Draw surrounding buildings
+    radarCtx.fillStyle = 'rgba(0, 243, 255, 0.22)';
+    radarCtx.strokeStyle = 'rgba(0, 243, 255, 0.55)';
+    radarCtx.lineWidth = 1;
+    for (let i = 0; i < minimapBuildings.length; i++) {
+      const b = minimapBuildings[i];
+      const rx = (b.x - player.pos.x) * scale;
+      const rz = (b.z - player.pos.z) * scale;
+      if (Math.abs(rx) < 95 && Math.abs(rz) < 95) {
+        radarCtx.fillRect(rx, rz, b.w * scale, b.d * scale);
+        radarCtx.strokeRect(rx, rz, b.w * scale, b.d * scale);
+      }
+    }
+
+    // Elevated Sky-Rail Line
+    const railZ = (-16 - player.pos.z) * scale;
+    radarCtx.strokeStyle = 'rgba(0, 243, 255, 0.85)';
+    radarCtx.beginPath();
+    radarCtx.moveTo((-75 - player.pos.x) * scale, railZ);
+    radarCtx.lineTo((75 - player.pos.x) * scale, railZ);
+    radarCtx.stroke();
+
+    // Interactive Nodes (Shards, Shops, NPCs)
+    for (let i = 0; i < interactiveNodes.length; i++) {
+      const n = interactiveNodes[i];
+      if (n.collected) continue;
+      const nx = (n.pos.x - player.pos.x) * scale;
+      const nz = (n.pos.z - player.pos.z) * scale;
+      if (nx * nx + nz * nz > 74 * 74) continue;
+
+      if (n.type === 'shard') {
+        radarCtx.fillStyle = '#00ff66';
+        radarCtx.fillRect(nx - 3, nz - 3, 6, 6);
+      } else if (n.type === 'npc') {
+        radarCtx.fillStyle = '#ff007f';
+        radarCtx.fillRect(nx - 1.5, nz - 1.5, 3, 3);
+      } else {
+        radarCtx.fillStyle = '#ffb800';
+        radarCtx.fillRect(nx - 2.5, nz - 2.5, 5, 5);
+      }
+    }
+
+    radarCtx.restore();
+
+    // Player View Cone & Center Marker
+    radarCtx.strokeStyle = 'rgba(0, 255, 102, 0.45)';
+    radarCtx.beginPath();
+    radarCtx.moveTo(cx, cy);
+    radarCtx.lineTo(cx - 24, cy - 38);
+    radarCtx.moveTo(cx, cy);
+    radarCtx.lineTo(cx + 24, cy - 38);
+    radarCtx.stroke();
+
+    radarCtx.fillStyle = '#ffffff';
+    radarCtx.beginPath();
+    radarCtx.arc(cx, cy, 3, 0, Math.PI * 2);
+    radarCtx.fill();
+  }
+
+  // ============================================================================
+  // 13. MAIN SIMULATION & ANIMATION LOOP
+  // ============================================================================
+  let prevTime = performance.now();
+  let frameCount = 0;
+  let fpsTimer = 0;
+
+  const reticleEl = document.getElementById('reticle');
+  const promptEl = document.getElementById('interact-prompt');
+  const coordsEl = document.getElementById('hud-coords');
+  const distEl = document.getElementById('hud-district');
+  const fpsEl = document.getElementById('hud-fps');
+
+  function resolveCollisions(newX, newZ, playerY) {
+    let rx = newX;
+    let rz = newZ;
+    for (let i = 0; i < buildingColliders.length; i++) {
+      const c = buildingColliders[i];
+      if (playerY >= c.maxY) continue;
+      if (rx > c.minX && rx < c.maxX && rz > c.minZ && rz < c.maxZ) {
+        const overlapLeft = rx - c.minX;
+        const overlapRight = c.maxX - rx;
+        const overlapTop = rz - c.minZ;
+        const overlapBottom = c.maxZ - rz;
+        const minOverlap = Math.min(overlapLeft, overlapRight, overlapTop, overlapBottom);
+        if (minOverlap === overlapLeft) rx = c.minX;
+        else if (minOverlap === overlapRight) rx = c.maxX;
+        else if (minOverlap === overlapTop) rz = c.minZ;
+        else rz = c.maxZ;
+      }
+    }
+    return { x: Math.max(-108, Math.min(108, rx)), z: Math.max(-108, Math.min(108, rz)) };
+  }
+
+  function animate(now) {
+    requestAnimationFrame(animate);
+
+    const dt = Math.min(0.05, (now - prevTime) / 1000);
+    prevTime = now;
+    const elapsed = now * 0.001;
+    sharedUniforms.uTime.value = elapsed;
+
+    // FPS Counter
+    frameCount++;
+    fpsTimer += dt;
+    if (fpsTimer >= 0.5) {
+      fpsEl.textContent = `${Math.round(frameCount / fpsTimer)} FPS`;
+      frameCount = 0;
+      fpsTimer = 0;
+    }
+
+    // 1. Update Player First-Person Movement & Vertical Platforms
+    cameraRig.rotation.y = player.yaw;
+    camera.rotation.x = player.pitch;
+
+    if (!modalOpen) {
+      const forward = (keys['KeyW'] || keys['ArrowUp'] ? 1 : 0) - (keys['KeyS'] || keys['ArrowDown'] ? 1 : 0);
+      const strafe = (keys['KeyD'] || keys['ArrowRight'] ? 1 : 0) - (keys['KeyA'] || keys['ArrowLeft'] ? 1 : 0);
+      const isSprinting = keys['ShiftLeft'] || keys['ShiftRight'];
+      const baseSpeed = (isSprinting ? 12.5 : 7.2) * player.speedBuff;
+
+      const moveVec = new THREE.Vector3();
+      if (forward !== 0 || strafe !== 0) {
+        moveVec.set(strafe, 0, -forward).normalize();
+        moveVec.applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
+        const targetX = player.pos.x + moveVec.x * baseSpeed * dt;
+        const targetZ = player.pos.z + moveVec.z * baseSpeed * dt;
+        const footY = player.pos.y - player.height;
+        const resolved = resolveCollisions(targetX, targetZ, footY + 0.3);
+        player.pos.x = resolved.x;
+        player.pos.z = resolved.z;
+
+        // Subtle head-bob & synthesized footsteps
+        player.stepAccum += dt * (isSprinting ? 11.5 : 7.5);
+        camera.position.y = Math.sin(player.stepAccum) * 0.065;
+        if (Math.sin(player.stepAccum) > 0.92 && player.onGround) {
+          audio.playFootstep(player.groundY > 2.0);
+        }
+      } else {
+        camera.position.y *= 0.85;
+      }
+
+      // Check Gravity Lifts [^^^]
+      for (let i = 0; i < gravityLifts.length; i++) {
+        const gl = gravityLifts[i];
+        const dist = Math.hypot(player.pos.x - gl.x, player.pos.z - gl.z);
+        if (dist < gl.radius && player.pos.y < gl.targetY + player.height) {
+          player.vel.y = 14.5;
+          player.onGround = false;
+          audio.playJump(true);
+        }
+      }
+
+      // Determine support platform height (Ground Y=0 vs Shrine Deck Y=1.2 vs Sky-Walkway Y=8.5)
+      let supportY = 0;
+      const footHeight = player.pos.y - player.height;
+      for (let i = 0; i < elevatedPlatforms.length; i++) {
+        const ep = elevatedPlatforms[i];
+        if (
+          player.pos.x >= ep.minX &&
+          player.pos.x <= ep.maxX &&
+          player.pos.z >= ep.minZ &&
+          player.pos.z <= ep.maxZ &&
+          footHeight >= ep.y - 1.2
+        ) {
+          supportY = Math.max(supportY, ep.y);
+        }
+      }
+      player.groundY = supportY;
+
+      // Vertical Gravity Physics
+      player.vel.y -= 19.5 * dt;
+      player.pos.y += player.vel.y * dt;
+      if (player.pos.y <= player.groundY + player.height) {
+        player.pos.y = player.groundY + player.height;
+        player.vel.y = 0;
+        player.onGround = true;
+      }
+
+      sharedUniforms.uPlayerPos.value.copy(player.pos);
+
+      // Check District Transitions
+      const newDist = getDistrictAt(player.pos.x, player.pos.z);
+      if (newDist !== player.currentDistrict) {
+        player.currentDistrict = newDist;
+        distEl.textContent = newDist;
+        showDistrictBanner(newDist);
+        addLog(`Entering Sector: ${newDist}`, '#ff007f');
+      }
+
+      coordsEl.textContent = `X:${Math.round(player.pos.x)} Z:${Math.round(player.pos.z)} Y:${(player.pos.y - 1.75).toFixed(1)}m`;
+    }
+
+    // 2. Update 3D Scanner Pulse Wave
+    if (scanActive) {
+      sharedUniforms.uScanRadius.value += 36.0 * dt;
+      if (sharedUniforms.uScanRadius.value > 95.0) {
+        scanActive = false;
+        sharedUniforms.uScanRadius.value = -100.0;
+        document.getElementById('scanner-status').textContent = 'SCANNER: READY [F]';
+        document.getElementById('scanner-status').style.color = '#00ff66';
+      }
+    }
+
+    // 3. Animate Central Nexus Obelisk & Gravity Lifts
+    obeliskWire.rotation.y = elapsed * 0.65;
+    obeliskWire.position.y = 7.5 + Math.sin(elapsed * 2.0) * 0.45;
+    plazaBillboard.mesh.rotation.y = Math.sin(elapsed * 0.4) * 0.35;
+    liftMeshes.forEach(m => {
+      m.position.y = 2.6 + Math.sin(elapsed * 3.5) * 0.35;
+      m.lookAt(player.pos.x, m.position.y, player.pos.z);
+    });
+
+    // 4. Animate Elevated Sky-Rail Trains
+    skyTrains.forEach(st => {
+      st.group.position.x += st.dir * st.speed * trainSpeedMultiplier * dt;
+      if (st.dir > 0 && st.group.position.x > 110) st.group.position.x = -110;
+      if (st.dir < 0 && st.group.position.x < -110) st.group.position.x = 110;
+    });
+
+    // 5. Animate Multi-Altitude Hover-Vehicles
+    hoverVehicles.forEach(hv => {
+      if (hv.alongX) {
+        hv.mesh.position.x += hv.dir * hv.speed * dt;
+        if (hv.mesh.position.x > 105) hv.mesh.position.x = -105;
+        if (hv.mesh.position.x < -105) hv.mesh.position.x = 105;
+      } else {
+        hv.mesh.position.z += hv.dir * hv.speed * dt;
+        if (hv.mesh.position.z > 105) hv.mesh.position.z = -105;
+        if (hv.mesh.position.z < -105) hv.mesh.position.z = 105;
+      }
+    });
+
+    // 6. Animate Wandering ASCII Citizens (NPCs)
+    npcs.forEach(npc => {
+      if (npc.alongX) {
+        npc.pos.x += npc.dir * npc.speed * dt;
+        if (npc.pos.x > 75 || npc.pos.x < -75) npc.dir *= -1;
+      } else {
+        npc.pos.z += npc.dir * npc.speed * dt;
+        if (npc.pos.z > 75 || npc.pos.z < -75) npc.dir *= -1;
+      }
+      npc.pos.y = 1.05 + Math.abs(Math.sin(elapsed * 5.0 + npc.phase)) * 0.12;
+      npc.mesh.lookAt(player.pos.x, npc.pos.y, player.pos.z);
+    });
+
+    // 7. Animate Interactive Shards & Find Closest Interactive Target
+    let closestNode = null;
+    let closestDist = 4.8;
+    const camDir = new THREE.Vector3();
+    camera.getWorldDirection(camDir);
+
+    for (let i = 0; i < interactiveNodes.length; i++) {
+      const node = interactiveNodes[i];
+      if (node.collected) continue;
+
+      if (node.type === 'shard') {
+        node.mesh.children[0].rotation.y = elapsed * 2.2;
+        node.mesh.children[0].rotation.x = elapsed * 1.1;
+        node.mesh.position.y = node.pos.y + Math.sin(elapsed * 3.0 + i) * 0.22;
+        node.mesh.children[1].lookAt(player.pos.x, node.mesh.position.y + 1.15, player.pos.z);
+      } else if (node.type !== 'npc') {
+        node.mesh.children[0].rotation.y = elapsed * 0.8;
+        node.mesh.children[1].lookAt(player.pos.x, node.pos.y + 1.65, player.pos.z);
+      }
+
+      const d = player.pos.distanceTo(node.pos);
+      if (d < closestDist) {
+        const toNode = new THREE.Vector3().subVectors(node.pos, player.pos).normalize();
+        if (camDir.dot(toNode) > 0.52 || d < 2.4) {
+          closestDist = d;
+          closestNode = node;
+        }
+      }
+    }
+
+    focusedNode = closestNode;
+    if (focusedNode && !modalOpen) {
+      reticleEl.classList.add('active');
+      reticleEl.textContent = '╔ + ╗';
+      promptEl.style.display = 'block';
+      promptEl.textContent = `╔═[ PRESS E : ${focusedNode.title} ]═╗`;
+    } else {
+      reticleEl.classList.remove('active');
+      reticleEl.textContent = '[ + ]';
+      promptEl.style.display = 'none';
+    }
+
+    // 8. Update 3D ASCII Weather Particles Around Player
+    const posAttr = particleGeo.attributes.position;
+    const posArr = posAttr.array;
+    const wSpeed = weatherModes[weatherIdx].speed;
+    for (let i = 0; i < particleCount; i++) {
+      posArr[i * 3 + 1] -= pVelocities[i] * wSpeed * dt;
+      if (posArr[i * 3 + 1] < 0) {
+        posArr[i * 3] = player.pos.x + (Math.random() - 0.5) * 85;
+        posArr[i * 3 + 1] = 36 + Math.random() * 10;
+        posArr[i * 3 + 2] = player.pos.z + (Math.random() - 0.5) * 85;
+      }
+    }
+    posAttr.needsUpdate = true;
+
+    // 9. Render Tactical Radar & 3D Scene via Post-Processing ASCII Pass
+    renderRadarMinimap();
+
+    renderer.setRenderTarget(renderTarget);
+    renderer.render(scene, camera);
+    renderer.setRenderTarget(null);
+    renderer.render(postScene, postCamera);
+  }
+
+  // Responsive Window Resize
+  window.addEventListener('resize', () => {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    renderer.setSize(w, h);
+    renderTarget.setSize(w, h);
+    postMaterial.uniforms.uResolution.value.set(w, h);
+  });
+
+  updateHudText();
+  requestAnimationFrame(animate);
+})();
+</script>
+</body>
+</html>

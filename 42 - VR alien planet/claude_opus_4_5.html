@@ -1,0 +1,1643 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alien Planet Explorer VR</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            background: #000; 
+            overflow: hidden; 
+            font-family: 'Courier New', monospace;
+        }
+        canvas { 
+            display: block; 
+            width: 100vw; 
+            height: 100vh; 
+        }
+        #ui {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: #0ff;
+            z-index: 1000;
+            text-shadow: 0 0 10px #0ff;
+        }
+        #vrButton {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 15px 40px;
+            font-size: 18px;
+            background: linear-gradient(135deg, #0ff, #f0f);
+            border: none;
+            border-radius: 30px;
+            color: #000;
+            cursor: pointer;
+            font-weight: bold;
+            z-index: 1000;
+            transition: all 0.3s;
+        }
+        #vrButton:hover {
+            transform: translateX(-50%) scale(1.1);
+            box-shadow: 0 0 30px #0ff;
+        }
+        #vrButton:disabled {
+            background: #444;
+            color: #888;
+            cursor: not-allowed;
+        }
+        #info {
+            position: fixed;
+            bottom: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #0ff;
+            text-align: center;
+            z-index: 1000;
+            max-width: 600px;
+        }
+        #artifacts {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: #f0f;
+            z-index: 1000;
+            text-shadow: 0 0 10px #f0f;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="glCanvas"></canvas>
+    <div id="ui">
+        <div id="biome">Biome: Unknown</div>
+        <div id="weather">Weather: Clear</div>
+        <div id="depth">Depth: Surface</div>
+    </div>
+    <div id="artifacts">Artifacts: 0/12</div>
+    <button id="vrButton">Enter VR Experience</button>
+    <div id="info">
+        <p>Explore the mysterious planet Zyxon-7</p>
+        <p>Use controllers to teleport and interact</p>
+    </div>
+
+    <script>
+        // WebGL and WebXR Alien Planet Explorer
+        const canvas = document.getElementById('glCanvas');
+        const gl = canvas.getContext('webgl2', { antialias: true, alpha: false });
+        
+        if (!gl) {
+            alert('WebGL2 required');
+            throw new Error('No WebGL2');
+        }
+
+        // Shader sources
+        const vsMain = `#version 300 es
+            precision highp float;
+            
+            in vec3 aPosition;
+            in vec3 aNormal;
+            in vec2 aUV;
+            in vec4 aColor;
+            in float aGlow;
+            
+            uniform mat4 uProjection;
+            uniform mat4 uView;
+            uniform mat4 uModel;
+            uniform float uTime;
+            
+            out vec3 vPosition;
+            out vec3 vNormal;
+            out vec2 vUV;
+            out vec4 vColor;
+            out float vGlow;
+            out vec3 vWorldPos;
+            
+            void main() {
+                vec4 worldPos = uModel * vec4(aPosition, 1.0);
+                vWorldPos = worldPos.xyz;
+                vPosition = aPosition;
+                vNormal = mat3(uModel) * aNormal;
+                vUV = aUV;
+                vColor = aColor;
+                vGlow = aGlow;
+                gl_Position = uProjection * uView * worldPos;
+            }
+        `;
+
+        const fsMain = `#version 300 es
+            precision highp float;
+            
+            in vec3 vPosition;
+            in vec3 vNormal;
+            in vec2 vUV;
+            in vec4 vColor;
+            in float vGlow;
+            in vec3 vWorldPos;
+            
+            uniform float uTime;
+            uniform vec3 uSunDir;
+            uniform vec3 uSunColor;
+            uniform vec3 uAmbient;
+            uniform float uFogDensity;
+            uniform vec3 uFogColor;
+            uniform vec3 uCameraPos;
+            uniform int uBiome;
+            uniform float uWeatherIntensity;
+            uniform int uIsUnderground;
+            
+            out vec4 fragColor;
+            
+            float noise(vec3 p) {
+                vec3 i = floor(p);
+                vec3 f = fract(p);
+                f = f * f * (3.0 - 2.0 * f);
+                float n = i.x + i.y * 157.0 + 113.0 * i.z;
+                return mix(
+                    mix(mix(fract(sin(n) * 43758.5453), fract(sin(n + 1.0) * 43758.5453), f.x),
+                        mix(fract(sin(n + 157.0) * 43758.5453), fract(sin(n + 158.0) * 43758.5453), f.x), f.y),
+                    mix(mix(fract(sin(n + 113.0) * 43758.5453), fract(sin(n + 114.0) * 43758.5453), f.x),
+                        mix(fract(sin(n + 270.0) * 43758.5453), fract(sin(n + 271.0) * 43758.5453), f.x), f.y),
+                    f.z
+                );
+            }
+            
+            void main() {
+                vec3 normal = normalize(vNormal);
+                vec3 viewDir = normalize(uCameraPos - vWorldPos);
+                
+                // Lighting
+                float diff = max(dot(normal, uSunDir), 0.0);
+                vec3 halfDir = normalize(uSunDir + viewDir);
+                float spec = pow(max(dot(normal, halfDir), 0.0), 32.0);
+                
+                vec3 baseColor = vColor.rgb;
+                
+                // Biome-specific coloring
+                if (uBiome == 0) { // Crystal biome
+                    baseColor += vec3(0.2, 0.4, 0.8) * noise(vWorldPos * 0.5 + uTime * 0.1);
+                } else if (uBiome == 1) { // Mushroom biome
+                    baseColor += vec3(0.8, 0.2, 0.6) * noise(vWorldPos * 0.3);
+                } else if (uBiome == 2) { // Toxic biome
+                    baseColor += vec3(0.2, 0.9, 0.3) * noise(vWorldPos * 0.4 + uTime * 0.2);
+                } else if (uBiome == 3) { // Volcanic biome
+                    baseColor += vec3(1.0, 0.3, 0.1) * noise(vWorldPos * 0.2);
+                }
+                
+                vec3 lighting = uAmbient + uSunColor * (diff + spec * 0.5);
+                vec3 color = baseColor * lighting;
+                
+                // Glow effect
+                if (vGlow > 0.0) {
+                    float pulse = 0.5 + 0.5 * sin(uTime * 2.0 + vWorldPos.x * 0.5);
+                    color += vColor.rgb * vGlow * pulse * 2.0;
+                }
+                
+                // Underground ambient
+                if (uIsUnderground == 1) {
+                    color *= 0.3;
+                    color += vColor.rgb * vGlow * 3.0;
+                }
+                
+                // Fog
+                float dist = length(uCameraPos - vWorldPos);
+                float fog = 1.0 - exp(-dist * uFogDensity);
+                color = mix(color, uFogColor, fog * (1.0 - float(uIsUnderground) * 0.8));
+                
+                // Weather effects
+                if (uWeatherIntensity > 0.0) {
+                    color = mix(color, uFogColor * 0.5, uWeatherIntensity * 0.3);
+                }
+                
+                fragColor = vec4(color, vColor.a);
+            }
+        `;
+
+        const vsParticle = `#version 300 es
+            precision highp float;
+            
+            in vec3 aPosition;
+            in vec4 aColor;
+            in float aSize;
+            
+            uniform mat4 uProjection;
+            uniform mat4 uView;
+            uniform float uTime;
+            
+            out vec4 vColor;
+            
+            void main() {
+                vec4 viewPos = uView * vec4(aPosition, 1.0);
+                gl_Position = uProjection * viewPos;
+                gl_PointSize = aSize * (100.0 / -viewPos.z);
+                vColor = aColor;
+            }
+        `;
+
+        const fsParticle = `#version 300 es
+            precision highp float;
+            
+            in vec4 vColor;
+            out vec4 fragColor;
+            
+            void main() {
+                vec2 center = gl_PointCoord - vec2(0.5);
+                float dist = length(center);
+                if (dist > 0.5) discard;
+                float alpha = 1.0 - dist * 2.0;
+                fragColor = vec4(vColor.rgb, vColor.a * alpha);
+            }
+        `;
+
+        // Compile shader
+        function compileShader(type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                console.error(gl.getShaderInfoLog(shader));
+                return null;
+            }
+            return shader;
+        }
+
+        function createProgram(vs, fs) {
+            const program = gl.createProgram();
+            gl.attachShader(program, compileShader(gl.VERTEX_SHADER, vs));
+            gl.attachShader(program, compileShader(gl.FRAGMENT_SHADER, fs));
+            gl.linkProgram(program);
+            if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+                console.error(gl.getProgramInfoLog(program));
+                return null;
+            }
+            return program;
+        }
+
+        const mainProgram = createProgram(vsMain, fsMain);
+        const particleProgram = createProgram(vsParticle, fsParticle);
+
+        // Get uniform locations
+        const mainUniforms = {};
+        ['uProjection', 'uView', 'uModel', 'uTime', 'uSunDir', 'uSunColor', 
+         'uAmbient', 'uFogDensity', 'uFogColor', 'uCameraPos', 'uBiome',
+         'uWeatherIntensity', 'uIsUnderground'].forEach(name => {
+            mainUniforms[name] = gl.getUniformLocation(mainProgram, name);
+        });
+
+        const particleUniforms = {};
+        ['uProjection', 'uView', 'uTime'].forEach(name => {
+            particleUniforms[name] = gl.getUniformLocation(particleProgram, name);
+        });
+
+        // Noise functions
+        function hash(n) { return (Math.sin(n) * 43758.5453) % 1; }
+        
+        function noise3D(x, y, z) {
+            const X = Math.floor(x), Y = Math.floor(y), Z = Math.floor(z);
+            const fx = x - X, fy = y - Y, fz = z - Z;
+            const u = fx * fx * (3 - 2 * fx);
+            const v = fy * fy * (3 - 2 * fy);
+            const w = fz * fz * (3 - 2 * fz);
+            
+            const n = X + Y * 57 + Z * 113;
+            return lerp(
+                lerp(lerp(hash(n), hash(n + 1), u), lerp(hash(n + 57), hash(n + 58), u), v),
+                lerp(lerp(hash(n + 113), hash(n + 114), u), lerp(hash(n + 170), hash(n + 171), u), v),
+                w
+            );
+        }
+
+        function fbm(x, y, z, octaves = 4) {
+            let value = 0, amplitude = 0.5, frequency = 1;
+            for (let i = 0; i < octaves; i++) {
+                value += amplitude * noise3D(x * frequency, y * frequency, z * frequency);
+                amplitude *= 0.5;
+                frequency *= 2;
+            }
+            return value;
+        }
+
+        function lerp(a, b, t) { return a + (b - a) * t; }
+
+        // World state
+        const world = {
+            chunks: new Map(),
+            creatures: [],
+            artifacts: [],
+            particles: [],
+            vegetation: [],
+            ruins: [],
+            caves: [],
+            weather: { type: 'clear', intensity: 0, target: 0 },
+            time: 0,
+            collectedArtifacts: 0
+        };
+
+        // Biome definitions
+        const BIOMES = {
+            CRYSTAL: { id: 0, name: 'Crystal Fields', color: [0.3, 0.5, 0.9], heightMod: 1.5 },
+            MUSHROOM: { id: 1, name: 'Fungal Forest', color: [0.7, 0.3, 0.6], heightMod: 0.8 },
+            TOXIC: { id: 2, name: 'Toxic Marshes', color: [0.2, 0.8, 0.3], heightMod: 0.3 },
+            VOLCANIC: { id: 3, name: 'Volcanic Wastes', color: [0.9, 0.4, 0.2], heightMod: 2.0 },
+            FROZEN: { id: 4, name: 'Frozen Peaks', color: [0.7, 0.8, 1.0], heightMod: 2.5 }
+        };
+
+        function getBiome(x, z) {
+            const biomeNoise = fbm(x * 0.01, 0, z * 0.01, 3);
+            const tempNoise = fbm(x * 0.008 + 100, 0, z * 0.008, 2);
+            
+            if (biomeNoise < 0.25) return BIOMES.TOXIC;
+            if (biomeNoise < 0.4) return BIOMES.MUSHROOM;
+            if (biomeNoise < 0.6) return BIOMES.CRYSTAL;
+            if (tempNoise > 0.6) return BIOMES.VOLCANIC;
+            return BIOMES.FROZEN;
+        }
+
+        function getHeight(x, z) {
+            const biome = getBiome(x, z);
+            let height = fbm(x * 0.02, 0, z * 0.02, 5) * 20 * biome.heightMod;
+            
+            // Cave entrance depressions
+            const caveNoise = fbm(x * 0.05, 0, z * 0.05, 2);
+            if (caveNoise > 0.7) {
+                height -= 10 * (caveNoise - 0.7) * 3.33;
+            }
+            
+            return height;
+        }
+
+        function isUnderground(x, y, z) {
+            const surfaceHeight = getHeight(x, z);
+            if (y >= surfaceHeight) return false;
+            
+            const caveNoise = fbm(x * 0.05, y * 0.05, z * 0.05, 4);
+            return caveNoise > 0.45;
+        }
+
+        // Mesh generation
+        function createMesh(vertices, indices, colors, normals, uvs, glows) {
+            const vao = gl.createVertexArray();
+            gl.bindVertexArray(vao);
+
+            // Position buffer
+            const posBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+            gl.enableVertexAttribArray(0);
+            gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+
+            // Normal buffer
+            const normBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, normBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(normals), gl.STATIC_DRAW);
+            gl.enableVertexAttribArray(1);
+            gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 0, 0);
+
+            // UV buffer
+            const uvBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, uvBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(uvs), gl.STATIC_DRAW);
+            gl.enableVertexAttribArray(2);
+            gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 0, 0);
+
+            // Color buffer
+            const colorBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors), gl.STATIC_DRAW);
+            gl.enableVertexAttribArray(3);
+            gl.vertexAttribPointer(3, 4, gl.FLOAT, false, 0, 0);
+
+            // Glow buffer
+            const glowBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, glowBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(glows), gl.STATIC_DRAW);
+            gl.enableVertexAttribArray(4);
+            gl.vertexAttribPointer(4, 1, gl.FLOAT, false, 0, 0);
+
+            // Index buffer
+            const indexBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(indices), gl.STATIC_DRAW);
+
+            gl.bindVertexArray(null);
+
+            return { vao, indexCount: indices.length };
+        }
+
+        // Generate terrain chunk
+        function generateChunk(cx, cz, size = 32, resolution = 1) {
+            const vertices = [], indices = [], colors = [], normals = [], uvs = [], glows = [];
+            const biome = getBiome(cx * size, cz * size);
+            
+            for (let z = 0; z <= size; z += resolution) {
+                for (let x = 0; x <= size; x += resolution) {
+                    const wx = cx * size + x;
+                    const wz = cz * size + z;
+                    const height = getHeight(wx, wz);
+                    
+                    vertices.push(wx, height, wz);
+                    
+                    // Calculate normal
+                    const hL = getHeight(wx - 1, wz);
+                    const hR = getHeight(wx + 1, wz);
+                    const hD = getHeight(wx, wz - 1);
+                    const hU = getHeight(wx, wz + 1);
+                    const nx = hL - hR;
+                    const nz = hD - hU;
+                    const len = Math.sqrt(nx * nx + 4 + nz * nz);
+                    normals.push(nx / len, 2 / len, nz / len);
+                    
+                    uvs.push(x / size, z / size);
+                    
+                    // Biome coloring
+                    const colorVar = noise3D(wx * 0.1, height * 0.1, wz * 0.1) * 0.2;
+                    colors.push(
+                        biome.color[0] + colorVar,
+                        biome.color[1] + colorVar,
+                        biome.color[2] + colorVar,
+                        1.0
+                    );
+                    
+                    glows.push(0);
+                }
+            }
+
+            const w = Math.floor(size / resolution) + 1;
+            for (let z = 0; z < size / resolution; z++) {
+                for (let x = 0; x < size / resolution; x++) {
+                    const i = z * w + x;
+                    indices.push(i, i + 1, i + w);
+                    indices.push(i + 1, i + w + 1, i + w);
+                }
+            }
+
+            return { mesh: createMesh(vertices, indices, colors, normals, uvs, glows), biome };
+        }
+
+        // Generate vegetation
+        function generateVegetation(x, z, biome) {
+            const plants = [];
+            const density = 0.3;
+            
+            for (let i = 0; i < 50; i++) {
+                const px = x + (Math.random() - 0.5) * 30;
+                const pz = z + (Math.random() - 0.5) * 30;
+                
+                if (Math.random() > density) continue;
+                
+                const height = getHeight(px, pz);
+                let plant;
+                
+                if (biome.id === BIOMES.CRYSTAL.id) {
+                    plant = createCrystal(px, height, pz);
+                } else if (biome.id === BIOMES.MUSHROOM.id) {
+                    plant = createMushroom(px, height, pz);
+                } else if (biome.id === BIOMES.TOXIC.id) {
+                    plant = createToxicPlant(px, height, pz);
+                } else if (biome.id === BIOMES.VOLCANIC.id) {
+                    plant = createLavaPlant(px, height, pz);
+                } else {
+                    plant = createIceCrystal(px, height, pz);
+                }
+                
+                if (plant) plants.push(plant);
+            }
+            
+            return plants;
+        }
+
+        function createCrystal(x, y, z) {
+            const height = 1 + Math.random() * 3;
+            const width = 0.3 + Math.random() * 0.4;
+            const vertices = [], indices = [], colors = [], normals = [], uvs = [], glows = [];
+            
+            // Crystal shape (hexagonal prism with pointed top)
+            const sides = 6;
+            for (let i = 0; i < sides; i++) {
+                const angle = (i / sides) * Math.PI * 2;
+                const nextAngle = ((i + 1) / sides) * Math.PI * 2;
+                
+                const x1 = Math.cos(angle) * width;
+                const z1 = Math.sin(angle) * width;
+                const x2 = Math.cos(nextAngle) * width;
+                const z2 = Math.sin(nextAngle) * width;
+                
+                const idx = vertices.length / 3;
+                
+                // Base triangle
+                vertices.push(0, 0, 0, x1, 0, z1, x2, 0, z2);
+                // Side quad
+                vertices.push(x1, 0, z1, x1, height * 0.7, z1, x2, 0, z2);
+                vertices.push(x2, 0, z2, x1, height * 0.7, z1, x2, height * 0.7, z2);
+                // Top triangles
+                vertices.push(x1, height * 0.7, z1, 0, height, 0, x2, height * 0.7, z2);
+                
+                for (let j = 0; j < 12; j++) {
+                    const glow = 0.5 + Math.random() * 0.5;
+                    colors.push(0.4, 0.6, 1.0, 0.9);
+                    normals.push(Math.cos(angle + 0.5), 0.5, Math.sin(angle + 0.5));
+                    uvs.push(0, 0);
+                    glows.push(glow);
+                    indices.push(idx + j);
+                }
+            }
+            
+            return {
+                mesh: createMesh(vertices, indices, colors, normals, uvs, glows),
+                position: [x, y, z],
+                type: 'crystal'
+            };
+        }
+
+        function createMushroom(x, y, z) {
+            const height = 0.5 + Math.random() * 2;
+            const capRadius = 0.3 + Math.random() * 0.5;
+            const vertices = [], indices = [], colors = [], normals = [], uvs = [], glows = [];
+            
+            const segments = 8;
+            
+            // Stem
+            for (let i = 0; i < segments; i++) {
+                const angle = (i / segments) * Math.PI * 2;
+                const nextAngle = ((i + 1) / segments) * Math.PI * 2;
+                const r = 0.1;
+                
+                const idx = vertices.length / 3;
+                vertices.push(
+                    Math.cos(angle) * r, 0, Math.sin(angle) * r,
+                    Math.cos(nextAngle) * r, 0, Math.sin(nextAngle) * r,
+                    Math.cos(angle) * r, height, Math.sin(angle) * r,
+                    Math.cos(nextAngle) * r, height, Math.sin(nextAngle) * r
+                );
+                
+                for (let j = 0; j < 4; j++) {
+                    colors.push(0.9, 0.8, 0.7, 1.0);
+                    normals.push(Math.cos(angle), 0, Math.sin(angle));
+                    uvs.push(0, 0);
+                    glows.push(0.2);
+                }
+                indices.push(idx, idx + 2, idx + 1, idx + 1, idx + 2, idx + 3);
+            }
+            
+            // Cap
+            for (let i = 0; i < segments; i++) {
+                const angle = (i / segments) * Math.PI * 2;
+                const nextAngle = ((i + 1) / segments) * Math.PI * 2;
+                
+                const idx = vertices.length / 3;
+                vertices.push(
+                    0, height + capRadius * 0.3, 0,
+                    Math.cos(angle) * capRadius, height, Math.sin(angle) * capRadius,
+                    Math.cos(nextAngle) * capRadius, height, Math.sin(nextAngle) * capRadius
+                );
+                
+                const hue = Math.random();
+                for (let j = 0; j < 3; j++) {
+                    colors.push(0.9 + hue * 0.1, 0.2, 0.6 + hue * 0.3, 1.0);
+                    normals.push(0, 1, 0);
+                    uvs.push(0, 0);
+                    glows.push(0.8);
+                }
+                indices.push(idx, idx + 1, idx + 2);
+            }
+            
+            return {
+                mesh: createMesh(vertices, indices, colors, normals, uvs, glows),
+                position: [x, y, z],
+                type: 'mushroom'
+            };
+        }
+
+        function createToxicPlant(x, y, z) {
+            const vertices = [], indices = [], colors = [], normals = [], uvs = [], glows = [];
+            const tendrils = 3 + Math.floor(Math.random() * 4);
+            
+            for (let t = 0; t < tendrils; t++) {
+                const baseAngle = (t / tendrils) * Math.PI * 2 + Math.random() * 0.5;
+                const height = 0.5 + Math.random() * 1.5;
+                const segments = 6;
+                
+                for (let i = 0; i < segments; i++) {
+                    const t1 = i / segments;
+                    const t2 = (i + 1) / segments;
+                    const curve1 = Math.sin(t1 * Math.PI) * 0.3;
+                    const curve2 = Math.sin(t2 * Math.PI) * 0.3;
+                    
+                    const idx = vertices.length / 3;
+                    vertices.push(
+                        Math.cos(baseAngle) * curve1, t1 * height, Math.sin(baseAngle) * curve1,
+                        Math.cos(baseAngle) * curve2, t2 * height, Math.sin(baseAngle) * curve2
+                    );
+                    
+                    for (let j = 0; j < 2; j++) {
+                        colors.push(0.1, 0.9, 0.3, 1.0);
+                        normals.push(Math.cos(baseAngle), 0, Math.sin(baseAngle));
+                        uvs.push(0, 0);
+                        glows.push(1.0);
+                    }
+                    indices.push(idx, idx + 1, idx);
+                }
+            }
+            
+            // Bulb at top
+            const idx = vertices.length / 3;
+            const bulbSize = 0.2;
+            vertices.push(0, 1.5, 0);
+            for (let i = 0; i < 8; i++) {
+                const angle = (i / 8) * Math.PI * 2;
+                vertices.push(Math.cos(angle) * bulbSize, 1.3, Math.sin(angle) * bulbSize);
+            }
+            for (let i = 0; i < 9; i++) {
+                colors.push(0.3, 1.0, 0.2, 1.0);
+                normals.push(0, 1, 0);
+                uvs.push(0, 0);
+                glows.push(1.5);
+            }
+            for (let i = 0; i < 8; i++) {
+                indices.push(idx, idx + 1 + i, idx + 1 + ((i + 1) % 8));
+            }
+            
+            return {
+                mesh: createMesh(vertices, indices, colors, normals, uvs, glows),
+                position: [x, y, z],
+                type: 'toxic'
+            };
+        }
+
+        function createLavaPlant(x, y, z) {
+            const vertices = [], indices = [], colors = [], normals = [], uvs = [], glows = [];
+            
+            // Volcanic vent with glowing core
+            const segments = 12;
+            const height = 0.3 + Math.random() * 0.5;
+            
+            for (let i = 0; i < segments; i++) {
+                const angle = (i / segments) * Math.PI * 2;
+                const nextAngle = ((i + 1) / segments) * Math.PI * 2;
+                const r1 = 0.4 + Math.random() * 0.2;
+                const r2 = 0.2;
+                
+                const idx = vertices.length / 3;
+                vertices.push(
+                    Math.cos(angle) * r1, 0, Math.sin(angle) * r1,
+                    Math.cos(nextAngle) * r1, 0, Math.sin(nextAngle) * r1,
+                    Math.cos(angle) * r2, height, Math.sin(angle) * r2,
+                    Math.cos(nextAngle) * r2, height, Math.sin(nextAngle) * r2
+                );
+                
+                for (let j = 0; j < 4; j++) {
+                    const glow = j < 2 ? 0.3 : 1.0;
+                    colors.push(1.0, 0.4 + glow * 0.3, 0.1, 1.0);
+                    normals.push(Math.cos(angle), 0.5, Math.sin(angle));
+                    uvs.push(0, 0);
+                    glows.push(glow);
+                }
+                indices.push(idx, idx + 2, idx + 1, idx + 1, idx + 2, idx + 3);
+            }
+            
+            return {
+                mesh: createMesh(vertices, indices, colors, normals, uvs, glows),
+                position: [x, y, z],
+                type: 'lava'
+            };
+        }
+
+        function createIceCrystal(x, y, z) {
+            const height = 1 + Math.random() * 2;
+            const width = 0.2 + Math.random() * 0.3;
+            const vertices = [], indices = [], colors = [], normals = [], uvs = [], glows = [];
+            
+            // Sharp ice crystal
+            const sides = 4;
+            for (let i = 0; i < sides; i++) {
+                const angle = (i / sides) * Math.PI * 2 + Math.PI / 4;
+                const nextAngle = ((i + 1) / sides) * Math.PI * 2 + Math.PI / 4;
+                
+                const idx = vertices.length / 3;
+                vertices.push(
+                    0, 0, 0,
+                    Math.cos(angle) * width, height * 0.3, Math.sin(angle) * width,
+                    Math.cos(nextAngle) * width, height * 0.3, Math.sin(nextAngle) * width,
+                    0, height, 0
+                );
+                
+                for (let j = 0; j < 4; j++) {
+                    colors.push(0.8, 0.9, 1.0, 0.8);
+                    normals.push(Math.cos(angle), 0.5, Math.sin(angle));
+                    uvs.push(0, 0);
+                    glows.push(0.4);
+                }
+                indices.push(idx, idx + 1, idx + 2, idx + 1, idx + 3, idx + 2);
+            }
+            
+            return {
+                mesh: createMesh(vertices, indices, colors, normals, uvs, glows),
+                position: [x, y, z],
+                type: 'ice'
+            };
+        }
+
+        // Create ruins
+        function createRuin(x, z) {
+            const height = getHeight(x, z);
+            const vertices = [], indices = [], colors = [], normals = [], uvs = [], glows = [];
+            
+            const ruinType = Math.floor(Math.random() * 3);
+            
+            if (ruinType === 0) {
+                // Broken pillar
+                const pillarHeight = 2 + Math.random() * 4;
+                const radius = 0.5;
+                const segments = 8;
+                
+                for (let i = 0; i < segments; i++) {
+                    const angle = (i / segments) * Math.PI * 2;
+                    const nextAngle = ((i + 1) / segments) * Math.PI * 2;
+                    const breakHeight = pillarHeight * (0.5 + Math.random() * 0.5);
+                    
+                    const idx = vertices.length / 3;
+                    vertices.push(
+                        Math.cos(angle) * radius, 0, Math.sin(angle) * radius,
+                        Math.cos(nextAngle) * radius, 0, Math.sin(nextAngle) * radius,
+                        Math.cos(angle) * radius, breakHeight, Math.sin(angle) * radius,
+                        Math.cos(nextAngle) * radius, breakHeight, Math.sin(nextAngle) * radius
+                    );
+                    
+                    for (let j = 0; j < 4; j++) {
+                        colors.push(0.4, 0.35, 0.3, 1.0);
+                        normals.push(Math.cos(angle), 0, Math.sin(angle));
+                        uvs.push(0, 0);
+                        glows.push(0);
+                    }
+                    indices.push(idx, idx + 2, idx + 1, idx + 1, idx + 2, idx + 3);
+                }
+            } else if (ruinType === 1) {
+                // Archway
+                const archHeight = 4;
+                const archWidth = 3;
+                const thickness = 0.6;
+                
+                // Left pillar
+                addBox(vertices, indices, colors, normals, uvs, glows,
+                    -archWidth / 2 - thickness / 2, 0, 0, thickness, archHeight, thickness,
+                    [0.5, 0.4, 0.35, 1.0], 0);
+                    
+                // Right pillar
+                addBox(vertices, indices, colors, normals, uvs, glows,
+                    archWidth / 2 + thickness / 2, 0, 0, thickness, archHeight, thickness,
+                    [0.5, 0.4, 0.35, 1.0], 0);
+                    
+                // Top
+                addBox(vertices, indices, colors, normals, uvs, glows,
+                    0, archHeight, 0, archWidth + thickness * 2, thickness, thickness,
+                    [0.5, 0.4, 0.35, 1.0], 0);
+            } else {
+                // Alien obelisk with glowing runes
+                const obeliskHeight = 5 + Math.random() * 3;
+                addBox(vertices, indices, colors, normals, uvs, glows,
+                    0, obeliskHeight / 2, 0, 0.8, obeliskHeight, 0.8,
+                    [0.2, 0.2, 0.25, 1.0], 0);
+                    
+                // Glowing runes
+                for (let i = 0; i < 5; i++) {
+                    const runeY = 1 + i * (obeliskHeight - 2) / 5;
+                    const runeAngle = i * 0.5;
+                    addBox(vertices, indices, colors, normals, uvs, glows,
+                        Math.cos(runeAngle) * 0.45, runeY, Math.sin(runeAngle) * 0.45,
+                        0.15, 0.3, 0.05,
+                        [0.2, 0.8, 1.0, 1.0], 1.5);
+                }
+            }
+            
+            return {
+                mesh: createMesh(vertices, indices, colors, normals, uvs, glows),
+                position: [x, height, z],
+                type: 'ruin'
+            };
+        }
+
+        function addBox(vertices, indices, colors, normals, uvs, glows, 
+                        cx, cy, cz, w, h, d, color, glow) {
+            const idx = vertices.length / 3;
+            const hw = w / 2, hh = h / 2, hd = d / 2;
+            
+            // Front face
+            vertices.push(cx-hw, cy-hh, cz+hd, cx+hw, cy-hh, cz+hd, cx+hw, cy+hh, cz+hd, cx-hw, cy+hh, cz+hd);
+            // Back face
+            vertices.push(cx+hw, cy-hh, cz-hd, cx-hw, cy-hh, cz-hd, cx-hw, cy+hh, cz-hd, cx+hw, cy+hh, cz-hd);
+            // Left face
+            vertices.push(cx-hw, cy-hh, cz-hd, cx-hw, cy-hh, cz+hd, cx-hw, cy+hh, cz+hd, cx-hw, cy+hh, cz-hd);
+            // Right face
+            vertices.push(cx+hw, cy-hh, cz+hd, cx+hw, cy-hh, cz-hd, cx+hw, cy+hh, cz-hd, cx+hw, cy+hh, cz+hd);
+            // Top face
+            vertices.push(cx-hw, cy+hh, cz+hd, cx+hw, cy+hh, cz+hd, cx+hw, cy+hh, cz-hd, cx-hw, cy+hh, cz-hd);
+            // Bottom face
+            vertices.push(cx-hw, cy-hh, cz-hd, cx+hw, cy-hh, cz-hd, cx+hw, cy-hh, cz+hd, cx-hw, cy-hh, cz+hd);
+            
+            const faceNormals = [
+                [0,0,1], [0,0,-1], [-1,0,0], [1,0,0], [0,1,0], [0,-1,0]
+            ];
+            
+            for (let f = 0; f < 6; f++) {
+                for (let v = 0; v < 4; v++) {
+                    colors.push(...color);
+                    normals.push(...faceNormals[f]);
+                    uvs.push(0, 0);
+                    glows.push(glow);
+                }
+                const fi = idx + f * 4;
+                indices.push(fi, fi+1, fi+2, fi, fi+2, fi+3);
+            }
+        }
+
+        // Create artifact
+        function createArtifact(x, z) {
+            const height = getHeight(x, z) + 0.5;
+            const vertices = [], indices = [], colors = [], normals = [], uvs = [], glows = [];
+            
+            // Floating geometric artifact
+            const artifactType = Math.floor(Math.random() * 4);
+            
+            if (artifactType === 0) {
+                // Glowing orb
+                createSphere(vertices, indices, colors, normals, uvs, glows,
+                    0, 0.3, 0, 0.2, [1.0, 0.8, 0.2, 1.0], 2.0);
+            } else if (artifactType === 1) {
+                // Rotating cube
+                addBox(vertices, indices, colors, normals, uvs, glows,
+                    0, 0.3, 0, 0.3, 0.3, 0.3, [0.2, 1.0, 0.8, 1.0], 1.5);
+            } else if (artifactType === 2) {
+                // Pyramid
+                const idx = vertices.length / 3;
+                const s = 0.25;
+                vertices.push(
+                    -s, 0, -s, s, 0, -s, s, 0, s, -s, 0, s,
+                    0, 0.5, 0
+                );
+                for (let i = 0; i < 5; i++) {
+                    colors.push(0.8, 0.2, 1.0, 1.0);
+                    normals.push(0, 1, 0);
+                    uvs.push(0, 0);
+                    glows.push(1.8);
+                }
+                indices.push(idx, idx+1, idx+4, idx+1, idx+2, idx+4, 
+                            idx+2, idx+3, idx+4, idx+3, idx, idx+4,
+                            idx, idx+2, idx+1, idx, idx+3, idx+2);
+            } else {
+                // Crystal cluster
+                for (let i = 0; i < 5; i++) {
+                    const angle = (i / 5) * Math.PI * 2;
+                    const r = 0.15;
+                    const h = 0.2 + Math.random() * 0.2;
+                    const ox = Math.cos(angle) * 0.1;
+                    const oz = Math.sin(angle) * 0.1;
+                    
+                    const idx = vertices.length / 3;
+                    vertices.push(
+                        ox, 0, oz,
+                        ox + Math.cos(angle) * r, 0, oz + Math.sin(angle) * r,
+                        ox, h, oz
+                    );
+                    for (let j = 0; j < 3; j++) {
+                        colors.push(0.3, 0.9, 1.0, 1.0);
+                        normals.push(Math.cos(angle), 0.5, Math.sin(angle));
+                        uvs.push(0, 0);
+                        glows.push(2.0);
+                    }
+                    indices.push(idx, idx+1, idx+2);
+                }
+            }
+            
+            return {
+                mesh: createMesh(vertices, indices, colors, normals, uvs, glows),
+                position: [x, height, z],
+                type: 'artifact',
+                collected: false,
+                floatOffset: Math.random() * Math.PI * 2
+            };
+        }
+
+        function createSphere(vertices, indices, colors, normals, uvs, glows,
+                             cx, cy, cz, radius, color, glow) {
+            const segments = 12;
+            const rings = 8;
+            const baseIdx = vertices.length / 3;
+            
+            for (let r = 0; r <= rings; r++) {
+                const phi = (r / rings) * Math.PI;
+                for (let s = 0; s <= segments; s++) {
+                    const theta = (s / segments) * Math.PI * 2;
+                    const x = Math.sin(phi) * Math.cos(theta);
+                    const y = Math.cos(phi);
+                    const z = Math.sin(phi) * Math.sin(theta);
+                    
+                    vertices.push(cx + x * radius, cy + y * radius, cz + z * radius);
+                    normals.push(x, y, z);
+                    colors.push(...color);
+                    uvs.push(s / segments, r / rings);
+                    glows.push(glow);
+                }
+            }
+            
+            for (let r = 0; r < rings; r++) {
+                for (let s = 0; s < segments; s++) {
+                    const i = baseIdx + r * (segments + 1) + s;
+                    indices.push(i, i + segments + 1, i + 1);
+                    indices.push(i + 1, i + segments + 1, i + segments + 2);
+                }
+            }
+        }
+
+        // Create creature
+        function createCreature(x, z, type) {
+            const height = getHeight(x, z);
+            const vertices = [], indices = [], colors = [], normals = [], uvs = [], glows = [];
+            
+            let creatureData;
+            
+            if (type === 'floater') {
+                // Jellyfish-like floating creature
+                createSphere(vertices, indices, colors, normals, uvs, glows,
+                    0, 0.5, 0, 0.4, [0.5, 0.3, 0.9, 0.8], 0.8);
+                
+                // Tentacles
+                for (let t = 0; t < 6; t++) {
+                    const angle = (t / 6) * Math.PI * 2;
+                    for (let i = 0; i < 5; i++) {
+                        const idx = vertices.length / 3;
+                        const y1 = -i * 0.2;
+                        const y2 = -(i + 1) * 0.2;
+                        const wave = Math.sin(i * 0.5) * 0.1;
+                        
+                        vertices.push(
+                            Math.cos(angle) * 0.2 + wave, y1, Math.sin(angle) * 0.2,
+                            Math.cos(angle) * 0.2 + wave, y2, Math.sin(angle) * 0.2
+                        );
+                        
+                        for (let j = 0; j < 2; j++) {
+                            colors.push(0.7, 0.4, 1.0, 0.6);
+                            normals.push(0, -1, 0);
+                            uvs.push(0, 0);
+                            glows.push(0.5);
+                        }
+                        indices.push(idx, idx + 1, idx);
+                    }
+                }
+                
+                creatureData = {
+                    height: height + 3 + Math.random() * 5,
+                    speed: 0.5 + Math.random() * 0.5,
+                    behavior: 'float'
+                };
+            } else if (type === 'crawler') {
+                // Spider-like crawler
+                // Body
+                addBox(vertices, indices, colors, normals, uvs, glows,
+                    0, 0.2, 0, 0.4, 0.2, 0.6, [0.3, 0.4, 0.3, 1.0], 0.2);
+                
+                // Legs
+                for (let side = -1; side <= 1; side += 2) {
+                    for (let i = 0; i < 3; i++) {
+                        const z = (i - 1) * 0.2;
+                        const idx = vertices.length / 3;
+                        vertices.push(
+                            side * 0.2, 0.15, z,
+                            side * 0.5, 0.3, z,
+                            side * 0.6, 0, z
+                        );
+                        for (let j = 0; j < 3; j++) {
+                            colors.push(0.2, 0.3, 0.2, 1.0);
+                            normals.push(side, 0, 0);
+                            uvs.push(0, 0);
+                            glows.push(0);
+                        }
+                        indices.push(idx, idx + 1, idx + 2);
+                    }
+                }
+                
+                // Eyes
+                createSphere(vertices, indices, colors, normals, uvs, glows,
+                    0.15, 0.25, 0.25, 0.05, [1.0, 0.2, 0.2, 1.0], 1.0);
+                createSphere(vertices, indices, colors, normals, uvs, glows,
+                    -0.15, 0.25, 0.25, 0.05, [1.0, 0.2, 0.2, 1.0], 1.0);
+                
+                creatureData = {
+                    height: height,
+                    speed: 1 + Math.random(),
+                    behavior: 'wander'
+                };
+            } else {
+                // Flying creature (bird-like)
+                // Body
+                const idx = vertices.length / 3;
+                vertices.push(
+                    0, 0, 0.5, 0, 0.1, 0, 0.3, 0, -0.2,
+                    0, 0, 0.5, 0, 0.1, 0, -0.3, 0, -0.2
+                );
+                for (let i = 0; i < 6; i++) {
+                    colors.push(0.2, 0.6, 0.8, 1.0);
+                    normals.push(0, 1, 0);
+                    uvs.push(0, 0);
+                    glows.push(0.3);
+                }
+                indices.push(idx, idx + 1, idx + 2, idx + 3, idx + 4, idx + 5);
+                
+                // Wings
+                for (let side = -1; side <= 1; side += 2) {
+                    const widx = vertices.length / 3;
+                    vertices.push(
+                        0, 0.05, 0, side * 0.8, 0.1, 0, side * 0.5, 0, -0.3
+                    );
+                    for (let i = 0; i < 3; i++) {
+                        colors.push(0.3, 0.7, 0.9, 0.8);
+                        normals.push(0, 1, 0);
+                        uvs.push(0, 0);
+                        glows.push(0.5);
+                    }
+                    indices.push(widx, widx + 1, widx + 2);
+                }
+                
+                creatureData = {
+                    height: height + 5 + Math.random() * 10,
+                    speed: 2 + Math.random() * 2,
+                    behavior: 'fly'
+                };
+            }
+            
+            return {
+                mesh: createMesh(vertices, indices, colors, normals, uvs, glows),
+                position: [x, creatureData.height, z],
+                velocity: [(Math.random() - 0.5) * 2, 0, (Math.random() - 0.5) * 2],
+                type: type,
+                ...creatureData,
+                animTime: Math.random() * Math.PI * 2
+            };
+        }
+
+        // Weather particle system
+        function createWeatherParticles(count) {
+            const positions = new Float32Array(count * 3);
+            const colors = new Float32Array(count * 4);
+            const sizes = new Float32Array(count);
+            
+            for (let i = 0; i < count; i++) {
+                positions[i * 3] = (Math.random() - 0.5) * 100;
+                positions[i * 3 + 1] = Math.random() * 50;
+                positions[i * 3 + 2] = (Math.random() - 0.5) * 100;
+                
+                colors[i * 4] = 0.6;
+                colors[i * 4 + 1] = 0.8;
+                colors[i * 4 + 2] = 1.0;
+                colors[i * 4 + 3] = 0.5;
+                
+                sizes[i] = 2 + Math.random() * 3;
+            }
+            
+            const vao = gl.createVertexArray();
+            gl.bindVertexArray(vao);
+            
+            const posBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, positions, gl.DYNAMIC_DRAW);
+            gl.enableVertexAttribArray(0);
+            gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+            
+            const colorBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, colors, gl.STATIC_DRAW);
+            gl.enableVertexAttribArray(1);
+            gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 0, 0);
+            
+            const sizeBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, sizeBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, sizes, gl.STATIC_DRAW);
+            gl.enableVertexAttribArray(2);
+            gl.vertexAttribPointer(2, 1, gl.FLOAT, false, 0, 0);
+            
+            gl.bindVertexArray(null);
+            
+            return { vao, posBuffer, positions, count };
+        }
+
+        // Matrix utilities
+        function mat4Identity() {
+            return new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
+        }
+
+        function mat4Perspective(fov, aspect, near, far) {
+            const f = 1 / Math.tan(fov / 2);
+            const nf = 1 / (near - far);
+            return new Float32Array([
+                f / aspect, 0, 0, 0,
+                0, f, 0, 0,
+                0, 0, (far + near) * nf, -1,
+                0, 0, 2 * far * near * nf, 0
+            ]);
+        }
+
+        function mat4LookAt(eye, center, up) {
+            const zx = eye[0] - center[0], zy = eye[1] - center[1], zz = eye[2] - center[2];
+            let len = 1 / Math.sqrt(zx*zx + zy*zy + zz*zz);
+            const z = [zx*len, zy*len, zz*len];
+            
+            const xx = up[1]*z[2] - up[2]*z[1];
+            const xy = up[2]*z[0] - up[0]*z[2];
+            const xz = up[0]*z[1] - up[1]*z[0];
+            len = 1 / Math.sqrt(xx*xx + xy*xy + xz*xz);
+            const x = [xx*len, xy*len, xz*len];
+            
+            const y = [z[1]*x[2] - z[2]*x[1], z[2]*x[0] - z[0]*x[2], z[0]*x[1] - z[1]*x[0]];
+            
+            return new Float32Array([
+                x[0], y[0], z[0], 0,
+                x[1], y[1], z[1], 0,
+                x[2], y[2], z[2], 0,
+                -(x[0]*eye[0] + x[1]*eye[1] + x[2]*eye[2]),
+                -(y[0]*eye[0] + y[1]*eye[1] + y[2]*eye[2]),
+                -(z[0]*eye[0] + z[1]*eye[1] + z[2]*eye[2]),
+                1
+            ]);
+        }
+
+        function mat4Translate(x, y, z) {
+            return new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, x,y,z,1]);
+        }
+
+        function mat4RotateY(angle) {
+            const c = Math.cos(angle), s = Math.sin(angle);
+            return new Float32Array([c,0,s,0, 0,1,0,0, -s,0,c,0, 0,0,0,1]);
+        }
+
+        function mat4Multiply(a, b) {
+            const result = new Float32Array(16);
+            for (let i = 0; i < 4; i++) {
+                for (let j = 0; j < 4; j++) {
+                    result[i * 4 + j] = 
+                        a[j] * b[i * 4] + 
+                        a[j + 4] * b[i * 4 + 1] + 
+                        a[j + 8] * b[i * 4 + 2] + 
+                        a[j + 12] * b[i * 4 + 3];
+                }
+            }
+            return result;
+        }
+
+        // Camera and player state
+        const player = {
+            position: [0, 5, 0],
+            rotation: 0,
+            height: 1.7,
+            velocity: [0, 0, 0],
+            isInVR: false,
+            controllers: []
+        };
+
+        // WebXR state
+        let xrSession = null;
+        let xrRefSpace = null;
+        let xrGLLayer = null;
+
+        // Initialize world
+        function initWorld() {
+            // Generate initial chunks
+            for (let cx = -2; cx <= 2; cx++) {
+                for (let cz = -2; cz <= 2; cz++) {
+                    const chunk = generateChunk(cx, cz);
+                    world.chunks.set(`${cx},${cz}`, chunk);
+                    
+                    // Generate vegetation for chunk
+                    const veg = generateVegetation(cx * 32, cz * 32, chunk.biome);
+                    world.vegetation.push(...veg);
+                }
+            }
+            
+            // Generate ruins
+            for (let i = 0; i < 15; i++) {
+                const x = (Math.random() - 0.5) * 150;
+                const z = (Math.random() - 0.5) * 150;
+                world.ruins.push(createRuin(x, z));
+            }
+            
+            // Generate artifacts
+            for (let i = 0; i < 12; i++) {
+                const x = (Math.random() - 0.5) * 120;
+                const z = (Math.random() - 0.5) * 120;
+                world.artifacts.push(createArtifact(x, z));
+            }
+            
+            // Generate creatures
+            const creatureTypes = ['floater', 'crawler', 'flyer'];
+            for (let i = 0; i < 20; i++) {
+                const x = (Math.random() - 0.5) * 100;
+                const z = (Math.random() - 0.5) * 100;
+                const type = creatureTypes[Math.floor(Math.random() * creatureTypes.length)];
+                world.creatures.push(createCreature(x, z, type));
+            }
+            
+            // Weather particles
+            world.weatherParticles = createWeatherParticles(2000);
+            
+            // Set initial player position
+            player.position[1] = getHeight(0, 0) + player.height;
+        }
+
+        // Update world
+        function updateWorld(deltaTime) {
+            world.time += deltaTime;
+            
+            // Update weather
+            if (Math.random() < 0.001) {
+                world.weather.target = Math.random();
+                world.weather.type = world.weather.target > 0.5 ? 'storm' : 'clear';
+            }
+            world.weather.intensity += (world.weather.target - world.weather.intensity) * 0.01;
+            
+            // Update creatures
+            for (const creature of world.creatures) {
+                creature.animTime += deltaTime * 2;
+                
+                if (creature.behavior === 'float') {
+                    creature.position[0] += Math.sin(world.time * 0.5 + creature.animTime) * 0.01;
+                    creature.position[1] += Math.sin(world.time * 0.3) * 0.005;
+                    creature.position[2] += Math.cos(world.time * 0.5 + creature.animTime) * 0.01;
+                } else if (creature.behavior === 'wander') {
+                    if (Math.random() < 0.02) {
+                        creature.velocity[0] = (Math.random() - 0.5) * creature.speed;
+                        creature.velocity[2] = (Math.random() - 0.5) * creature.speed;
+                    }
+                    creature.position[0] += creature.velocity[0] * deltaTime;
+                    creature.position[2] += creature.velocity[2] * deltaTime;
+                    creature.position[1] = getHeight(creature.position[0], creature.position[2]) + 0.2;
+                } else if (creature.behavior === 'fly') {
+                    creature.position[0] += creature.velocity[0] * deltaTime;
+                    creature.position[2] += creature.velocity[2] * deltaTime;
+                    creature.position[1] = creature.height + Math.sin(world.time + creature.animTime) * 2;
+                    
+                    if (Math.random() < 0.01) {
+                        creature.velocity[0] = (Math.random() - 0.5) * creature.speed;
+                        creature.velocity[2] = (Math.random() - 0.5) * creature.speed;
+                    }
+                }
+                
+                // Keep in bounds
+                creature.position[0] = Math.max(-80, Math.min(80, creature.position[0]));
+                creature.position[2] = Math.max(-80, Math.min(80, creature.position[2]));
+            }
+            
+            // Update artifacts (floating animation)
+            for (const artifact of world.artifacts) {
+                if (!artifact.collected) {
+                    artifact.position[1] = getHeight(artifact.position[0], artifact.position[2]) + 
+                        0.5 + Math.sin(world.time * 2 + artifact.floatOffset) * 0.2;
+                }
+            }
+            
+            // Update weather particles
+            if (world.weather.intensity > 0.1) {
+                const particles = world.weatherParticles;
+                for (let i = 0; i < particles.count; i++) {
+                    particles.positions[i * 3 + 1] -= deltaTime * 10 * world.weather.intensity;
+                    
+                    if (particles.positions[i * 3 + 1] < 0) {
+                        particles.positions[i * 3] = player.position[0] + (Math.random() - 0.5) * 50;
+                        particles.positions[i * 3 + 1] = 30 + Math.random() * 20;
+                        particles.positions[i * 3 + 2] = player.position[2] + (Math.random() - 0.5) * 50;
+                    }
+                }
+                
+                gl.bindBuffer(gl.ARRAY_BUFFER, particles.posBuffer);
+                gl.bufferSubData(gl.ARRAY_BUFFER, 0, particles.positions);
+            }
+            
+            // Update UI
+            const currentBiome = getBiome(player.position[0], player.position[2]);
+            const underground = isUnderground(player.position[0], player.position[1], player.position[2]);
+            
+            document.getElementById('biome').textContent = `Biome: ${currentBiome.name}`;
+            document.getElementById('weather').textContent = `Weather: ${world.weather.type === 'storm' ? 'Alien Storm' : 'Clear'}`;
+            document.getElementById('depth').textContent = `Depth: ${underground ? 'Underground' : 'Surface'}`;
+            document.getElementById('artifacts').textContent = `Artifacts: ${world.collectedArtifacts}/12`;
+        }
+
+        // Render scene
+        function renderScene(projectionMatrix, viewMatrix, cameraPosition) {
+            gl.useProgram(mainProgram);
+            
+            const sunAngle = world.time * 0.05;
+            const sunDir = [Math.cos(sunAngle), 0.5 + Math.sin(sunAngle) * 0.3, Math.sin(sunAngle)];
+            const len = Math.sqrt(sunDir[0]*sunDir[0] + sunDir[1]*sunDir[1] + sunDir[2]*sunDir[2]);
+            sunDir[0] /= len; sunDir[1] /= len; sunDir[2] /= len;
+            
+            const underground = isUnderground(cameraPosition[0], cameraPosition[1], cameraPosition[2]);
+            
+            // Set common uniforms
+            gl.uniformMatrix4fv(mainUniforms.uProjection, false, projectionMatrix);
+            gl.uniformMatrix4fv(mainUniforms.uView, false, viewMatrix);
+            gl.uniform1f(mainUniforms.uTime, world.time);
+            gl.uniform3fv(mainUniforms.uSunDir, sunDir);
+            gl.uniform3f(mainUniforms.uSunColor, 1.0, 0.9, 0.7);
+            gl.uniform3f(mainUniforms.uAmbient, 0.2, 0.25, 0.3);
+            gl.uniform1f(mainUniforms.uFogDensity, 0.01);
+            gl.uniform3f(mainUniforms.uFogColor, 0.4, 0.3, 0.5);
+            gl.uniform3fv(mainUniforms.uCameraPos, cameraPosition);
+            gl.uniform1f(mainUniforms.uWeatherIntensity, world.weather.intensity);
+            gl.uniform1i(mainUniforms.uIsUnderground, underground ? 1 : 0);
+            
+            // Render terrain chunks
+            for (const [key, chunk] of world.chunks) {
+                gl.uniform1i(mainUniforms.uBiome, chunk.biome.id);
+                gl.uniformMatrix4fv(mainUniforms.uModel, false, mat4Identity());
+                gl.bindVertexArray(chunk.mesh.vao);
+                gl.drawElements(gl.TRIANGLES, chunk.mesh.indexCount, gl.UNSIGNED_INT, 0);
+            }
+            
+            // Render vegetation
+            for (const plant of world.vegetation) {
+                const modelMatrix = mat4Translate(...plant.position);
+                gl.uniformMatrix4fv(mainUniforms.uModel, false, modelMatrix);
+                gl.bindVertexArray(plant.mesh.vao);
+                gl.drawElements(gl.TRIANGLES, plant.mesh.indexCount, gl.UNSIGNED_INT, 0);
+            }
+            
+            // Render ruins
+            for (const ruin of world.ruins) {
+                const modelMatrix = mat4Translate(...ruin.position);
+                gl.uniformMatrix4fv(mainUniforms.uModel, false, modelMatrix);
+                gl.bindVertexArray(ruin.mesh.vao);
+                gl.drawElements(gl.TRIANGLES, ruin.mesh.indexCount, gl.UNSIGNED_INT, 0);
+            }
+            
+            // Render artifacts
+            for (const artifact of world.artifacts) {
+                if (artifact.collected) continue;
+                
+                const rotMatrix = mat4RotateY(world.time * 2);
+                const transMatrix = mat4Translate(...artifact.position);
+                const modelMatrix = mat4Multiply(transMatrix, rotMatrix);
+                
+                gl.uniformMatrix4fv(mainUniforms.uModel, false, modelMatrix);
+                gl.bindVertexArray(artifact.mesh.vao);
+                gl.drawElements(gl.TRIANGLES, artifact.mesh.indexCount, gl.UNSIGNED_INT, 0);
+            }
+            
+            // Render creatures
+            for (const creature of world.creatures) {
+                const modelMatrix = mat4Translate(...creature.position);
+                gl.uniformMatrix4fv(mainUniforms.uModel, false, modelMatrix);
+                gl.bindVertexArray(creature.mesh.vao);
+                gl.drawElements(gl.TRIANGLES, creature.mesh.indexCount, gl.UNSIGNED_INT, 0);
+            }
+            
+            // Render weather particles
+            if (world.weather.intensity > 0.1) {
+                gl.useProgram(particleProgram);
+                gl.uniformMatrix4fv(particleUniforms.uProjection, false, projectionMatrix);
+                gl.uniformMatrix4fv(particleUniforms.uView, false, viewMatrix);
+                gl.uniform1f(particleUniforms.uTime, world.time);
+                
+                gl.enable(gl.BLEND);
+                gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+                
+                gl.bindVertexArray(world.weatherParticles.vao);
+                gl.drawArrays(gl.POINTS, 0, world.weatherParticles.count);
+                
+                gl.disable(gl.BLEND);
+            }
+        }
+
+        // WebXR Session handling
+        async function startXR() {
+            if (!navigator.xr) {
+                alert('WebXR not supported');
+                return;
+            }
+            
+            const supported = await navigator.xr.isSessionSupported('immersive-vr');
+            if (!supported) {
+                alert('Immersive VR not supported');
+                return;
+            }
+            
+            xrSession = await navigator.xr.requestSession('immersive-vr', {
+                requiredFeatures: ['local-floor']
+            });
+            
+            xrGLLayer = new XRWebGLLayer(xrSession, gl);
+            xrSession.updateRenderState({ baseLayer: xrGLLayer });
+            
+            xrRefSpace = await xrSession.requestReferenceSpace('local-floor');
+            
+            player.isInVR = true;
+            document.getElementById('vrButton').textContent = 'Exit VR';
+            document.getElementById('info').style.display = 'none';
+            
+            xrSession.addEventListener('end', () => {
+                player.isInVR = false;
+                xrSession = null;
+                document.getElementById('vrButton').textContent = 'Enter VR Experience';
+                document.getElementById('info').style.display = 'block';
+            });
+            
+            xrSession.addEventListener('inputsourceschange', (e) => {
+                player.controllers = [];
+                for (const source of xrSession.inputSources) {
+                    if (source.gripSpace) {
+                        player.controllers.push(source);
+                    }
+                }
+            });
+            
+            xrSession.requestAnimationFrame(onXRFrame);
+        }
+
+        let lastXRTime = 0;
+        
+        function onXRFrame(time, frame) {
+            const deltaTime = Math.min((time - lastXRTime) / 1000, 0.1);
+            lastXRTime = time;
+            
+            xrSession.requestAnimationFrame(onXRFrame);
+            
+            const pose = frame.getViewerPose(xrRefSpace);
+            if (!pose) return;
+            
+            updateWorld(deltaTime);
+            
+            // Handle controller input
+            for (const source of xrSession.inputSources) {
+                if (source.gamepad) {
+                    const axes = source.gamepad.axes;
+                    const buttons = source.gamepad.buttons;
+                    
+                    // Thumbstick movement
+                    if (Math.abs(axes[2]) > 0.1 || Math.abs(axes[3]) > 0.1) {
+                        const forward = pose.transform.matrix;
+                        const speed = 5 * deltaTime;
+                        
+                        player.position[0] -= axes[2] * speed;
+                        player.position[2] -= axes[3] * speed;
+                        
+                        // Keep player on terrain
+                        const terrainHeight = getHeight(player.position[0], player.position[2]);
+                        player.position[1] = terrainHeight + player.height;
+                    }
+                    
+                    // Trigger for artifact collection
+                    if (buttons[0] && buttons[0].pressed) {
+                        checkArtifactCollection(pose.transform.position);
+                    }
+                }
+            }
+            
+            gl.bindFramebuffer(gl.FRAMEBUFFER, xrGLLayer.framebuffer);
+            gl.clearColor(0.1, 0.05, 0.15, 1.0);
+            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+            gl.enable(gl.DEPTH_TEST);
+            gl.enable(gl.CULL_FACE);
+            
+            for (const view of pose.views) {
+                const viewport = xrGLLayer.getViewport(view);
+                gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
+                
+                const cameraPosition = [
+                    view.transform.position.x + player.position[0],
+                    view.transform.position.y + player.position[1] - player.height,
+                    view.transform.position.z + player.position[2]
+                ];
+                
+                // Create view matrix with player offset
+                const viewMatrix = new Float32Array(view.transform.inverse.matrix);
+                viewMatrix[12] -= player.position[0];
+                viewMatrix[13] -= player.position[1] - player.height;
+                viewMatrix[14] -= player.position[2];
+                
+                renderScene(view.projectionMatrix, viewMatrix, cameraPosition);
+            }
+        }
+
+        function checkArtifactCollection(controllerPos) {
+            for (const artifact of world.artifacts) {
+                if (artifact.collected) continue;
+                
+                const dx = artifact.position[0] - (controllerPos.x + player.position[0]);
+                const dy = artifact.position[1] - (controllerPos.y + player.position[1] - player.height);
+                const dz = artifact.position[2] - (controllerPos.z + player.position[2]);
+                const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
+                
+                if (dist < 1.5) {
+                    artifact.collected = true;
+                    world.collectedArtifacts++;
+                    
+                    // Haptic feedback
+                    for (const source of xrSession.inputSources) {
+                        if (source.gamepad && source.gamepad.hapticActuators) {
+                            source.gamepad.hapticActuators[0]?.pulse(0.5, 100);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Non-VR rendering
+        function renderNonVR(time) {
+            const deltaTime = 0.016;
+            
+            if (!player.isInVR) {
+                requestAnimationFrame(renderNonVR);
+                
+                updateWorld(deltaTime);
+                
+                // Update camera based on mouse/keyboard
+                const cameraDistance = 10;
+                const cameraHeight = 8;
+                
+                gl.canvas.width = window.innerWidth;
+                gl.canvas.height = window.innerHeight;
+                gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+                
+                gl.clearColor(0.1, 0.05, 0.15, 1.0);
+                gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+                gl.enable(gl.DEPTH_TEST);
+                gl.enable(gl.CULL_FACE);
+                
+                const cameraX = player.position[0] + Math.sin(world.time * 0.1) * cameraDistance;
+                const cameraZ = player.position[2] + Math.cos(world.time * 0.1) * cameraDistance;
+                const cameraY = player.position[1] + cameraHeight;
+                
+                const projectionMatrix = mat4Perspective(
+                    Math.PI / 3,
+                    gl.canvas.width / gl.canvas.height,
+                    0.1,
+                    500
+                );
+                
+                const viewMatrix = mat4LookAt(
+                    [cameraX, cameraY, cameraZ],
+                    player.position,
+                    [0, 1, 0]
+                );
+                
+                renderScene(projectionMatrix, viewMatrix, [cameraX, cameraY, cameraZ]);
+            }
+        }
+
+        // Event handlers
+        document.getElementById('vrButton').addEventListener('click', () => {
+            if (xrSession) {
+                xrSession.end();
+            } else {
+                startXR();
+            }
+        });
+
+        // Keyboard controls for non-VR
+        const keys = {};
+        window.addEventListener('keydown', e => keys[e.code] = true);
+        window.addEventListener('keyup', e => keys[e.code] = false);
+
+        function updateNonVRControls() {
+            const speed = 0.2;
+            if (keys['KeyW']) player.position[2] -= speed;
+            if (keys['KeyS']) player.position[2] += speed;
+            if (keys['KeyA']) player.position[0] -= speed;
+            if (keys['KeyD']) player.position[0] += speed;
+            
+            player.position[1] = getHeight(player.position[0], player.position[2]) + player.height;
+            
+            requestAnimationFrame(updateNonVRControls);
+        }
+
+        // Initialize and start
+        initWorld();
+        renderNonVR(0);
+        updateNonVRControls();
+
+        // Check WebXR support
+        if (navigator.xr) {
+            navigator.xr.isSessionSupported('immersive-vr').then(supported => {
+                document.getElementById('vrButton').disabled = !supported;
+                if (!supported) {
+                    document.getElementById('vrButton').textContent = 'VR Not Supported';
+                }
+            });
+        } else {
+            document.getElementById('vrButton').disabled = true;
+            document.getElementById('vrButton').textContent = 'WebXR Not Available';
+        }
+
+        // Handle resize
+        window.addEventListener('resize', () => {
+            if (!player.isInVR) {
+                gl.canvas.width = window.innerWidth;
+                gl.canvas.height = window.innerHeight;
+            }
+        });
+
+        console.log('Alien Planet Explorer VR initialized');
+        console.log('Use WASD to move in non-VR mode');
+        console.log('Click "Enter VR Experience" for immersive VR');
+    </script>
+</body>
+</html>

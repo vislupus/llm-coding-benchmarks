@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>2D Hard-Disk Gas — Statistical Mechanics Sandbox</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
+<style>
+:root{--bg:#0f1218;--panel:#161b24;--ink:#e6e9ef;--muted:#8b94a7;--line:#2a3140;--accent:#7bd389;--light:#5cc8ff;--heavy:#ffb15c}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:13px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+body{display:flex;height:100vh;overflow:hidden}
+#panel{width:310px;flex:0 0 310px;background:var(--panel);border-right:1px solid var(--line);overflow-y:auto;padding:12px 14px 24px}
+#stage{flex:1 1 auto;position:relative;min-width:0}
+#stage canvas{display:block}
+h1{font-size:15px;margin:0 0 2px}
+.sub{color:var(--muted);font-size:11.5px;margin:0 0 10px}
+fieldset{border:1px solid var(--line);border-radius:6px;margin:0 0 10px;padding:6px 10px 6px}
+legend{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em;padding:0 4px}
+.row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:4px 0 0}
+.row label{flex:1}
+.row output{min-width:56px;text-align:right;font-variant-numeric:tabular-nums;color:var(--accent)}
+input[type=range]{width:100%;margin:2px 0 6px;accent-color:var(--accent)}
+input[type=checkbox]{accent-color:var(--accent)}
+select,button{background:#1f2634;color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:3px 6px;font:inherit}
+button{cursor:pointer}
+button:hover{border-color:var(--accent)}
+.btns{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 2px}
+table.stats{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+table.stats td{padding:1px 0;border-bottom:1px dotted #222a38;font-size:12px}
+table.stats td:last-child{text-align:right;color:var(--accent);white-space:nowrap}
+.sp{color:var(--muted);font-size:11px;margin:4px 0 0}
+.sw{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px;vertical-align:middle}
+kbd{background:#1f2634;border:1px solid var(--line);border-radius:3px;padding:0 4px;font-size:11px}
+.warn{color:#ff8a8a;font-size:11px;min-height:14px}
+details summary{cursor:pointer;color:var(--muted)}
+details p{margin:6px 0;font-size:12px;color:#c7cdd8}
+</style>
+</head>
+<body>
+<aside id="panel">
+  <h1>2D hard-disk gas</h1>
+  <p class="sub">Elastic disks in a box · k<sub>B</sub> = 1 · units: px, frames, m<sub>light</sub> = 1</p>
+
+  <fieldset><legend>Gas</legend>
+    <div class="row"><label for="N">Particles N</label><output id="N_o"></output></div>
+    <input type="range" id="N" min="10" max="3000" step="10" value="600">
+    <div class="row"><label for="T">Temperature T (rescales all speeds)</label><output id="T_o"></output></div>
+    <input type="range" id="T" min="-2" max="6" step="0.05" value="2">
+    <div class="row"><label for="r">Light-particle radius (px)</label><output id="r_o"></output></div>
+    <input type="range" id="r" min="1.5" max="12" step="0.5" value="4">
+    <div class="row"><label for="init">Initial speeds</label>
+      <select id="init"><option value="equal">all equal (watch relaxation)</option><option value="mb">Maxwell–Boltzmann</option></select></div>
+  </fieldset>
+
+  <fieldset><legend>Mixture</legend>
+    <div class="row"><label for="hf"><span class="sw" style="background:var(--heavy)"></span>Heavy fraction</label><output id="hf_o"></output></div>
+    <input type="range" id="hf" min="0" max="1" step="0.05" value="0.25">
+    <div class="row"><label for="mr">Mass ratio m<sub>heavy</sub>/m<sub>light</sub></label><output id="mr_o"></output></div>
+    <input type="range" id="mr" min="1" max="16" step="0.5" value="4">
+    <div class="row"><label for="hr">Heavy radius × light radius</label><output id="hr_o"></output></div>
+    <input type="range" id="hr" min="1" max="2.5" step="0.1" value="1.4">
+  </fieldset>
+
+  <fieldset><legend>Box</legend>
+    <div class="row"><label for="bw">Width (px)</label><output id="bw_o"></output></div>
+    <input type="range" id="bw" min="200" max="700" step="10" value="700">
+    <div class="row"><label for="bh">Height (px)</label><output id="bh_o"></output></div>
+    <input type="range" id="bh" min="150" max="480" step="10" value="480">
+  </fieldset>
+
+  <fieldset><legend>Dynamics &amp; view</legend>
+    <div class="row"><label for="coll">Particle–particle collisions</label><input type="checkbox" id="coll" checked></div>
+    <div class="row"><label for="cbs">Colour particles by speed</label><input type="checkbox" id="cbs"></div>
+    <div class="row"><label for="species">Split histogram by species</label><input type="checkbox" id="species" checked></div>
+    <div class="row"><label for="hist">Histogram</label>
+      <select id="hist"><option value="speed">speed |v|</option><option value="vx">component v<sub>x</sub></option><option value="energy">kinetic energy</option></select></div>
+    <div class="btns"><button id="pause">Pause</button><button id="reset">Reset</button></div>
+    <p class="sp">Keys: <kbd>Space</kbd> pause · <kbd>C</kbd> collisions · <kbd>R</kbd> reset · <kbd>H</kbd> histogram · <kbd>V</kbd> colour</p>
+  </fieldset>
+
+  <fieldset><legend>Measurements</legend>
+    <table class="stats" id="stats"></table>
+  </fieldset>
+  <div id="warn" class="warn"></div>
+
+  <details>
+    <summary>What is being computed</summary>
+    <p><b>Temperature.</b> In 2D each particle has two translational degrees of freedom, so equipartition gives ⟨½mv²⟩ = k<sub>B</sub>T. We define T = (1/N)Σ½m<sub>i</sub>v<sub>i</sub>². Light and heavy species should share the same T once equilibrated.</p>
+    <p><b>Pressure.</b> Every wall hit delivers impulse 2m|v<sub>⊥</sub>|. P = Σimpulse / (Δt · perimeter), a force per unit length (2D pressure). The ideal-gas law in 2D reads P·A = N k<sub>B</sub>T. At finite packing fraction η = Σπr²/A, hard disks exceed it; the Henderson equation of state Z = (1 + η²/8)/(1 − η)² is shown for comparison.</p>
+    <p><b>Distributions.</b> 2D Maxwell–Boltzmann speeds: f(v) = (mv/T)e<sup>−mv²/2T</sup>; components are Gaussian with σ² = T/m; kinetic energy is exponential, f(E) = e<sup>−E/T</sup>/T, identical for every species.</p>
+    <p><b>H-function.</b> H = ∫ f ln f d²v, estimated from the speed histogram. Boltzmann's H-theorem says it decreases to its equilibrium value ln(m/2πT) − 1 (per species). Switch collisions off and start with equal speeds: H stays put.</p>
+    <p><b>Collisions.</b> Exact two-body elastic solution (momentum and energy conserved to floating-point precision); overlaps from the finite time step are removed by sliding disks apart along the line of centres, which does not alter velocities. The step is subdivided so no disk travels more than ~⅓ of a radius per sub-step.</p>
+  </details>
+</aside>
+<main id="stage"></main>
+
+<script>
+(function(){
+'use strict';
+const MAXN=3000, TAU=Math.PI*2;
+const X=new Float64Array(MAXN),Y=new Float64Array(MAXN),VX=new Float64Array(MAXN),VY=new Float64Array(MAXN),
+      M=new Float64Array(MAXN),RA=new Float64Array(MAXN),SP=new Uint8Array(MAXN),NEXT=new Int32Array(MAXN),BK=new Uint8Array(MAXN);
+let HEAD=new Int32Array(0);
+
+const sim={N:600,T:4,rLight:4,initMode:'equal',heavyFrac:0.25,massRatio:4,heavyRMul:1.4,boxW:700,boxH:480,
+           collisions:true,colorBySpeed:false,hist:'speed',showSpecies:true,paused:false};
+let N=0,time=0,E0=1,frameImp=0,frameCol=0;
+
+const meas={T:0,TL:NaN,TH:NaN,E:0,nL:0,nH:0,meanV:0,Pwin:0,Pavg:0,Pideal:0,Z:0,Zhd:1,eta:0,collRate:0,collTh:0,mfp:0,mfpTh:0,H:0,Heq:0,nsub:1};
+const WIN=60; const impRing=new Float64Array(WIN), colRing=new Float64Array(WIN); let ringI=0, ringN=0, cumImp=0, cumT=0;
+const HIST=300; const pHist=new Float32Array(HIST), piHist=new Float32Array(HIST), hHist=new Float32Array(HIST); let histI=0, histN=0;
+const NB=48, MODES=['speed','vx','energy'];
+const hCount={}, hEMA={};
+for(const m of MODES){ hCount[m]=[new Float64Array(NB),new Float64Array(NB)]; hEMA[m]=[new Float64Array(NB),new Float64Array(NB)]; }
+let emaInit=false; const range={speed:[0,1],vx:[-1,1],energy:[0,1]};
+
+const COL={light:'#5cc8ff',heavy:'#ffb15c',lightA:'rgba(92,200,255,0.55)',heavyA:'rgba(255,177,92,0.6)',total:'rgba(200,210,230,0.55)'};
+const $=id=>document.getElementById(id);
+
+/* ---------------- helpers ---------------- */
+function randn(){ let u=0; while(u===0) u=Math.random(); return Math.sqrt(-2*Math.log(u))*Math.cos(TAU*Math.random()); }
+function totalKE(){ let ke=0; for(let i=0;i<N;i++) ke+=0.5*M[i]*(VX[i]*VX[i]+VY[i]*VY[i]); return ke; }
+function setWarn(s){ $('warn').textContent=s; }
+function fmt(x,d){ if(!isFinite(x)) return '—'; const a=Math.abs(x); if(a!==0&&(a<1e-3||a>=1e6)) return x.toExponential(d===undefined?2:d); return x.toFixed(d===undefined?(a<10?3:a<100?2:a<1e4?1:0):d); }
+
+/* ---------------- initialisation ---------------- */
+function initParticles(){
+  let n=sim.N;
+  const rL=sim.rLight, rH=rL*sim.heavyRMul, rmax=Math.max(rL,rH);
+  const W=sim.boxW, H=sim.boxH, margin=rmax+1, aw=W-2*margin, ah=H-2*margin;
+  const dmin=2*rmax*1.08;
+  const maxCols=Math.max(1,Math.floor(aw/dmin)), maxRows=Math.max(1,Math.floor(ah/dmin)), cap=maxCols*maxRows;
+  let warn='';
+  if(n>cap){ n=cap; warn=`Box too small for ${sim.N} disks of this size — placed ${cap}. Enlarge the box or shrink the radius.`; }
+  let cols=Math.max(1,Math.ceil(Math.sqrt(n*aw/Math.max(ah,1)))), rows=Math.ceil(n/cols);
+  if(aw/cols<dmin){ cols=maxCols; rows=Math.ceil(n/cols); }
+  if(ah/rows<dmin){ rows=maxRows; cols=Math.ceil(n/rows); }
+  const sx=aw/cols, sy=ah/rows;
+  N=n; setWarn(warn);
+  const nH=Math.round(N*sim.heavyFrac);
+  for(let i=0;i<N;i++) SP[i]= i<nH?1:0;
+  for(let i=N-1;i>0;i--){ const j=(Math.random()*(i+1))|0; const t=SP[i]; SP[i]=SP[j]; SP[j]=t; }
+  const jx=Math.max(0,(sx-2*rmax)/2)*0.9, jy=Math.max(0,(sy-2*rmax)/2)*0.9;
+  for(let i=0;i<N;i++){
+    const c=i%cols, r=(i/cols)|0;
+    X[i]=margin+(c+0.5)*sx+(Math.random()*2-1)*jx;
+    Y[i]=margin+(r+0.5)*sy+(Math.random()*2-1)*jy;
+    M[i]=SP[i]?sim.massRatio:1; RA[i]=SP[i]?rH:rL;
+  }
+}
+function initVelocities(){
+  const T=sim.T;
+  for(let i=0;i<N;i++){
+    const m=M[i];
+    if(sim.initMode==='equal'){ const v=Math.sqrt(2*T/m), a=Math.random()*TAU; VX[i]=v*Math.cos(a); VY[i]=v*Math.sin(a); }
+    else { const s=Math.sqrt(T/m); VX[i]=s*randn(); VY[i]=s*randn(); }
+  }
+  setTemperature(T);
+}
+function setTemperature(T){
+  if(N===0) return;
+  const cur=totalKE()/N; if(cur<=0) return;
+  const f=Math.sqrt(T/cur); for(let i=0;i<N;i++){ VX[i]*=f; VY[i]*=f; }
+}
+function applyRadii(){ const rL=sim.rLight, rH=rL*sim.heavyRMul; for(let i=0;i<N;i++) RA[i]=SP[i]?rH:rL; }
+function resetStats(){
+  E0=totalKE(); impRing.fill(0); colRing.fill(0); ringI=0; ringN=0; cumImp=0; cumT=0;
+  histI=0; histN=0; emaInit=false;
+}
+function initAll(){ initParticles(); initVelocities(); time=0; resetStats(); }
+
+/* ---------------- physics ---------------- */
+function step(dt){
+  let v2max=0;
+  for(let i=0;i<N;i++){ const v2=VX[i]*VX[i]+VY[i]*VY[i]; if(v2>v2max) v2max=v2; }
+  const rmin=Math.min(sim.rLight, sim.rLight*sim.heavyRMul);
+  let nsub=Math.ceil(Math.sqrt(v2max)*dt/(0.35*rmin)); nsub=Math.max(1,Math.min(24,nsub)); meas.nsub=nsub;
+  const h=dt/nsub; frameImp=0; frameCol=0;
+  for(let k=0;k<nsub;k++){
+    for(let i=0;i<N;i++){ X[i]+=VX[i]*h; Y[i]+=VY[i]*h; }
+    walls();
+    if(sim.collisions) collide();
+  }
+  time+=dt;
+  impRing[ringI]=frameImp; colRing[ringI]=frameCol; ringI=(ringI+1)%WIN; ringN=Math.min(ringN+1,WIN);
+  cumImp+=frameImp; cumT+=dt;
+}
+function walls(){
+  const W=sim.boxW, H=sim.boxH;
+  for(let i=0;i<N;i++){
+    const r=RA[i], m=M[i];
+    if(X[i]<r){ X[i]=2*r-X[i]; if(VX[i]<0){ frameImp+=2*m*(-VX[i]); VX[i]=-VX[i]; } }
+    else if(X[i]>W-r){ X[i]=2*(W-r)-X[i]; if(VX[i]>0){ frameImp+=2*m*VX[i]; VX[i]=-VX[i]; } }
+    if(Y[i]<r){ Y[i]=2*r-Y[i]; if(VY[i]<0){ frameImp+=2*m*(-VY[i]); VY[i]=-VY[i]; } }
+    else if(Y[i]>H-r){ Y[i]=2*(H-r)-Y[i]; if(VY[i]>0){ frameImp+=2*m*VY[i]; VY[i]=-VY[i]; } }
+    if(X[i]<r) X[i]=r; else if(X[i]>W-r) X[i]=W-r;
+    if(Y[i]<r) Y[i]=r; else if(Y[i]>H-r) Y[i]=H-r;
+  }
+}
+function pair(i,j){
+  const dx=X[j]-X[i], dy=Y[j]-Y[i], R=RA[i]+RA[j], d2=dx*dx+dy*dy;
+  if(d2>=R*R) return;
+  let d=Math.sqrt(d2), nx, ny;
+  if(d<1e-9){ nx=1; ny=0; d=1e-9; } else { nx=dx/d; ny=dy/d; }
+  const mi=M[i], mj=M[j];
+  const rvn=(VX[j]-VX[i])*nx+(VY[j]-VY[i])*ny;
+  if(rvn<0){ // approaching: exact elastic impulse (restitution 1)
+    const J=2*rvn/(1/mi+1/mj);
+    VX[i]+=J*nx/mi; VY[i]+=J*ny/mi; VX[j]-=J*nx/mj; VY[j]-=J*ny/mj;
+    frameCol++;
+  }
+  // remove residual overlap along line of centres, weighted by inverse mass (velocities untouched)
+  const push=(R-d)+1e-3, wi=mj/(mi+mj), wj=mi/(mi+mj);
+  X[i]-=nx*push*wi; Y[i]-=ny*push*wi; X[j]+=nx*push*wj; Y[j]+=ny*push*wj;
+}
+function collide(){
+  const cell=2*Math.max(sim.rLight, sim.rLight*sim.heavyRMul)+0.5;
+  const cols=Math.max(1,Math.ceil(sim.boxW/cell)), rows=Math.max(1,Math.ceil(sim.boxH/cell));
+  if(HEAD.length!==cols*rows) HEAD=new Int32Array(cols*rows);
+  HEAD.fill(-1);
+  for(let i=0;i<N;i++){
+    let cx=(X[i]/cell)|0, cy=(Y[i]/cell)|0;
+    if(cx<0)cx=0; else if(cx>=cols)cx=cols-1; if(cy<0)cy=0; else if(cy>=rows)cy=rows-1;
+    const c=cy*cols+cx; NEXT[i]=HEAD[c]; HEAD[c]=i;
+  }
+  for(let cy=0;cy<rows;cy++){
+    for(let cx=0;cx<cols;cx++){
+      const c=cy*cols+cx;
+      for(let i=HEAD[c]; i!==-1; i=NEXT[i]){
+        for(let j=NEXT[i]; j!==-1; j=NEXT[j]) pair(i,j);
+        if(cx+1<cols) for(let j=HEAD[c+1]; j!==-1; j=NEXT[j]) pair(i,j);
+        if(cy+1<rows){
+          const c2=c+cols;
+          if(cx>0) for(let j=HEAD[c2-1]; j!==-1; j=NEXT[j]) pair(i,j);
+          for(let j=HEAD[c2]; j!==-1; j=NEXT[j]) pair(i,j);
+          if(cx+1<cols) for(let j=HEAD[c2+1]; j!==-1; j=NEXT[j]) pair(i,j);
+        }
+      }
+    }
+  }
+}
+
+/* ---------------- measurements ---------------- */
+function measure(){
+  let ke=0,keL=0,keH=0,nL=0,nH=0,sv=0,occ=0;
+  for(let i=0;i<N;i++){
+    const m=M[i], v2=VX[i]*VX[i]+VY[i]*VY[i], k=0.5*m*v2;
+    ke+=k; sv+=Math.sqrt(v2); occ+=Math.PI*RA[i]*RA[i];
+    if(SP[i]){ keH+=k; nH++; } else { keL+=k; nL++; }
+  }
+  meas.E=ke; meas.T=N?ke/N:0; meas.TL=nL?keL/nL:NaN; meas.TH=nH?keH/nH:NaN; meas.meanV=N?sv/N:0; meas.nL=nL; meas.nH=nH;
+  const A=sim.boxW*sim.boxH, per=2*(sim.boxW+sim.boxH);
+  let si=0,sc=0; for(let k=0;k<ringN;k++){ si+=impRing[k]; sc+=colRing[k]; }
+  meas.Pwin=ringN? si/(ringN*per):0;
+  meas.Pavg=cumT>0? cumImp/(cumT*per):0;
+  meas.Pideal=N*meas.T/A;
+  meas.Z=meas.Pideal>0? meas.Pavg/meas.Pideal:0;
+  const e=occ/A; meas.eta=e; meas.Zhd=(1+e*e/8)/((1-e)*(1-e));
+  const chi=(1-7*e/16)/((1-e)*(1-e));            // Henderson contact value (Enskog factor)
+  const collPerFrame=ringN? sc/ringN:0;
+  meas.collRate=N? 2*collPerFrame/N:0;              // per particle per frame
+  meas.mfp=meas.collRate>0? meas.meanV/meas.collRate:Infinity;
+  const n=N/A, r=sim.rLight;
+  // 2D kinetic theory, single species: ν = n·σ·⟨v_rel⟩ with collision strip σ = 2d = 4r and ⟨v_rel⟩ = √2⟨v⟩,
+  // ⟨v⟩ = √(πT/2m)  →  ν = 4 n r √(πT/m) · χ(η);   λ = ⟨v⟩/ν = 1/(4√2 n r χ)
+  meas.collTh=4*n*r*Math.sqrt(Math.PI*meas.T)*chi;
+  meas.mfpTh=1/(4*Math.SQRT2*n*r*chi);
+}
+function histograms(){
+  const T=Math.max(meas.T,1e-9);
+  range.speed=[0,3.6*Math.sqrt(2*T)]; const sx=3.6*Math.sqrt(T); range.vx=[-sx,sx]; range.energy=[0,7*T];
+  for(const m of MODES){ hCount[m][0].fill(0); hCount[m][1].fill(0); }
+  const vs=range.speed[1], vlo=range.vx[0], vw=range.vx[1]-vlo, eh=range.energy[1];
+  for(let i=0;i<N;i++){
+    const s=SP[i], v2=VX[i]*VX[i]+VY[i]*VY[i], v=Math.sqrt(v2);
+    let b=(v/vs*NB)|0; if(b>=0&&b<NB) hCount.speed[s][b]++;
+    b=((VX[i]-vlo)/vw*NB)|0; if(b>=0&&b<NB) hCount.vx[s][b]++;
+    b=(0.5*M[i]*v2/eh*NB)|0; if(b>=0&&b<NB) hCount.energy[s][b]++;
+  }
+  const a=emaInit?0.06:1;
+  for(const m of MODES) for(let s=0;s<2;s++){ const c=hCount[m][s], e=hEMA[m][s]; for(let b=0;b<NB;b++) e[b]=e[b]*(1-a)+c[b]*a; }
+  emaInit=true;
+  // Boltzmann H from the (smoothed) speed histogram: H = Σ_s (N_s/N) ∫ g ln(g/2πv) dv
+  const dv=vs/NB; let Hs=0;
+  for(let s=0;s<2;s++){
+    const ns=s?meas.nH:meas.nL; if(!ns) continue;
+    let Hp=0; const e=hEMA.speed[s];
+    for(let b=0;b<NB;b++){ const c=e[b]; if(c>1e-9){ const g=c/(ns*dv), v=(b+0.5)*dv; Hp+=g*Math.log(g/(TAU*v))*dv; } }
+    Hs+=Hp*ns/N;
+  }
+  meas.H=Hs;
+  let Heq=0;
+  if(meas.nL) Heq+=(meas.nL/N)*(Math.log(1/(TAU*T))-1);
+  if(meas.nH) Heq+=(meas.nH/N)*(Math.log(sim.massRatio/(TAU*T))-1);
+  meas.Heq=Heq;
+}
+function record(){
+  pHist[histI]=meas.Pwin; piHist[histI]=meas.Pideal; hHist[histI]=meas.H;
+  histI=(histI+1)%HIST; histN=Math.min(histN+1,HIST);
+}
+
+/* ---------------- sketch ---------------- */
+const stage=$('stage');
+const L={};
+const sketch=p=>{
+  const ctx=()=>p.drawingContext;
+
+  p.setup=()=>{
+    p.createCanvas(Math.max(320,stage.clientWidth), Math.max(240,stage.clientHeight));
+    p.pixelDensity(1);
+    p.textFont('system-ui, -apple-system, Segoe UI, Roboto, sans-serif');
+    layout(); initAll(); syncOutputs();
+  };
+  p.windowResized=()=>{ p.resizeCanvas(Math.max(320,stage.clientWidth), Math.max(240,stage.clientHeight)); layout(); };
+
+  function layout(){
+    const cw=p.width, ch=p.height;
+    L.PW=Math.max(250,Math.min(360,Math.floor(cw*0.34)));
+    L.box={x:14,y:14,w:cw-L.PW-36,h:ch-28};
+    const wmax=Math.max(200,Math.floor(L.box.w/10)*10), hmax=Math.max(150,Math.floor(L.box.h/10)*10);
+    $('bw').max=wmax; $('bh').max=hmax;
+    if(sim.boxW>wmax){ sim.boxW=wmax; $('bw').value=wmax; }
+    if(sim.boxH>hmax){ sim.boxH=hmax; $('bh').value=hmax; }
+    syncOutputs();
+    L.px=cw-L.PW-12; L.py=14; L.pw=L.PW-2;
+    const total=ch-28, gap=10;
+    L.h1=Math.floor((total-2*gap)*0.42); L.h2=Math.floor((total-2*gap)*0.29); L.h3=total-2*gap-L.h1-L.h2; L.gap=gap;
+  }
+
+  p.draw=()=>{
+    if(!sim.paused && N>0){ step(1); measure(); histograms(); record(); }
+    else if(N>0 && histN===0){ measure(); histograms(); }
+    p.background(15,18,24);
+    drawBox();
+    drawHistogram(L.px,L.py,L.pw,L.h1);
+    drawPressure(L.px,L.py+L.h1+L.gap,L.pw,L.h2);
+    drawH(L.px,L.py+L.h1+L.h2+2*L.gap,L.pw,L.h3);
+    if(p.frameCount%5===0) updateStats();
+  };
+
+  function drawBox(){
+    const bx=Math.floor(L.box.x+(L.box.w-sim.boxW)/2), by=Math.floor(L.box.y+(L.box.h-sim.boxH)/2);
+    p.noStroke(); p.fill(20,24,32); p.rect(bx,by,sim.boxW,sim.boxH);
+    const c=ctx(); c.save(); c.translate(bx,by);
+    if(!sim.colorBySpeed){
+      for(let s=0;s<2;s++){
+        c.fillStyle=s?COL.heavy:COL.light; c.beginPath();
+        for(let i=0;i<N;i++){ if(SP[i]!==s) continue; c.moveTo(X[i]+RA[i],Y[i]); c.arc(X[i],Y[i],RA[i],0,TAU); }
+        c.fill();
+      }
+    } else {
+      const NBK=24, vref=2.2*Math.sqrt(2*Math.max(meas.T,1e-9)); // ~ light-species scale
+      for(let i=0;i<N;i++){ const v=Math.sqrt(VX[i]*VX[i]+VY[i]*VY[i]); let k=(v/vref*NBK)|0; if(k>=NBK)k=NBK-1; BK[i]=k; }
+      for(let k=0;k<NBK;k++){
+        const h=240-240*(k/(NBK-1)); c.fillStyle=`hsl(${h},85%,60%)`; c.beginPath(); let any=false;
+        for(let i=0;i<N;i++){ if(BK[i]!==k) continue; any=true; c.moveTo(X[i]+RA[i],Y[i]); c.arc(X[i],Y[i],RA[i],0,TAU); }
+        if(any) c.fill();
+      }
+    }
+    c.restore();
+    p.noFill(); p.stroke(80,90,110); p.strokeWeight(1); p.rect(bx+0.5,by+0.5,sim.boxW-1,sim.boxH-1);
+    p.noStroke(); p.fill(140,150,170); p.textSize(11); p.textAlign(p.LEFT,p.BOTTOM);
+    p.text(`box ${sim.boxW}×${sim.boxH} px · N=${N} (${meas.nL} light, ${meas.nH} heavy) · η=${fmt(meas.eta,3)}${sim.collisions?'':' · collisions OFF'}${sim.paused?' · PAUSED':''}`, bx, by-3);
+    if(sim.colorBySpeed){
+      p.textAlign(p.RIGHT,p.TOP); p.text('colour: slow (blue) → fast (red)', bx+sim.boxW, by+sim.boxH+4);
+    } else {
+      p.textAlign(p.LEFT,p.TOP); p.fill(92,200,255); p.text('● light, m=1', bx, by+sim.boxH+4);
+      if(meas.nH){ p.fill(255,177,92); p.text(`● heavy, m=${sim.massRatio}`, bx+90, by+sim.boxH+4); }
+    }
+  }
+
+  function panel(x,y,w,h,title,subtitle){
+    p.noStroke(); p.fill(22,27,36); p.rect(x,y,w,h,4);
+    p.fill(200,208,222); p.textSize(11.5); p.textAlign(p.LEFT,p.TOP); p.text(title,x+8,y+6);
+    if(subtitle){ p.fill(120,130,150); p.textSize(10.5); p.text(subtitle,x+8,y+20); }
+  }
+  function dash(on){ ctx().setLineDash(on?[4,4]:[]); }
+
+  function drawHistogram(x,y,w,h){
+    const mode=sim.hist;
+    const titles={speed:['Speed distribution','2D Maxwell–Boltzmann  f(v) = (m v / T) e^(−m v² / 2T)'],
+                  vx:['Velocity component vₓ','Gaussian, σ² = T/m  (per species)'],
+                  energy:['Kinetic energy distribution','Boltzmann  f(E) = e^(−E/T) / T  — same for every species']};
+    panel(x,y,w,h,titles[mode][0],titles[mode][1]);
+    if(N===0) return;
+    const [lo,hi]=range[mode], dv=(hi-lo)/NB;
+    const ml=40, mr=10, mt=40, mb=28, pw=w-ml-mr, ph=h-mt-mb, ox=x+ml, oy=y+mt+ph;
+    const T=Math.max(meas.T,1e-9), fL=meas.nL/N, fH=meas.nH/N, mH=sim.massRatio;
+    const dens=(m,u)=>{
+      if(mode==='speed') return u<0?0:(m*u/T)*Math.exp(-m*u*u/(2*T));
+      if(mode==='vx') return Math.sqrt(m/(TAU*T))*Math.exp(-m*u*u/(2*T));
+      return u<0?0:Math.exp(-u/T)/T;
+    };
+    const K=120, th=new Float64Array(K+1), thL=new Float64Array(K+1), thH=new Float64Array(K+1);
+    let ymax=1e-12;
+    for(let k=0;k<=K;k++){ const u=lo+(hi-lo)*k/K; thL[k]=fL*dens(1,u); thH[k]=fH*dens(mH,u); th[k]=thL[k]+thH[k]; if(th[k]>ymax) ymax=th[k]; }
+    const dL=new Float64Array(NB), dH=new Float64Array(NB);
+    for(let b=0;b<NB;b++){ dL[b]=hEMA[mode][0][b]/(N*dv); dH[b]=hEMA[mode][1][b]/(N*dv); if(dL[b]+dH[b]>ymax) ymax=dL[b]+dH[b]; }
+    ymax*=1.08;
+    // bars
+    p.noStroke();
+    const bw=pw/NB;
+    for(let b=0;b<NB;b++){
+      const x0=ox+b*bw; let yb=oy;
+      if(sim.showSpecies){
+        const hL=dL[b]/ymax*ph, hH=dH[b]/ymax*ph;
+        p.fill(COL.lightA); p.rect(x0+0.5,yb-hL,bw-1,hL); yb-=hL;
+        p.fill(COL.heavyA); p.rect(x0+0.5,yb-hH,bw-1,hH);
+      } else {
+        const ht=(dL[b]+dH[b])/ymax*ph; p.fill(COL.total); p.rect(x0+0.5,yb-ht,bw-1,ht);
+      }
+    }
+    // theory
+    p.noFill(); p.strokeWeight(1.6); p.stroke(245,247,250);
+    p.beginShape(); for(let k=0;k<=K;k++) p.vertex(ox+pw*k/K, oy-th[k]/ymax*ph); p.endShape();
+    if(sim.showSpecies && fL>0 && fH>0){
+      p.strokeWeight(1); dash(true);
+      p.stroke(COL.light); p.beginShape(); for(let k=0;k<=K;k++) p.vertex(ox+pw*k/K, oy-thL[k]/ymax*ph); p.endShape();
+      p.stroke(COL.heavy); p.beginShape(); for(let k=0;k<=K;k++) p.vertex(ox+pw*k/K, oy-thH[k]/ymax*ph); p.endShape();
+      dash(false);
+    }
+    // axes
+    p.stroke(70,78,95); p.strokeWeight(1); p.line(ox,oy+0.5,ox+pw,oy+0.5); p.line(ox+0.5,y+mt,ox+0.5,oy);
+    p.noStroke(); p.fill(130,140,160); p.textSize(10); p.textAlign(p.CENTER,p.TOP);
+    for(let k=0;k<=4;k++){ const u=lo+(hi-lo)*k/4; p.text(fmt(u,u>=10?0:1), ox+pw*k/4, oy+4); }
+    const xl={speed:'speed v (px / frame)',vx:'vₓ (px / frame)',energy:'E = ½ m v²  (T units: T = '+fmt(T,2)+')'}[mode];
+    p.text(xl, ox+pw/2, oy+14);
+    p.textAlign(p.RIGHT,p.CENTER); p.text(fmt(ymax,2), ox-4, y+mt); p.text('0', ox-4, oy);
+    p.push(); p.translate(x+10, y+mt+ph/2); p.rotate(-Math.PI/2); p.textAlign(p.CENTER,p.CENTER); p.text('probability density', 0, 0); p.pop();
+    p.textAlign(p.RIGHT,p.TOP); p.fill(245); p.text('— theory at measured T', x+w-8, y+6);
+    if(sim.hist==='speed') { p.fill(130,140,160); p.text('⟨v⟩ = '+fmt(meas.meanV,2)+'   v_rms,light = '+fmt(Math.sqrt(2*T),2), x+w-8, y+20); }
+  }
+
+  function seriesBounds(){ // returns [ymin,ymax] over pressure data
+    let ymax=1e-9;
+    for(let k=0;k<histN;k++){ const idx=(histI-histN+k+HIST)%HIST; ymax=Math.max(ymax,pHist[idx],piHist[idx]*meas.Zhd); }
+    return ymax*1.15;
+  }
+  function plotSeries(arr, scale, ox, oy, pw, ph, col, dashed, mul){
+    mul=mul||1; p.noFill(); p.stroke(col); p.strokeWeight(1.3); dash(!!dashed);
+    p.beginShape();
+    for(let k=0;k<histN;k++){ const idx=(histI-histN+k+HIST)%HIST; const xk=ox+pw*(HIST-histN+k)/(HIST-1); p.vertex(xk, oy-scale(arr[idx]*mul)*ph); }
+    p.endShape(); dash(false);
+  }
+  function axes(ox,oy,pw,ph,top,y0lab,y1lab,xlab){
+    p.stroke(70,78,95); p.strokeWeight(1); p.line(ox,oy+0.5,ox+pw,oy+0.5); p.line(ox+0.5,top,ox+0.5,oy);
+    p.noStroke(); p.fill(130,140,160); p.textSize(10); p.textAlign(p.RIGHT,p.CENTER); p.text(y1lab,ox-4,top); p.text(y0lab,ox-4,oy);
+    p.textAlign(p.CENTER,p.TOP); p.text(xlab,ox+pw/2,oy+4);
+  }
+
+  function drawPressure(x,y,w,h){
+    panel(x,y,w,h,'Wall pressure  P = Σ impulse / (Δt · perimeter)','2D ideal gas: P A = N T.  Dense hard disks: P = Z_HD · N T / A');
+    if(N===0) return;
+    const ml=44, mr=10, mt=40, mb=24, pw=w-ml-mr, ph=h-mt-mb, ox=x+ml, oy=y+mt+ph;
+    const ymax=seriesBounds(); const sc=v=>Math.max(0,Math.min(1,v/ymax));
+    plotSeries(piHist, sc, ox,oy,pw,ph, 'rgb(150,160,180)', true);
+    plotSeries(piHist, sc, ox,oy,pw,ph, 'rgb(230,120,230)', true, meas.Zhd);
+    plotSeries(pHist, sc, ox,oy,pw,ph, 'rgb(123,211,137)', false);
+    // running average marker
+    p.stroke(123,211,137,140); dash(true); p.line(ox, oy-sc(meas.Pavg)*ph, ox+pw, oy-sc(meas.Pavg)*ph); dash(false);
+    axes(ox,oy,pw,ph,y+mt,'0',fmt(ymax,3),'last 300 frames');
+    p.textAlign(p.RIGHT,p.TOP); p.textSize(10);
+    p.fill(123,211,137); p.text('measured (1 s window)  P = '+fmt(meas.Pwin,4), x+w-8, y+mt-6);
+    p.fill(150,160,180); p.text('ideal N T / A = '+fmt(meas.Pideal,4), x+w-8, y+mt+5);
+    p.fill(230,120,230); p.text('Henderson hard-disk  Z = '+fmt(meas.Zhd,3), x+w-8, y+mt+16);
+  }
+
+  function drawH(x,y,w,h){
+    panel(x,y,w,h,'Boltzmann H-function  H = ∫ f ln f d²v','H-theorem: dH/dt ≤ 0, with equality only at the Maxwell–Boltzmann state');
+    if(N===0||histN<2) return;
+    const ml=44, mr=10, mt=40, mb=24, pw=w-ml-mr, ph=h-mt-mb, ox=x+ml, oy=y+mt+ph;
+    let lo=meas.Heq, hi=meas.Heq;
+    for(let k=0;k<histN;k++){ const v=hHist[(histI-histN+k+HIST)%HIST]; if(v<lo)lo=v; if(v>hi)hi=v; }
+    const pad=Math.max(0.05,(hi-lo)*0.15); lo-=pad; hi+=pad;
+    const sc=v=>Math.max(0,Math.min(1,(v-lo)/(hi-lo)));
+    p.stroke(150,160,180); dash(true); p.line(ox, oy-sc(meas.Heq)*ph, ox+pw, oy-sc(meas.Heq)*ph); dash(false);
+    plotSeries(hHist, sc, ox,oy,pw,ph, 'rgb(255,177,92)', false);
+    axes(ox,oy,pw,ph,y+mt,fmt(lo,2),fmt(hi,2),'last 300 frames');
+    p.textAlign(p.RIGHT,p.TOP); p.textSize(10);
+    p.fill(255,177,92); p.text('H = '+fmt(meas.H,3), x+w-8, y+mt-6);
+    p.fill(150,160,180); p.text('equilibrium  H_eq = '+fmt(meas.Heq,3), x+w-8, y+mt+5);
+  }
+
+  /* ---------------- stats table ---------------- */
+  const statDefs=[
+    ['N  (light / heavy)','sN'],['time t (frames)','sT'],['sub-steps per frame','sSub'],['frames / s','sFps'],
+    ['T = ⟨½ m v²⟩','sTemp'],['T  light species','sTL'],['T  heavy species','sTH'],
+    ['E total','sE'],['E drift since reset','sDrift'],
+    ['P  (1 s window)','sP'],['P  (running average)','sPavg'],['P ideal = N T / A','sPi'],
+    ['Z = P_avg / P_ideal','sZ'],['Z  Henderson hard-disk','sZhd'],['packing fraction η','sEta'],
+    ['collisions / particle / frame','sCol'],['   Enskog estimate (light)','sColTh'],
+    ['mean free path λ (px)','sMfp'],['   theory (light)','sMfpTh'],
+    ['H  (from speed histogram)','sH'],['H  at equilibrium','sHeq']];
+  const S={};
+  (function(){ const tb=$('stats'); for(const [lab,id] of statDefs){ const tr=document.createElement('tr'); const a=document.createElement('td'); a.textContent=lab; const b=document.createElement('td'); b.id=id; tr.append(a,b); tb.appendChild(tr); S[id]=b; } })();
+  function updateStats(){
+    S.sN.textContent=`${N}  (${meas.nL} / ${meas.nH})`;
+    S.sT.textContent=time.toFixed(0);
+    S.sSub.textContent=meas.nsub;
+    S.sFps.textContent=p.frameRate().toFixed(0);
+    S.sTemp.textContent=fmt(meas.T,3);
+    S.sTL.textContent=fmt(meas.TL,3); S.sTH.textContent=fmt(meas.TH,3);
+    S.sE.textContent=fmt(meas.E,1);
+    const drift=E0>0?(meas.E-E0)/E0:0; S.sDrift.textContent=(drift*100).toExponential(2)+' %';
+    S.sP.textContent=fmt(meas.Pwin,4); S.sPavg.textContent=fmt(meas.Pavg,4); S.sPi.textContent=fmt(meas.Pideal,4);
+    S.sZ.textContent=fmt(meas.Z,3); S.sZhd.textContent=fmt(meas.Zhd,3); S.sEta.textContent=fmt(meas.eta,3);
+    S.sCol.textContent=sim.collisions?fmt(meas.collRate,4):'off'; S.sColTh.textContent=fmt(meas.collTh,4);
+    S.sMfp.textContent=sim.collisions?fmt(meas.mfp,1):'∞'; S.sMfpTh.textContent=fmt(meas.mfpTh,1);
+    S.sH.textContent=fmt(meas.H,3); S.sHeq.textContent=fmt(meas.Heq,3);
+  }
+
+  /* ---------------- keyboard ---------------- */
+  p.keyPressed=()=>{
+    const tag=(document.activeElement&&document.activeElement.tagName)||'';
+    if(tag==='INPUT'||tag==='SELECT'||tag==='TEXTAREA') return;
+    const k=p.key.toLowerCase();
+    if(p.key===' '){ togglePause(); return false; }
+    if(k==='c'){ $('coll').checked=!$('coll').checked; sim.collisions=$('coll').checked; resetStats(); }
+    else if(k==='r'){ initAll(); }
+    else if(k==='h'){ const i=MODES.indexOf(sim.hist); sim.hist=MODES[(i+1)%MODES.length]; $('hist').value=sim.hist; }
+    else if(k==='v'){ $('cbs').checked=!$('cbs').checked; sim.colorBySpeed=$('cbs').checked; }
+  };
+};
+
+/* ---------------- controls ---------------- */
+function togglePause(){ sim.paused=!sim.paused; $('pause').textContent=sim.paused?'Resume':'Pause'; }
+function syncOutputs(){
+  $('N_o').textContent=sim.N; $('T_o').textContent=fmt(sim.T,2); $('r_o').textContent=sim.rLight.toFixed(1);
+  $('hf_o').textContent=sim.heavyFrac.toFixed(2); $('mr_o').textContent=sim.massRatio.toFixed(1); $('hr_o').textContent=sim.heavyRMul.toFixed(1);
+  $('bw_o').textContent=sim.boxW; $('bh_o').textContent=sim.boxH;
+}
+function onRange(id, fn){ $(id).addEventListener('input', e=>{ fn(parseFloat(e.target.value)); syncOutputs(); }); }
+onRange('N', v=>{ sim.N=v; initAll(); });
+onRange('T', v=>{ sim.T=Math.pow(2,v); setTemperature(sim.T); resetStats(); });
+onRange('r', v=>{ sim.rLight=v; applyRadii(); resetStats(); });
+onRange('hf', v=>{ sim.heavyFrac=v; initAll(); });
+onRange('mr', v=>{ sim.massRatio=v; initAll(); });
+onRange('hr', v=>{ sim.heavyRMul=v; applyRadii(); resetStats(); });
+onRange('bw', v=>{ sim.boxW=v; resetStats(); });
+onRange('bh', v=>{ sim.boxH=v; resetStats(); });
+$('init').addEventListener('change', e=>{ sim.initMode=e.target.value; initAll(); });
+$('coll').addEventListener('change', e=>{ sim.collisions=e.target.checked; resetStats(); });
+$('cbs').addEventListener('change', e=>{ sim.colorBySpeed=e.target.checked; });
+$('species').addEventListener('change', e=>{ sim.showSpecies=e.target.checked; });
+$('hist').addEventListener('change', e=>{ sim.hist=e.target.value; });
+$('pause').addEventListener('click', ()=>{ togglePause(); $('pause').blur(); });
+$('reset').addEventListener('click', ()=>{ initAll(); $('reset').blur(); });
+
+new p5(sketch, stage);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,2119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Floating Keep — a miniature diorama</title>
+<style>
+  :root{
+    --ink:#2b2118;
+    --cream:#f6ecd9;
+    --amber:#e0a13c;
+    --glass:rgba(28,22,17,.42);
+    --stroke:rgba(255,244,224,.22);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;overflow:hidden;background:#0d1418;}
+  body{
+    font-family:"Segoe UI",-apple-system,BlinkMacSystemFont,Roboto,"Helvetica Neue",Arial,sans-serif;
+    color:var(--cream);
+    -webkit-font-smoothing:antialiased;
+  }
+  #renderCanvas{position:fixed;inset:0;width:100%;height:100%;display:block;outline:none;touch-action:none;}
+
+  /* ---------- overlay chrome ---------- */
+  .hud{position:fixed;inset:0;pointer-events:none;z-index:10;}
+  .hud > *{pointer-events:auto;}
+
+  .brand{
+    position:absolute;top:20px;left:22px;max-width:min(70vw,420px);
+    text-shadow:0 2px 14px rgba(0,0,0,.55);
+  }
+  .brand h1{
+    margin:0;font-size:26px;font-weight:700;letter-spacing:.3px;
+    background:linear-gradient(180deg,#fff8ea,#e9c489);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+  }
+  .brand p{margin:4px 0 0;font-size:12.5px;opacity:.78;letter-spacing:.4px;}
+
+  .panel{
+    background:var(--glass);
+    border:1px solid var(--stroke);
+    border-radius:12px;
+    backdrop-filter:blur(12px) saturate(1.2);
+    -webkit-backdrop-filter:blur(12px) saturate(1.2);
+    box-shadow:0 8px 28px rgba(0,0,0,.35);
+  }
+  .tools{position:absolute;top:20px;right:22px;display:flex;gap:8px;}
+  .tools button{
+    width:38px;height:38px;border-radius:10px;border:1px solid var(--stroke);
+    background:var(--glass);color:var(--cream);cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
+    backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+    transition:background .16s ease,transform .16s ease,border-color .16s ease;
+  }
+  .tools button:hover{background:rgba(60,48,38,.62);transform:translateY(-1px);border-color:rgba(255,244,224,.4);}
+  .tools button:active{transform:translateY(0)}
+  .tools button.on{background:rgba(224,161,60,.32);border-color:rgba(224,161,60,.7);color:#ffe3ae;}
+  .tools svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;}
+
+  .legend{
+    position:absolute;left:22px;bottom:20px;font-size:11.5px;letter-spacing:.3px;
+    padding:9px 13px;display:flex;gap:16px;flex-wrap:wrap;max-width:min(92vw,560px);
+  }
+  .legend span{display:flex;align-items:center;gap:7px;opacity:.88}
+  .legend kbd{
+    font:inherit;font-size:10.5px;padding:2px 6px;border-radius:5px;
+    background:rgba(255,246,228,.14);border:1px solid var(--stroke);
+  }
+
+  .badge{
+    position:absolute;right:22px;bottom:20px;font-size:11px;letter-spacing:.5px;
+    padding:8px 12px;opacity:.7;
+  }
+
+  /* ---------- loader ---------- */
+  #loader{
+    position:fixed;inset:0;z-index:40;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:18px;
+    background:radial-gradient(120% 90% at 50% 30%,#2b3f4d 0%,#131c24 60%,#0b1116 100%);
+    transition:opacity .7s ease,visibility .7s;
+  }
+  #loader.done{opacity:0;visibility:hidden;}
+  #loader .crest{
+    width:64px;height:64px;border-radius:16px;
+    background:linear-gradient(160deg,#e0a13c,#b9762a);
+    display:flex;align-items:center;justify-content:center;
+    box-shadow:0 12px 34px rgba(0,0,0,.5);
+    animation:float 2.6s ease-in-out infinite;
+  }
+  #loader .crest svg{width:34px;height:34px;stroke:#2b2118;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;}
+  @keyframes float{0%,100%{transform:translateY(-4px)}50%{transform:translateY(4px)}}
+  #loader h2{margin:0;font-size:17px;font-weight:600;letter-spacing:1.6px;text-transform:uppercase;color:#f6ecd9;}
+  #loader .bar{width:210px;height:3px;border-radius:2px;background:rgba(255,244,224,.16);overflow:hidden;}
+  #loader .bar i{display:block;height:100%;width:0%;background:linear-gradient(90deg,#e0a13c,#ffe3ae);transition:width .3s ease;}
+  #loader small{font-size:11.5px;opacity:.6;letter-spacing:.6px;}
+
+  @media (max-width:640px){
+    .landmark-card{max-width:190px;padding:9px 11px}
+    .landmark-card h3{font-size:12.5px}
+    .landmark-card p{font-size:11px}
+    .brand h1{font-size:20px}
+    .brand p{display:none}
+    .legend{display:none}
+    .badge{display:none}
+    .tools{top:14px;right:14px}
+    .brand{top:16px;left:16px}
+  }
+</style>
+</head>
+<body>
+<canvas id="renderCanvas" touch-action="none"></canvas>
+
+<div class="hud">
+  <div class="brand">
+    <h1>Floating Keep</h1>
+    <p>A handcrafted miniature diorama &mdash; castle, village &amp; river isle</p>
+  </div>
+
+  <div class="tools">
+    <button id="btnSpin" class="on" title="Toggle slow auto-orbit">
+      <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3.2-6.9"/><path d="M21 4v5h-5"/></svg>
+    </button>
+    <button id="btnReset" title="Reset the view">
+      <svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.6-5.9"/><path d="M4 4v5h5"/></svg>
+    </button>
+    <button id="btnShot" title="Save a screenshot">
+      <svg viewBox="0 0 24 24"><path d="M4 8.5h3l1.6-2.2h6.8L17 8.5h3v10H4z"/><circle cx="12" cy="13" r="3.4"/></svg>
+    </button>
+  </div>
+
+  <div class="legend panel">
+    <span><kbd>drag</kbd> orbit</span>
+    <span><kbd>scroll</kbd> zoom</span>
+    <span><kbd>right-drag</kbd> pan</span>
+    <span><kbd>tap</kbd> a landmark to inspect</span>
+  </div>
+
+  <div class="badge panel" id="badge">building the diorama&hellip;</div>
+</div>
+
+<div id="loader">
+  <div class="crest">
+    <svg viewBox="0 0 24 24"><path d="M5 21V9l4-3V3h6v3l4 3v12z"/><path d="M3 21h18"/><path d="M10 13h4v4h-4z"/></svg>
+  </div>
+  <h2>Floating Keep</h2>
+  <div class="bar"><i id="loadBar"></i></div>
+  <small id="loadMsg">warming up the forge&hellip;</small>
+</div>
+
+<script src="https://cdn.babylonjs.com/babylon.js"></script>
+<style>
+  .landmark-card{
+    position:fixed;left:0;top:0;z-index:20;pointer-events:none;
+    max-width:250px;padding:11px 14px;border-radius:11px;
+    background:rgba(28,22,17,.62);border:1px solid rgba(255,244,224,.24);
+    backdrop-filter:blur(12px) saturate(1.2);-webkit-backdrop-filter:blur(12px) saturate(1.2);
+    box-shadow:0 10px 30px rgba(0,0,0,.4);
+    opacity:0;transition:opacity .25s ease;
+  }
+  .landmark-card.show{opacity:1}
+  .landmark-card h3{margin:0 0 4px;font-size:13.5px;letter-spacing:.4px;color:#ffe3ae;}
+  .landmark-card p{margin:0;font-size:11.5px;line-height:1.45;color:rgba(246,236,217,.82);}
+</style>
+<script>
+/* =====================================================================
+   FLOATING KEEP — a procedural Babylon.js diorama
+   1) engine / scene / lights / camera / post-processing
+   2) procedural textures + materials
+   3) mesh helper utilities
+   ===================================================================== */
+'use strict';
+
+const canvas = document.getElementById('renderCanvas');
+const engine = new BABYLON.Engine(canvas, true, {
+  preserveDrawingBuffer: true, stencil: true, antialias: true,
+  powerPreference: 'high-performance'
+}, true);
+const scene = new BABYLON.Scene(engine);
+scene.clearColor = new BABYLON.Color4(0.63, 0.79, 0.90, 1);
+scene.ambientColor = new BABYLON.Color3(0.30, 0.33, 0.38);
+scene.fogMode = BABYLON.Scene.FOGMODE_EXP2;
+scene.fogDensity = 0.0022;
+scene.fogColor = new BABYLON.Color3(0.72, 0.83, 0.90);
+scene.skipPointerMovePicking = true;
+
+/* ------------------------------- camera ------------------------------- */
+const camera = new BABYLON.ArcRotateCamera('cam', -1.74, 1.235, 40,
+  new BABYLON.Vector3(0, -0.9, 0), scene);
+camera.attachControl(canvas, true);
+camera.lowerRadiusLimit = 13;
+camera.upperRadiusLimit = 88;
+camera.lowerBetaLimit = 0.14;
+camera.upperBetaLimit = Math.PI / 2 - 0.015;
+camera.wheelDeltaPercentage = 0.015;
+camera.pinchDeltaPercentage = 0.01;
+camera.panningSensibility = 260;
+camera.inertia = 0.84;
+camera.angularSensibilityX = 900;
+camera.angularSensibilityY = 900;
+camera.minZ = 0.4;
+camera.maxZ = 2000;
+
+/* ------------------------------- lights ------------------------------- */
+const hemi = new BABYLON.HemisphericLight('hemi', new BABYLON.Vector3(0.12, 1, 0.18), scene);
+hemi.diffuse = new BABYLON.Color3(1.0, 0.97, 0.90);
+hemi.groundColor = new BABYLON.Color3(0.38, 0.44, 0.34);
+hemi.specular = new BABYLON.Color3(0.16, 0.16, 0.16);
+hemi.intensity = 0.74;
+
+const sun = new BABYLON.DirectionalLight('sun', new BABYLON.Vector3(-0.40, -0.84, 0.36), scene);
+sun.position = new BABYLON.Vector3(26, 40, -22);
+sun.diffuse = new BABYLON.Color3(1.0, 0.94, 0.82);
+sun.specular = new BABYLON.Color3(0.5, 0.46, 0.4);
+sun.intensity = 1.42;
+sun.shadowMinZ = 6;
+sun.shadowMaxZ = 120;
+
+const shadows = new BABYLON.ShadowGenerator(2048, sun);
+shadows.useBlurExponentialShadowMap = true;
+shadows.blurKernel = 28;
+shadows.depthScale = 42;
+shadows.setDarkness(0.40);
+
+/* -------------------------- post-processing -------------------------- */
+const pipeline = new BABYLON.DefaultRenderingPipeline('post', true, scene, [camera]);
+pipeline.samples = 4;
+pipeline.fxaaEnabled = true;
+pipeline.bloomEnabled = true;
+pipeline.bloomThreshold = 0.85;
+pipeline.bloomWeight = 0.30;
+pipeline.bloomKernel = 44;
+pipeline.bloomScale = 0.6;
+pipeline.imageProcessingEnabled = true;
+pipeline.imageProcessing.contrast = 1.2;
+pipeline.imageProcessing.exposure = 1.14;
+pipeline.imageProcessing.toneMappingEnabled = true;
+pipeline.imageProcessing.toneMappingType = BABYLON.ImageProcessingConfiguration.TONEMAPPING_ACES;
+pipeline.imageProcessing.vignetteEnabled = true;
+pipeline.imageProcessing.vignetteWeight = 3.4;
+pipeline.imageProcessing.vignetteStretch = 0.35;
+pipeline.imageProcessing.vignetteColor = new BABYLON.Color4(0.04, 0.035, 0.03, 1);
+pipeline.depthOfFieldEnabled = true;
+pipeline.depthOfFieldBlurLevel = BABYLON.DepthOfFieldEffectBlurLevel.Low;
+pipeline.depthOfField.focalLength = 40;
+pipeline.depthOfField.fStop = 3.4;
+pipeline.depthOfField.focusDistance = camera.radius * 1000;
+
+/* =====================================================================
+   2) procedural textures
+   ===================================================================== */
+function dynTex(name, size, draw) {
+  const t = new BABYLON.DynamicTexture(name, { width: size, height: size }, scene, true,
+    BABYLON.Texture.TRILINEAR_SAMPLINGMODE);
+  const ctx = t.getContext();
+  ctx.clearRect(0, 0, size, size);
+  draw(ctx, size);
+  t.update();
+  t.wrapU = BABYLON.Texture.WRAP_ADDRESSMODE;
+  t.wrapV = BABYLON.Texture.WRAP_ADDRESSMODE;
+  t.anisotropicFilteringLevel = 8;
+  return t;
+}
+function hex(c) { return BABYLON.Color3.FromHexString(c); }
+function shade(c, v) {
+  const r = Math.min(255, Math.round(c.r * 255 * v));
+  const g = Math.min(255, Math.round(c.g * 255 * v));
+  const b = Math.min(255, Math.round(c.b * 255 * v));
+  return 'rgb(' + r + ',' + g + ',' + b + ')';
+}
+function rrect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+function rnd(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/* ---- masonry ---- */
+function stoneTexture(base, mortar, seed, blocks) {
+  const c = hex(base);
+  return dynTex('stone' + seed, 512, function (ctx, S) {
+    ctx.fillStyle = mortar;
+    ctx.fillRect(0, 0, S, S);
+    const rows = blocks || 7, bh = S / rows;
+    const r = rnd(seed);
+    for (let row = 0; row < rows; row++) {
+      const off = (row % 2) * bh * 0.95;
+      for (let x = -bh * 2; x < S; x += bh * 1.9) {
+        const v = 0.90 + r() * 0.20;
+        ctx.fillStyle = shade(c, v);
+        rrect(ctx, x + off + 2, row * bh + 2, bh * 1.9 - 4.5, bh - 4.5, 2.5);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,.10)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    }
+    for (let i = 0; i < 3200; i++) {
+      ctx.fillStyle = 'rgba(0,0,0,' + (r() * 0.045) + ')';
+      ctx.fillRect(r() * S, r() * S, 2, 2);
+    }
+    for (let i = 0; i < 260; i++) {
+      ctx.fillStyle = 'rgba(90,110,60,' + (r() * 0.05) + ')';
+      ctx.fillRect(r() * S, r() * S, 5, 4);
+    }
+  });
+}
+
+/* ---- timber planks ---- */
+function woodTexture(base, seed, planks) {
+  const c = hex(base);
+  return dynTex('wood' + seed, 256, function (ctx, S) {
+    const r = rnd(seed);
+    ctx.fillStyle = shade(c, 0.85);
+    ctx.fillRect(0, 0, S, S);
+    const ph = S / (planks || 6);
+    for (let p = 0; p < (planks || 6); p++) {
+      const v = 0.88 + r() * 0.26;
+      ctx.fillStyle = shade(c, v);
+      ctx.fillRect(0, p * ph + 1, S, ph - 2);
+      ctx.strokeStyle = 'rgba(0,0,0,.22)';
+      ctx.lineWidth = 1;
+      for (let g = 0; g < 6; g++) {
+        ctx.beginPath();
+        const y = p * ph + 2 + r() * (ph - 4);
+        ctx.moveTo(0, y);
+        ctx.bezierCurveTo(S * 0.3, y + 2.5, S * 0.65, y - 2.5, S, y + 1);
+        ctx.stroke();
+      }
+      // knots
+      if (r() > 0.72) {
+        const kx = r() * S, ky = p * ph + ph * 0.5, kr = 2 + r() * 3;
+        ctx.fillStyle = 'rgba(60,35,18,.45)';
+        ctx.beginPath(); ctx.ellipse(kx, ky, kr * 1.5, kr, 0, 0, 7); ctx.fill();
+      }
+    }
+  });
+}
+
+/* ---- roof shingles ---- */
+function shingleTexture(base, seed) {
+  const c = hex(base);
+  return dynTex('shingle' + seed, 256, function (ctx, S) {
+    const r = rnd(seed);
+    ctx.fillStyle = shade(c, 0.78);
+    ctx.fillRect(0, 0, S, S);
+    const rows = 9, rh = S / rows;
+    for (let row = 0; row < rows; row++) {
+      const off = (row % 2) * (S / 12);
+      for (let x = -S / 6; x < S; x += S / 6) {
+        const v = 0.86 + r() * 0.28;
+        ctx.fillStyle = shade(c, v);
+        rrect(ctx, x + off, row * rh - 1, S / 6 - 2, rh + 2, 2.5);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,.16)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    }
+  });
+}
+
+/* ---- plaster / daub walls ---- */
+function plasterTexture(base, seed) {
+  const c = hex(base);
+  return dynTex('plaster' + seed, 256, function (ctx, S) {
+    const r = rnd(seed);
+    ctx.fillStyle = shade(c, 1);
+    ctx.fillRect(0, 0, S, S);
+    for (let i = 0; i < 2600; i++) {
+      const v = 0.90 + r() * 0.20;
+      ctx.fillStyle = 'rgba(' + Math.round(255 * v) + ',' + Math.round(245 * v) + ',' + Math.round(225 * v) + ',' + (r() * 0.35) + ')';
+      ctx.fillRect(r() * S, r() * S, 3, 3);
+    }
+    for (let i = 0; i < 14; i++) {
+      ctx.strokeStyle = 'rgba(120,100,80,.16)';
+      ctx.lineWidth = 1 + r();
+      ctx.beginPath();
+      let x = r() * S, y = r() * S;
+      ctx.moveTo(x, y);
+      for (let k = 0; k < 5; k++) { x += (r() - 0.5) * 40; y += (r() - 0.5) * 40; ctx.lineTo(x, y); }
+      ctx.stroke();
+    }
+  });
+}
+
+/* ---- thatch ---- */
+function thatchTexture(base, seed) {
+  const c = hex(base);
+  return dynTex('thatch' + seed, 256, function (ctx, S) {
+    const r = rnd(seed);
+    ctx.fillStyle = shade(c, 0.9);
+    ctx.fillRect(0, 0, S, S);
+    for (let i = 0; i < 5200; i++) {
+      const v = 0.78 + r() * 0.42;
+      ctx.strokeStyle = shade(c, v);
+      ctx.lineWidth = 1 + r();
+      const x = r() * S, y = r() * S;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + (r() - 0.5) * 3, y + 5 + r() * 7);
+      ctx.stroke();
+    }
+  });
+}
+
+/* ---- flowing water ---- */
+function waterTexture(base, seed) {
+  const c = hex(base);
+  return dynTex('water' + seed, 256, function (ctx, S) {
+    const r = rnd(seed);
+    ctx.fillStyle = shade(c, 1);
+    ctx.fillRect(0, 0, S, S);
+    for (let i = 0; i < 150; i++) {
+      const y = r() * S, len = 20 + r() * 70, x = r() * S;
+      ctx.strokeStyle = 'rgba(255,255,255,' + (0.05 + r() * 0.16) + ')';
+      ctx.lineWidth = 1 + r() * 2.4;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.bezierCurveTo(x + len * 0.4, y - 4, x + len * 0.6, y + 4, x + len, y);
+      ctx.stroke();
+    }
+    for (let i = 0; i < 500; i++) {
+      ctx.fillStyle = 'rgba(255,255,255,' + (r() * 0.12) + ')';
+      ctx.fillRect(r() * S, r() * S, 2, 2);
+    }
+  });
+}
+
+/* ---- striped awning cloth ---- */
+function stripeTexture(a, b, seed, vertical) {
+  const ca = hex(a), cb = hex(b);
+  return dynTex('stripe' + seed, 128, function (ctx, S) {
+    const r = rnd(seed);
+    ctx.fillStyle = shade(ca, 1);
+    ctx.fillRect(0, 0, S, S);
+    ctx.fillStyle = shade(cb, 1);
+    const n = 6;
+    for (let i = 0; i < n; i += 2) {
+      if (vertical) ctx.fillRect(0, i * S / n, S, S / n);
+      else ctx.fillRect(i * S / n, 0, S / n, S);
+    }
+    for (let i = 0; i < 900; i++) {
+      ctx.fillStyle = 'rgba(255,255,255,' + (r() * 0.10) + ')';
+      ctx.fillRect(r() * S, r() * S, 2, 2);
+    }
+    // scalloped hem shading
+    const g = ctx.createLinearGradient(0, 0, 0, S);
+    g.addColorStop(0, 'rgba(0,0,0,0)');
+    g.addColorStop(1, 'rgba(0,0,0,.16)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, S, S);
+  });
+}
+
+/* ---- grass / dirt ground detail ---- */
+function groundTexture(base, seed) {
+  const c = hex(base);
+  return dynTex('ground' + seed, 512, function (ctx, S) {
+    const r = rnd(seed);
+    ctx.fillStyle = shade(c, 1);
+    ctx.fillRect(0, 0, S, S);
+    for (let i = 0; i < 9000; i++) {
+      const v = 0.84 + r() * 0.30;
+      ctx.fillStyle = shade(c, v);
+      const x = r() * S, y = r() * S;
+      ctx.fillRect(x, y, 2 + r() * 3, 2 + r() * 3);
+    }
+    for (let i = 0; i < 600; i++) {
+      ctx.strokeStyle = 'rgba(255,255,255,' + (r() * 0.07) + ')';
+      ctx.lineWidth = 1;
+      const x = r() * S, y = r() * S;
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + (r() - 0.5) * 6, y - 4 - r() * 6); ctx.stroke();
+    }
+  });
+}
+
+/* =====================================================================
+   3) material library
+   ===================================================================== */
+function mat(name, opts) {
+  opts = opts || {};
+  const m = new BABYLON.StandardMaterial(name, scene);
+  m.diffuseColor = opts.diffuse ? hex(opts.diffuse) : new BABYLON.Color3(1, 1, 1);
+  m.specularColor = opts.specular ? hex(opts.specular) : new BABYLON.Color3(0.06, 0.06, 0.06);
+  m.specularPower = opts.specularPower || 24;
+  m.emissiveColor = opts.emissive ? hex(opts.emissive) : BABYLON.Color3.Black();
+  if (opts.tex) {
+    m.diffuseTexture = opts.tex;
+    if (opts.scale) { opts.tex.uScale = opts.scale; opts.tex.vScale = opts.scale; }
+    if (opts.scaleX !== undefined) opts.tex.uScale = opts.scaleX;
+    if (opts.scaleY !== undefined) opts.tex.vScale = opts.scaleY;
+  }
+  if (opts.backFace === false) m.backFaceCulling = false;
+  if (opts.alpha !== undefined) m.alpha = opts.alpha;
+  if (opts.disableLighting) m.disableLighting = true;
+  if (opts.fog === false) m.fogEnabled = false;
+  return m;
+}
+
+const TEX = {
+  castle: stoneTexture('#d8cfbb', '#9c9282', 11, 8),
+  wall: stoneTexture('#c9bfa9', '#8d8271', 23, 7),
+  cliff: stoneTexture('#9b8d7c', '#6d6255', 37, 5),
+  cliffRock: stoneTexture('#a89a88', '#77695b', 41, 5),
+  wood: woodTexture('#9a6b43', 51, 6),
+  darkwood: woodTexture('#6d4a2f', 63, 5),
+  beam: woodTexture('#6b4a30', 71, 4),
+  roofRed: shingleTexture('#c4583c', 83),
+  roofSlate: shingleTexture('#4d6d8f', 97),
+  roofGreen: shingleTexture('#5d8f5a', 101),
+  plaster: plasterTexture('#efe2c6', 109),
+  plasterWarm: plasterTexture('#e6d0a8', 113),
+  thatch: thatchTexture('#cfa653', 127),
+  water: waterTexture('#2fbdb4', 131),
+  fall: waterTexture('#8ff0e6', 133),
+  ground: groundTexture('#6db64a', 137),
+  awningA: stripeTexture('#c8443c', '#f4e7cd', 149, true),
+  awningB: stripeTexture('#3f7fb5', '#f4e7cd', 151, true),
+  awningC: stripeTexture('#d79a33', '#f4e7cd', 157, true),
+  banner: stripeTexture('#b8352f', '#e8c05a', 163, false)
+};
+
+const MAT = {
+  castle: mat('mCastle', { tex: TEX.castle, scale: 3.2, specular: '#2a2a2a', specularPower: 30 }),
+  wall: mat('mWall', { tex: TEX.wall, scale: 2.4 }),
+  cliff: mat('mCliff', { tex: TEX.cliff, scale: 6 }),
+  wood: mat('mWood', { tex: TEX.wood, scale: 2 }),
+  darkwood: mat('mDarkWood', { tex: TEX.darkwood, scale: 2 }),
+  beam: mat('mBeam', { tex: TEX.beam, scale: 1.5 }),
+  roofRed: mat('mRoofRed', { tex: TEX.roofRed, scale: 4 }),
+  roofSlate: mat('mRoofSlate', { tex: TEX.roofSlate, scale: 4 }),
+  roofGreen: mat('mRoofGreen', { tex: TEX.roofGreen, scale: 4 }),
+  plaster: mat('mPlaster', { tex: TEX.plaster, scale: 1.6 }),
+  plasterWarm: mat('mPlasterWarm', { tex: TEX.plasterWarm, scale: 1.6 }),
+  thatch: mat('mThatch', { tex: TEX.thatch, scale: 3 }),
+  awningA: mat('mAwningA', { tex: TEX.awningA, scale: 1 }),
+  awningB: mat('mAwningB', { tex: TEX.awningB, scale: 1 }),
+  awningC: mat('mAwningC', { tex: TEX.awningC, scale: 1 }),
+  banner: mat('mBanner', { tex: TEX.banner, scale: 1 }),
+  window: mat('mWindow', { diffuse: '#2b2a33', emissive: '#50321a', specular: '#666', specularPower: 64 }),
+  iron: mat('mIron', { diffuse: '#4a4a52', specular: '#aab', specularPower: 48 }),
+  gold: mat('mGold', { diffuse: '#e2b653', specular: '#ffe9b0', specularPower: 64 }),
+  leaf: mat('mLeaf', { diffuse: '#ffffff', specular: '#000' }),
+  bark: mat('mBark', { diffuse: '#ffffff', specular: '#000' }),
+  rock: mat('mRock', { tex: TEX.cliffRock, scale: 2 }),
+  water: mat('mWater', { tex: TEX.water, scale: 1, alpha: 0.92, specular: '#bff6f2', specularPower: 96, diffuse: '#7ff0e6' }),
+  fall: mat('mFall', { tex: TEX.fall, scale: 1, alpha: 0.85, emissive: '#2a7f7c', specular: '#ffffff', specularPower: 64 }),
+  foam: mat('mFoam', { diffuse: '#ffffff', alpha: 0.85, emissive: '#bff2ee', disableLighting: false }),
+  cloth: mat('mCloth', { diffuse: '#e9dcc0', specular: '#000' }),
+  produce: mat('mProduce', { diffuse: '#ffffff', specular: '#000' }),
+  bucket: mat('mBucket', { diffuse: '#8a8f96', specular: '#555', specularPower: 32 }),
+  dirt: mat('mDirt', { tex: TEX.ground, scale: 1, diffuse: '#d8b27a' }),
+  ground: mat('mGround', { diffuse: '#ffffff', specular: '#000' })
+};
+MAT.water.backFaceCulling = false;
+MAT.fall.backFaceCulling = false;
+
+/* =====================================================================
+   4) mesh helpers
+   ===================================================================== */
+function box(name, w, h, d, x, y, z, m, parent) {
+  const b = BABYLON.MeshBuilder.CreateBox(name, { width: w, height: h, depth: d }, scene);
+  b.position.set(x, y, z);
+  if (m) b.material = m;
+  if (parent) b.parent = parent;
+  return b;
+}
+function cyl(name, diaTop, diaBot, h, x, y, z, m, tess, parent) {
+  const c = BABYLON.MeshBuilder.CreateCylinder(name, {
+    diameterTop: diaTop, diameterBottom: diaBot, height: h, tessellation: tess || 16
+  }, scene);
+  c.position.set(x, y, z);
+  if (m) c.material = m;
+  if (parent) c.parent = parent;
+  return c;
+}
+function sphere(name, dia, x, y, z, m, seg, parent) {
+  const s = BABYLON.MeshBuilder.CreateSphere(name, { diameter: dia, segments: seg || 10 }, scene);
+  s.position.set(x, y, z);
+  if (m) s.material = m;
+  if (parent) s.parent = parent;
+  return s;
+}
+function paint(mesh, color) {
+  const n = mesh.getTotalVertices();
+  const c = hex(color);
+  const arr = new Float32Array(n * 4);
+  for (let i = 0; i < n; i++) {
+    arr[i * 4] = c.r; arr[i * 4 + 1] = c.g; arr[i * 4 + 2] = c.b; arr[i * 4 + 3] = 1;
+  }
+  mesh.setVerticesData(BABYLON.VertexBuffer.ColorKind, arr);
+  mesh.useVertexColors = true;
+  return mesh;
+}
+function merge(name, list, m, flat) {
+  const usable = list.filter(Boolean);
+  if (!usable.length) return null;
+  if (usable.length === 1) { usable[0].name = name; if (m) usable[0].material = m; return usable[0]; }
+  let merged = null;
+  try {
+    merged = BABYLON.Mesh.MergeMeshes(usable, true, true, undefined, false, false);
+  } catch (err) {
+    console.log('MERGE FAIL', name, err && err.message, usable.map(m => m.name + ':' + m.getTotalVertices()).join(','));
+    return usable[0];
+  }
+  if (!merged) return null;
+  merged.name = name;
+  if (m) merged.material = m;
+  if (flat) merged.convertToFlatShadedMesh();
+  return merged;
+}
+function shadowCaster(mesh) {
+  shadows.addShadowCaster(mesh, true);
+  return mesh;
+}
+function tag(mesh, title, blurb) {
+  mesh.metadata = { title: title, blurb: blurb };
+  return mesh;
+}
+
+/* gabled roof: triangular prism, ridge runs along Z */
+function gableRoof(name, w, d, h, x, y, z, m, parent, overhang) {
+  const ow = w + (overhang === undefined ? 0.5 : overhang);
+  const od = d + (overhang === undefined ? 0.5 : overhang);
+  const hw = ow / 2, hd = od / 2;
+  const pos = [
+    // left slope (x=-hw) : 2 front + 2 back
+    -hw, 0, -hd, -hw, 0, hd, 0, h, -hd, 0, h, hd,
+    // right slope
+    hw, 0, -hd, hw, 0, hd, 0, h, -hd, 0, h, hd
+  ];
+  const idx = [
+    0, 2, 1, 1, 2, 3,        // left slope
+    4, 5, 7, 4, 7, 6,        // right slope
+    0, 4, 2,                 // front gable
+    1, 3, 5                  // back gable
+  ];
+  const uvs = [0, 0, 0, 1, 0.5, 0, 0.5, 1, 0.5, 0, 0.5, 1, 1, 0, 1, 1];
+  const norm = [];
+  BABYLON.VertexData.ComputeNormals(pos, idx, norm);
+  const vd = new BABYLON.VertexData();
+  vd.positions = pos; vd.indices = idx; vd.normals = norm; vd.uvs = uvs;
+  const mesh = new BABYLON.Mesh(name, scene);
+  vd.applyToMesh(mesh);
+  mesh.position.set(x, y, z);
+  if (m) mesh.material = m;
+  if (parent) mesh.parent = parent;
+  return mesh;
+}
+
+/* crenellation strip along X */
+function crenelsX(name, x0, x1, y, z, depth, mat, h) {
+  const out = [];
+  const gap = 0.62, w = 0.42;
+  const n = Math.max(1, Math.floor((x1 - x0) / gap));
+  for (let i = 0; i <= n; i++) {
+    const x = x0 + (x1 - x0) * (i / n);
+    out.push(box(name + i, w, h || 0.52, depth, x, y + (h || 0.52) / 2, z, mat));
+  }
+  return out;
+}
+function crenelsZ(name, z0, z1, y, x, depth, mat, h) {
+  const out = [];
+  const gap = 0.62, w = 0.42;
+  const n = Math.max(1, Math.floor((z1 - z0) / gap));
+  for (let i = 0; i <= n; i++) {
+    const z = z0 + (z1 - z0) * (i / n);
+    out.push(box(name + i, depth, h || 0.52, w, x, y + (h || 0.52) / 2, z, mat));
+  }
+  return out;
+}
+
+/* window opening: dark inset + sill + optional shutters */
+function window3d(name, x, y, z, w, h, facing, parent) {
+  const g = [];
+  const t = 0.14;
+  if (facing === 'z') {
+    g.push(box(name + 'p', w, h, t, x, y, z, MAT.window, parent));
+    g.push(box(name + 's', w + 0.22, 0.12, t + 0.16, x, y - h / 2 - 0.06, z, MAT.wall, parent));
+  } else {
+    g.push(box(name + 'p', t, h, w, x, y, z, MAT.window, parent));
+    g.push(box(name + 's', t + 0.16, 0.12, w + 0.22, x, y - h / 2 - 0.06, z, MAT.wall, parent));
+  }
+  return g;
+}
+
+/* ---------------------------------------------------------------------
+   Everything below shares this scope: island -> structures -> animation
+   --------------------------------------------------------------------- */
+/* =====================================================================
+   5) THE ISLAND — terrain shell, cliff, river, waterfalls
+   ===================================================================== */
+const CASTLE = { x: -1.6, z: 0.0 };
+const PLATEAU_R = 6.9;
+const ISLAND_R = 15.8;
+
+/* ---------- deterministic value noise ---------- */
+function hash2(ix, iy) {
+  let h = Math.imul(ix, 374761393) + Math.imul(iy, 668265263) + 1442695041;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+function vnoise(x, y) {
+  const x0 = Math.floor(x), y0 = Math.floor(y);
+  const fx = x - x0, fy = y - y0;
+  const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+  const a = hash2(x0, y0), b = hash2(x0 + 1, y0);
+  const c = hash2(x0, y0 + 1), d = hash2(x0 + 1, y0 + 1);
+  return (a * (1 - sx) + b * sx) * (1 - sy) + (c * (1 - sx) + d * sx) * sy;
+}
+function fbm(x, y) {
+  return vnoise(x, y) * 0.58 + vnoise(x * 2.13 + 13.1, y * 2.13 + 7.7) * 0.27
+       + vnoise(x * 4.37 + 31.4, y * 4.37 + 17.2) * 0.15;
+}
+function smoothstep(e0, e1, x) {
+  let t = (x - e0) / (e1 - e0);
+  t = t < 0 ? 0 : (t > 1 ? 1 : t);
+  return t * t * (3 - 2 * t);
+}
+function rimRadius(th) {
+  return ISLAND_R * (1 + 0.038 * Math.sin(th * 3 + 0.7) + 0.026 * Math.sin(th * 5 + 2.3)
+                      + 0.017 * Math.sin(th * 8 + 4.1));
+}
+
+/* ---------- the river path ---------- */
+const RIVER_CTRL = [
+  [3.6, 15.4], [4.6, 12.2], [6.2, 8.6], [5.3, 4.8], [6.0, 1.0],
+  [4.9, -3.0], [5.7, -7.4], [4.4, -11.4], [3.4, -15.4]
+];
+function catmull(pts, per) {
+  const out = [];
+  const P = [pts[0]].concat(pts, [pts[pts.length - 1]]);
+  for (let i = 0; i < P.length - 3; i++) {
+    const p0 = P[i], p1 = P[i + 1], p2 = P[i + 2], p3 = P[i + 3];
+    for (let s = 0; s < per; s++) {
+      const t = s / per, t2 = t * t, t3 = t2 * t;
+      out.push({
+        x: 0.5 * (2 * p1[0] + (-p0[0] + p2[0]) * t + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2 + (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3),
+        z: 0.5 * (2 * p1[1] + (-p0[1] + p2[1]) * t + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3)
+      });
+    }
+  }
+  out.push({ x: pts[pts.length - 1][0], z: pts[pts.length - 1][1] });
+  return out;
+}
+const RIVER = catmull(RIVER_CTRL, 14);
+for (let i = 0; i < RIVER.length; i++) {
+  const t = i / (RIVER.length - 1);
+  RIVER[i].w = 2.5 + Math.sin(t * 6.1) * 0.28 + t * 0.5;
+}
+function distToPath(x, z, path) {
+  let best = 1e9;
+  for (let i = 0; i < path.length - 1; i++) {
+    const a = path[i], b = path[i + 1];
+    const dx = b.x - a.x, dz = b.z - a.z;
+    const l2 = dx * dx + dz * dz;
+    let t = l2 > 0 ? ((x - a.x) * dx + (z - a.z) * dz) / l2 : 0;
+    t = t < 0 ? 0 : (t > 1 ? 1 : t);
+    const px = a.x + dx * t, pz = a.z + dz * t;
+    const d = (x - px) * (x - px) + (z - pz) * (z - pz);
+    if (d < best) best = d;
+  }
+  return Math.sqrt(best);
+}
+
+/* ---------- terrain height ---------- */
+function terrainH(x, z) {
+  let h = (fbm(x * 0.155 + 4.2, z * 0.155 + 9.7) - 0.5) * 1.25;
+  h += (fbm(x * 0.52 + 20.4, z * 0.52 + 31.1) - 0.5) * 0.26;
+  const d = Math.hypot(x - CASTLE.x, z - CASTLE.z);
+  h *= smoothstep(PLATEAU_R + 1.4, PLATEAU_R - 2.2, d);          // flatten the keep's plateau
+  const dr = distToPath(x, z, RIVER);
+  h -= smoothstep(4.4, 1.3, dr) * 0.34;                         // carve the river valley
+  const dp = Math.hypot(x + 11.2, z + 0.6);
+  h -= smoothstep(3.4, 1.0, dp) * 0.42;                         // hollow for the mill pond
+  return h;
+}
+
+/* ---------- island top shell ---------- */
+const GRASS = hex('#6dc13f'), GRASS_D = hex('#55a033'), GRASS_L = hex('#92d65c');
+const ROCK = hex('#ab9a85'), ROCK_D = hex('#6f6254'), MOSS = hex('#5d8a3c');
+const DIRT = hex('#b99a68');
+
+function grassColor(x, z, out) {
+  const n = fbm(x * 0.42 + 3, z * 0.42 + 8);
+  const m = fbm(x * 1.6 + 40, z * 1.6 + 12);
+  let r = GRASS.r, g = GRASS.g, b = GRASS.b;
+  if (n > 0.56) { r = GRASS_L.r; g = GRASS_L.g; b = GRASS_L.b; }
+  else if (n < 0.44) { r = GRASS_D.r; g = GRASS_D.g; b = GRASS_D.b; }
+  const v = 0.92 + m * 0.18;
+  out[0] = r * v; out[1] = g * v; out[2] = b * v;
+}
+function buildIslandTop() {
+  const SEG = 168, RINGS = 26;
+  const pos = [], col = [], idx = [], uv = [];
+  const c = [0, 0, 0];
+  pos.push(0, terrainH(0, 0), 0);
+  grassColor(0, 0, c); col.push(c[0], c[1], c[2], 1); uv.push(0.5, 0.5);
+  for (let i = 1; i <= RINGS; i++) {
+    const f = i / RINGS;
+    for (let j = 0; j < SEG; j++) {
+      const th = (j / SEG) * Math.PI * 2;
+      const rr = rimRadius(th) * f;
+      const x = Math.cos(th) * rr, z = Math.sin(th) * rr;
+      const y = terrainH(x, z);
+      pos.push(x, y, z);
+      grassColor(x, z, c);
+      // rim: grass fades to dry dirt then rock
+      const edge = smoothstep(0.90, 1.0, f);
+      const dryness = smoothstep(0.93, 1.0, f);
+      const r2 = c[0] * (1 - dryness) + DIRT.r * dryness;
+      const g2 = c[1] * (1 - dryness) + DIRT.g * dryness;
+      const b2 = c[2] * (1 - dryness) + DIRT.b * dryness;
+      col.push(r2 * (1 - edge * 0.4) + ROCK.r * edge * 0.4,
+               g2 * (1 - edge * 0.4) + ROCK.g * edge * 0.4,
+               b2 * (1 - edge * 0.4) + ROCK.b * edge * 0.4, 1);
+      uv.push(x / 5 + 0.5, z / 5 + 0.5);
+    }
+  }
+  for (let j = 0; j < SEG; j++) {
+    const a = 1 + j, b = 1 + ((j + 1) % SEG);
+    idx.push(0, a, b);
+  }
+  for (let i = 0; i < RINGS - 1; i++) {
+    const base0 = 1 + i * SEG, base1 = 1 + (i + 1) * SEG;
+    for (let j = 0; j < SEG; j++) {
+      const j2 = (j + 1) % SEG;
+      idx.push(base0 + j, base1 + j, base1 + j2,
+               base0 + j, base1 + j2, base0 + j2);
+    }
+  }
+  const vd = new BABYLON.VertexData();
+  vd.positions = pos; vd.indices = idx; vd.colors = col; vd.uvs = uv;
+  const norm = [];
+  BABYLON.VertexData.ComputeNormals(pos, idx, norm);
+  vd.normals = norm;
+  const mesh = new BABYLON.Mesh('islandTop', scene);
+  vd.applyToMesh(mesh);
+  mesh.material = MAT.ground;
+  mesh.receiveShadows = true;
+  return mesh;
+}
+
+/* ---------- cliff shell ---------- */
+const CLIFF_LEVELS = [
+    { r: 1.000, y: 0.00, jag: 0.000 },
+    { r: 0.992, y: -0.42, jag: 0.026 },
+    { r: 0.976, y: -0.92, jag: 0.040 },
+    { r: 0.952, y: -1.55, jag: 0.055 },
+    { r: 0.918, y: -2.25, jag: 0.066 },
+    { r: 0.876, y: -3.05, jag: 0.078 },
+    { r: 0.820, y: -3.90, jag: 0.090 },
+    { r: 0.752, y: -4.80, jag: 0.104 },
+    { r: 0.672, y: -5.70, jag: 0.118 },
+    { r: 0.582, y: -6.60, jag: 0.130 },
+    { r: 0.482, y: -7.45, jag: 0.142 },
+    { r: 0.375, y: -8.30, jag: 0.152 },
+    { r: 0.262, y: -9.10, jag: 0.156 },
+    { r: 0.152, y: -9.85, jag: 0.148 },
+    { r: 0.058, y: -10.55, jag: 0.126 },
+    { r: 0.000, y: -11.40, jag: 0.000 }
+];
+function cliffFactorAt(y) {
+  const L = CLIFF_LEVELS;
+  if (y >= 0) return 1;
+  if (y <= L[L.length - 1].y) return 0.02;
+  for (let i = 0; i < L.length - 1; i++) {
+    if (y <= L[i].y && y >= L[i + 1].y) {
+      const t = (L[i].y - y) / (L[i].y - L[i + 1].y);
+      return L[i].r + (L[i + 1].r - L[i].r) * t;
+    }
+  }
+  return 1;
+}
+function buildCliff() {
+  const SEG = 168;
+  const levels = CLIFF_LEVELS;
+  const pos = [], col = [], idx = [], uv = [];
+  const rows = [];
+  for (let li = 0; li < levels.length; li++) {
+    const L = levels[li];
+    const row = [];
+    for (let j = 0; j < SEG; j++) {
+      const th = (j / SEG) * Math.PI * 2;
+      const base = rimRadius(th);
+      const jag = L.jag * (vnoise(th * 5.3 + li * 3.7, li * 1.9) - 0.5) * 2.2;
+      const rr = base * L.r * (1 + jag);
+      const x = Math.cos(th) * rr, z = Math.sin(th) * rr;
+      const y = L.y + (L.jag > 0 ? (vnoise(th * 7.1 + li * 2.3, li * 4.1) - 0.5) * L.jag * 1.6 : 0);
+      row.push(pos.length / 3);
+      pos.push(x, y, z);
+      // strata + crack shading
+      const strata = 0.88 + 0.26 * vnoise(th * 2.0, li * 2.6 + 5);
+      const crack = vnoise(th * 11 + li * 5, li * 9.3);
+      let v = strata * (0.78 + crack * 0.36);
+      let r = ROCK.r * v, g = ROCK.g * v, b = ROCK.b * v;
+      const moss = smoothstep(0.20, 0.0, li / levels.length) * (0.35 + vnoise(th * 4.3, li) * 0.5);
+      r = r * (1 - moss) + MOSS.r * moss;
+      g = g * (1 - moss) + MOSS.g * moss;
+      b = b * (1 - moss) + MOSS.b * moss;
+      const depth = 1 - li / (levels.length - 1);
+      const dk = 0.78 + depth * 0.22;
+      col.push(r * dk, g * dk, b * dk, 1);
+      uv.push(th * 3, li * 0.7);
+    }
+    rows.push(row);
+  }
+  for (let li = 0; li < rows.length - 1; li++) {
+    for (let j = 0; j < SEG; j++) {
+      const j2 = (j + 1) % SEG;
+      const a = rows[li][j], b = rows[li][j2], c = rows[li + 1][j], d = rows[li + 1][j2];
+      idx.push(a, b, c, b, d, c);
+    }
+  }
+  const vd = new BABYLON.VertexData();
+  vd.positions = pos; vd.indices = idx; vd.colors = col; vd.uvs = uv;
+  const norm = [];
+  BABYLON.VertexData.ComputeNormals(pos, idx, norm);
+  vd.normals = norm;
+  const mesh = new BABYLON.Mesh('islandCliff', scene);
+  vd.applyToMesh(mesh);
+  mesh.material = MAT.cliff;
+  mesh.convertToFlatShadedMesh();
+  return mesh;
+}
+
+/* ---------- river ---------- */
+function riverTangent(i) {
+  const a = RIVER[Math.max(0, i - 1)], b = RIVER[Math.min(RIVER.length - 1, i + 1)];
+  const dx = b.x - a.x, dz = b.z - a.z;
+  const l = Math.hypot(dx, dz) || 1;
+  return { x: dx / l, z: dz / l };
+}
+function buildRiverRibbon(name, widthScale, yOff, material, alpha) {
+  const ACROSS = [-1, -0.55, 0, 0.55, 1];
+  const DY = [0.10, 0.02, -0.05, 0.02, 0.10];
+  const pos = [], idx = [], uv = [];
+  for (let i = 0; i < RIVER.length; i++) {
+    const p = RIVER[i], tg = riverTangent(i);
+    const nx = -tg.z, nz = tg.x;
+    const hw = p.w * 0.5 * widthScale;
+    for (let k = 0; k < ACROSS.length; k++) {
+      const x = p.x + nx * hw * ACROSS[k];
+      const z = p.z + nz * hw * ACROSS[k];
+      const y = terrainH(x, z) + DY[k] * (widthScale > 1 ? 0.5 : 1) + yOff;
+      pos.push(x, y, z);
+      uv.push((ACROSS[k] + 1) * 0.5, i * 0.22);
+    }
+  }
+  const W = ACROSS.length;
+  for (let i = 0; i < RIVER.length - 1; i++) {
+    for (let k = 0; k < W - 1; k++) {
+      const a = i * W + k, b = i * W + k + 1, c = (i + 1) * W + k, d = (i + 1) * W + k + 1;
+      idx.push(a, c, b, b, c, d);
+    }
+  }
+  const vd = new BABYLON.VertexData();
+  vd.positions = pos; vd.indices = idx; vd.uvs = uv;
+  const norm = [];
+  BABYLON.VertexData.ComputeNormals(pos, idx, norm);
+  vd.normals = norm;
+  const mesh = new BABYLON.Mesh(name, scene);
+  vd.applyToMesh(mesh);
+  mesh.material = material;
+  mesh.receiveShadows = true;
+  if (alpha !== undefined) { mesh.visibility = alpha; }
+  return mesh;
+}
+
+/* ---------- waterfall sheet ---------- */
+function buildWaterfall(name, ox, oy, oz, theta, width, drop, hug) {
+  const steps = 18;
+  const pos = [], idx = [], uv = [];
+  const cx = Math.cos(theta), cz = Math.sin(theta);
+  const tx = -cz, tz = cx;
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const y = oy - t * drop;
+    let r;
+    if (hug) {
+      const cf = cliffFactorAt(y);
+      r = rimRadius(theta) * (cf * 0.45 + 0.62) + 0.22 + Math.sin(t * 3.1) * 0.16;
+    } else {
+      r = rimRadius(theta) * (1 + Math.pow(t, 1.8) * 0.22) + 0.2;
+    }
+    const x = cx * r, z = cz * r;
+    const w = width * (0.92 + t * 0.22);
+    pos.push(x - tx * w / 2, y, z - tz * w / 2);
+    pos.push(x + tx * w / 2, y, z + tz * w / 2);
+    uv.push(0, t * 3.2, 1, t * 3.2);
+  }
+  for (let i = 0; i < steps; i++) {
+    const a = i * 2, b = i * 2 + 1, c = (i + 1) * 2, d = (i + 1) * 2 + 1;
+    idx.push(a, c, b, b, c, d);
+  }
+  const vd = new BABYLON.VertexData();
+  vd.positions = pos; vd.indices = idx; vd.uvs = uv;
+  const norm = [];
+  BABYLON.VertexData.ComputeNormals(pos, idx, norm);
+  vd.normals = norm;
+  const mesh = new BABYLON.Mesh(name, scene);
+  vd.applyToMesh(mesh);
+  mesh.material = MAT.fall;
+  return mesh;
+}
+
+/* ---------- soft round particle sprite ---------- */
+function softTexture(name, color) {
+  const t = new BABYLON.DynamicTexture(name, { width: 64, height: 64 }, scene, true);
+  const ctx = t.getContext();
+  const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+  const c = hex(color);
+  g.addColorStop(0, 'rgba(' + Math.round(c.r * 255) + ',' + Math.round(c.g * 255) + ',' + Math.round(c.b * 255) + ',1)');
+  g.addColorStop(0.45, 'rgba(' + Math.round(c.r * 255) + ',' + Math.round(c.g * 255) + ',' + Math.round(c.b * 255) + ',0.55)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 64, 64);
+  t.update();
+  t.hasAlpha = true;
+  return t;
+}
+function makeMist(name, emitter, opts) {
+  opts = opts || {};
+  const ps = new BABYLON.ParticleSystem(name, opts.capacity || 240, scene);
+  ps.particleTexture = softTexture(name + 'tex', opts.color || '#dff6f4');
+  ps.emitter = emitter;
+  ps.minEmitBox = new BABYLON.Vector3(-0.6, 0, -0.6);
+  ps.maxEmitBox = new BABYLON.Vector3(0.6, 0.2, 0.6);
+  ps.color1 = new BABYLON.Color4(1, 1, 1, 0.65);
+  ps.color2 = new BABYLON.Color4(0.85, 0.97, 0.98, 0.42);
+  ps.colorDead = new BABYLON.Color4(1, 1, 1, 0);
+  ps.minSize = opts.minSize || 0.5;
+  ps.maxSize = opts.maxSize || 1.5;
+  ps.minLifeTime = opts.minLife || 1.2;
+  ps.maxLifeTime = opts.maxLife || 2.8;
+  ps.emitRate = opts.rate || 40;
+  ps.gravity = new BABYLON.Vector3(0, opts.gravity === undefined ? -1.2 : opts.gravity, 0);
+  ps.direction1 = new BABYLON.Vector3(-0.4, 0.2, -0.4);
+  ps.direction2 = new BABYLON.Vector3(0.4, 0.6, 0.4);
+  ps.blendMode = BABYLON.ParticleSystem.BLENDMODE_STANDARD;
+  ps.start();
+  return ps;
+}
+
+/* =====================================================================
+   build the island
+   ===================================================================== */
+const island = new BABYLON.TransformNode('islandRoot', scene);
+const anim = { wheels: [], falls: [], waters: [], flags: [], clouds: [], drifters: [], glows: [] };
+
+function buildIsland() {
+  const top = buildIslandTop();
+  top.parent = island;
+  top.receiveShadows = true;
+  const cliff = buildCliff();
+  cliff.parent = island;
+  cliff.receiveShadows = true;
+
+  /* river: sandy banks then turquoise water */
+  const banks = buildRiverRibbon('riverBanks', 1.62, 0.035, MAT.dirt, 1);
+  banks.parent = island;
+  banks.material = MAT.dirt;
+  const river = buildRiverRibbon('river', 1.0, 0.075, MAT.water, 0.94);
+  river.parent = island;
+  river.material = MAT.water;
+  anim.waters.push(river);
+  MAT.fall.diffuseTexture.uScale = 1.6;
+  MAT.fall.diffuseTexture.vScale = 1.2;
+
+  /* main waterfall at the southern lip */
+  const last = RIVER[RIVER.length - 1];
+  const theta = Math.atan2(last.z, last.x);
+  const lipY = terrainH(last.x, last.z);
+  const fall = buildWaterfall('mainFall', last.x, lipY + 0.05, last.z, theta, last.w * 0.92, 11.0, true);
+  fall.parent = island;
+  anim.falls.push(fall);
+  const fr = rimRadius(theta) * 0.55;
+  const mist = makeMist('fallMist', new BABYLON.Vector3(Math.cos(theta) * fr, lipY - 9.4, Math.sin(theta) * fr),
+    { rate: 30, minSize: 0.35, maxSize: 1.25, minLife: 1.6, maxLife: 3.4, gravity: -0.35 });
+  const spray = makeMist('fallSpray', new BABYLON.Vector3(Math.cos(theta) * rimRadius(theta) * 0.94, lipY + 0.35, Math.sin(theta) * rimRadius(theta) * 0.94),
+    { rate: 26, minSize: 0.25, maxSize: 0.7, minLife: 0.5, maxLife: 1.1, gravity: -3.2, color: '#ffffff' });
+
+  /* mill pond + its little waterfall */
+  const pond = BABYLON.MeshBuilder.CreateDisc('pond', { radius: 2.4, tessellation: 40 }, scene);
+  pond.rotation.x = Math.PI / 2;
+  pond.position.set(-11.2, terrainH(-11.2, 0.6) + 0.16, 0.6);
+  pond.material = MAT.water;
+  pond.parent = island;
+  anim.waters.push(pond);
+  const pondEdge = BABYLON.MeshBuilder.CreateDisc('pondEdge', { radius: 2.9, tessellation: 40 }, scene);
+  pondEdge.rotation.x = Math.PI / 2;
+  pondEdge.position.set(-11.2, terrainH(-11.2, 0.6) + 0.12, 0.6);
+  pondEdge.material = MAT.dirt;
+  pondEdge.parent = island;
+  const st2 = Math.atan2(1.0, -13.2);
+  const smallFall = buildWaterfall('smallFall', -13.2, terrainH(-13.2, 1.0) + 0.1, 1.0, st2, 1.5, 7.0, true);
+  smallFall.parent = island;
+  anim.falls.push(smallFall);
+  makeMist('smallMist', new BABYLON.Vector3(Math.cos(st2) * rimRadius(st2) * 0.5, terrainH(-13.2, 1.0) - 6.0, Math.sin(st2) * rimRadius(st2) * 0.5),
+    { rate: 14, minSize: 0.25, maxSize: 0.8, minLife: 1.2, maxLife: 2.4, gravity: -0.3 });
+
+  return island;
+}
+
+/* ---------- dirt paths between landmarks ---------- */
+function buildPath(name, pts, width) {
+  const samples = catmull(pts, 12);
+  const pos = [], idx = [], uv = [];
+  for (let i = 0; i < samples.length; i++) {
+    const a = samples[Math.max(0, i - 1)], b = samples[Math.min(samples.length - 1, i + 1)];
+    let dx = b.x - a.x, dz = b.z - a.z;
+    const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
+    const nx = -dz, nz = dx;
+    const w = width * (0.85 + 0.3 * vnoise(i * 0.7, 3));
+    for (let k = -1; k <= 1; k += 2) {
+      const x = samples[i].x + nx * w * 0.5 * k;
+      const z = samples[i].z + nz * w * 0.5 * k;
+      pos.push(x, terrainH(x, z) + 0.045, z);
+      uv.push(k > 0 ? 1 : 0, i * 0.3);
+    }
+  }
+  for (let i = 0; i < samples.length - 1; i++) {
+    const a = i * 2, b = i * 2 + 1, c = (i + 1) * 2, d = (i + 1) * 2 + 1;
+    idx.push(a, c, b, b, c, d);
+  }
+  const vd = new BABYLON.VertexData();
+  vd.positions = pos; vd.indices = idx; vd.uvs = uv;
+  const norm = [];
+  BABYLON.VertexData.ComputeNormals(pos, idx, norm);
+  vd.normals = norm;
+  const mesh = new BABYLON.Mesh(name, scene);
+  vd.applyToMesh(mesh);
+  mesh.material = MAT.dirt;
+  mesh.receiveShadows = true;
+  mesh.parent = island;
+  return mesh;
+}
+/* =====================================================================
+   6) STRUCTURES — keep, village, mill, market, watchtower, nature
+   ===================================================================== */
+const GROUND = {};           // cached terrain heights
+function gh(x, z) {
+  const k = (Math.round(x * 4) + ',' + Math.round(z * 4));
+  if (GROUND[k] === undefined) GROUND[k] = terrainH(x, z);
+  return GROUND[k];
+}
+function scatter(count, minR, maxR, seed, reject) {
+  const r = rnd(seed);
+  const out = [];
+  let guard = 0;
+  while (out.length < count && guard < count * 60) {
+    guard++;
+    const a = r() * Math.PI * 2;
+    const d = minR + Math.sqrt(r()) * (maxR - minR);
+    const x = Math.cos(a) * d, z = Math.sin(a) * d;
+    if (reject && reject(x, z)) continue;
+    out.push({ x: x, z: z, rot: r() * Math.PI * 2, s: 0.68 + r() * 0.72, r: r() });
+  }
+  return out;
+}
+function nearRiver(x, z, d) { return distToPath(x, z, RIVER) < d; }
+function nearCastle(x, z, d) { return Math.hypot(x - CASTLE.x, z - CASTLE.z) < d; }
+const VILLAGE = { x: -7.6, z: -5.4 };
+function nearVillage(x, z, d) { return Math.hypot(x - VILLAGE.x, z - VILLAGE.z) < d; }
+
+/* ======================= THE CASTLE ================================= */
+function buildCastle() {
+  const root = new BABYLON.TransformNode('castle', scene);
+  const CX = CASTLE.x, CZ = CASTLE.z;
+  const base = 0.55;                     // terrace top
+  const stone = [], stone2 = [], timber = [], roof = [], dark = [], gold = [], banner = [], iron = [];
+
+  /* terrace */
+  const terrace = BABYLON.MeshBuilder.CreateCylinder('terrace', {
+    diameterTop: 13.4, diameterBottom: 14.6, height: base, tessellation: 48
+  }, scene);
+  terrace.position.set(CX, base / 2, CZ);
+  terrace.material = MAT.castle;
+  terrace.receiveShadows = true;
+  terrace.parent = root;
+
+  /* curtain wall ring: local -4.3..4.3 */
+  const HW = 4.3, TH = 0.42, WH = 3.3;
+  const walls = [
+    [CX, CZ - HW, 8.6 + TH, TH], [CX, CZ + HW, 8.6 + TH, TH],
+    [CX - HW, CZ, TH, 8.6], [CX + HW, CZ, TH, 8.6]
+  ];
+  walls.forEach((w, i) => {
+    const m = box('cw' + i, w[2], WH, w[3], w[0], base + WH / 2, w[1], MAT.castle);
+    stone.push(m);
+  });
+  /* crenellations */
+  crenelsX('cwA', CX - HW - 0.2, CX + HW + 0.2, base + WH, CZ - HW, TH + 0.25, MAT.castle).forEach(m => stone.push(m));
+  crenelsX('cwB', CX - HW - 0.2, CX + HW + 0.2, base + WH, CZ + HW, TH + 0.25, MAT.castle).forEach(m => stone.push(m));
+  crenelsZ('cwC', CZ - HW - 0.2, CZ + HW + 0.2, base + WH, CX - HW, TH + 0.25, MAT.castle).forEach(m => stone.push(m));
+  crenelsZ('cwD', CZ - HW - 0.2, CZ + HW + 0.2, base + WH, CX + HW, TH + 0.25, MAT.castle).forEach(m => stone.push(m));
+
+  /* corner towers */
+  const towerSpots = [[-HW, -HW], [HW, -HW], [-HW, HW], [HW, HW]];
+  towerSpots.forEach((t, i) => {
+    const tx = CX + t[0], tz = CZ + t[1], th = 5.0;
+    const cyl1 = BABYLON.MeshBuilder.CreateCylinder('twr' + i, {
+      diameterTop: 2.15, diameterBottom: 2.5, height: th, tessellation: 16
+    }, scene);
+    cyl1.position.set(tx, base + th / 2, tz);
+    cyl1.material = MAT.castle;
+    stone.push(cyl1);
+    /* corbel ring */
+    const ring = BABYLON.MeshBuilder.CreateCylinder('cor' + i, {
+      diameterTop: 2.55, diameterBottom: 2.25, height: 0.3, tessellation: 16
+    }, scene);
+    ring.position.set(tx, base + th + 0.1, tz);
+    ring.material = MAT.castle;
+    stone.push(ring);
+    /* merlons */
+    for (let k = 0; k < 10; k++) {
+      const a = (k / 10) * Math.PI * 2;
+      const m = box('mer' + i + k, 0.42, 0.55, 0.3,
+        tx + Math.cos(a) * 1.05, base + th + 0.45, tz + Math.sin(a) * 1.05, MAT.castle);
+      m.rotation.y = -a;
+      stone.push(m);
+    }
+    /* arrow slits */
+    for (let k = 0; k < 4; k++) {
+      const a = k * Math.PI / 2 + 0.4;
+      const w = window3d('sl' + i + k, tx + Math.cos(a) * 1.12, base + 2.6 + (k % 2) * 0.8,
+        tz + Math.sin(a) * 1.12, 0.22, 0.72, 'x');
+      w.forEach(m => dark.push(m));
+    }
+  });
+
+  /* gatehouse on the south wall */
+  const gx = CX + 0.4, gz = CZ - HW;
+  const gh1 = box('gate', 3.4, 4.0, 1.5, gx, base + 2.0, gz, MAT.castle);
+  stone.push(gh1);
+  /* arch: half cylinder */
+  const arch = BABYLON.MeshBuilder.CreateCylinder('arch', {
+    diameter: 2.1, height: 1.5, tessellation: 18, arc: 0.5
+  }, scene);
+  arch.rotation.z = Math.PI / 2; arch.rotation.y = Math.PI / 2;
+  arch.position.set(gx, base + 1.15, gz);
+  arch.material = MAT.castle;
+  stone.push(arch);
+  /* dark doorway */
+  const door = box('door', 1.5, 2.3, 1.62, gx, base + 1.15, gz, MAT.darkwood);
+  dark.push(door);
+  /* flanking turrets */
+  [-2.1, 2.1].forEach((o, i) => {
+    const c = BABYLON.MeshBuilder.CreateCylinder('gt' + i, {
+      diameterTop: 1.5, diameterBottom: 1.7, height: 4.9, tessellation: 14
+    }, scene);
+    c.position.set(gx + o, base + 2.45, gz);
+    c.material = MAT.castle;
+    stone.push(c);
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2;
+      const m = box('gmer' + i + k, 0.3, 0.45, 0.24, gx + o + Math.cos(a) * 0.66, base + 5.05, gz + Math.sin(a) * 0.66, MAT.castle);
+      m.rotation.y = -a;
+      stone.push(m);
+    }
+  });
+  /* gatehouse banner */
+  const bn = box('gbanner', 1.0, 1.5, 0.08, gx, base + 3.0, gz - 0.85, MAT.banner);
+  banner.push(bn);
+  anim.flags.push({ mesh: bn, base: bn.rotation.z, phase: 0.6 });
+
+  /* the keep */
+  const kx = CX - 0.6, kz = CZ - 0.9, KH = 8.4;
+  const keep = box('keep', 3.8, KH, 3.8, kx, base + KH / 2, kz, MAT.castle);
+  stone.push(keep);
+  const keepCap = box('keepcap', 4.3, 0.45, 4.3, kx, base + KH + 0.2, kz, MAT.castle);
+  stone.push(keepCap);
+  crenelsX('kmx', kx - 2.15, kx + 2.15, base + KH + 0.42, kz - 2.15, 0.55, MAT.castle).forEach(m => stone.push(m));
+  crenelsX('kmz', kx - 2.15, kx + 2.15, base + KH + 0.42, kz + 2.15, 0.55, MAT.castle).forEach(m => stone.push(m));
+  crenelsZ('kmz2', kz - 2.15, kz + 2.15, base + KH + 0.42, kx - 2.15, 0.55, MAT.castle).forEach(m => stone.push(m));
+  crenelsZ('kmz3', kz - 2.15, kz + 2.15, base + KH + 0.42, kx + 2.15, 0.55, MAT.castle).forEach(m => stone.push(m));
+  /* corner turrets of the keep */
+  [[-1.9, -1.9], [1.9, -1.9], [-1.9, 1.9], [1.9, 1.9]].forEach((t, i) => {
+    const c = BABYLON.MeshBuilder.CreateCylinder('kt' + i, {
+      diameterTop: 1.15, diameterBottom: 1.35, height: KH + 1.5, tessellation: 12
+    }, scene);
+    c.position.set(kx + t[0], base + (KH + 1.5) / 2, kz + t[1]);
+    c.material = MAT.castle;
+    stone.push(c);
+    const cone = BABYLON.MeshBuilder.CreateCylinder('ktc' + i, {
+      diameterTop: 0, diameterBottom: 1.55, height: 1.5, tessellation: 12
+    }, scene);
+    cone.position.set(kx + t[0], base + KH + 1.5 + 0.75, kz + t[1]);
+    cone.material = MAT.roofSlate;
+    roof.push(cone);
+  });
+  /* keep windows */
+  for (let lvl = 0; lvl < 4; lvl++) {
+    const y = base + 1.4 + lvl * 1.7;
+    [-1, 1].forEach(s => {
+      window3d('kw' + lvl + s, kx + s * 1.92, y, kz, 0.42, 0.85, 'x').forEach(m => dark.push(m));
+    });
+    window3d('kwf' + lvl, kx, y, kz + 1.92, 0.42, 0.85, 'z').forEach(m => dark.push(m));
+  }
+  /* stair turret */
+  const st = BABYLON.MeshBuilder.CreateCylinder('stair', {
+    diameterTop: 1.1, diameterBottom: 1.3, height: KH + 0.9, tessellation: 12
+  }, scene);
+  st.position.set(kx + 2.35, base + (KH + 0.9) / 2, kz - 2.35);
+  st.material = MAT.castle;
+  stone.push(st);
+  const stc = BABYLON.MeshBuilder.CreateCylinder('stairc', {
+    diameterTop: 0, diameterBottom: 1.5, height: 1.4, tessellation: 12
+  }, scene);
+  stc.position.set(kx + 2.35, base + KH + 0.9 + 0.7, kz - 2.35);
+  stc.material = MAT.roofSlate;
+  roof.push(stc);
+  /* keep banner */
+  const kb = box('kbanner', 0.85, 2.4, 0.08, kx, base + KH - 1.4, kz + 2.05, MAT.banner);
+  banner.push(kb);
+  anim.flags.push({ mesh: kb, base: 0, phase: 0 });
+
+  /* great hall */
+  const hx = CX + 0.5, hz = CZ + 2.1;
+  const hall = box('hall', 4.6, 3.1, 3.0, hx, base + 1.55, hz, MAT.castle);
+  stone.push(hall);
+  const hallRoof = gableRoof('hallroof', 4.6, 3.0, 1.7, hx, base + 3.1, hz, MAT.roofSlate, null, 0.5);
+  hallRoof.rotation.y = Math.PI / 2;
+  roof.push(hallRoof);
+  for (let i = -1; i <= 1; i++) {
+    window3d('hw' + i, hx + i * 1.5, base + 1.9, hz + 1.52, 0.45, 0.9, 'z').forEach(m => dark.push(m));
+  }
+  /* chimney */
+  const ch = box('chm', 0.6, 2.0, 0.6, hx + 1.6, base + 4.3, hz, MAT.castle);
+  stone.push(ch);
+
+  /* courtyard well + clutter */
+  const well = BABYLON.MeshBuilder.CreateCylinder('well', {
+    diameterTop: 1.25, diameterBottom: 1.35, height: 0.8, tessellation: 12
+  }, scene);
+  well.position.set(CX + 1.6, base + 0.4, CZ + 3.2);
+  well.material = MAT.castle;
+  stone.push(well);
+  const wellRim = BABYLON.MeshBuilder.CreateTorus('wellrim', {
+    diameter: 1.3, thickness: 0.12, tessellation: 12
+  }, scene);
+  wellRim.position.set(CX + 1.6, base + 0.82, CZ + 3.2);
+  wellRim.material = MAT.darkwood;
+  timber.push(wellRim);
+  [[-2.4, 3.0], [-1.9, 3.5]].forEach((p, i) => {
+    const b = BABYLON.MeshBuilder.CreateCylinder('barrel' + i, {
+      diameterTop: 0.55, diameterBottom: 0.5, height: 0.7, tessellation: 10
+    }, scene);
+    b.position.set(CX + p[0], base + 0.35, CZ + p[1]);
+    b.material = MAT.darkwood;
+    timber.push(b);
+  });
+
+  /* gate stairs down to the village */
+  for (let i = 0; i < 5; i++) {
+    const st2 = box('gst' + i, 3.0, 0.16, 0.55, gx, base - 0.09 - i * 0.15, gz - 1.0 - i * 0.5, MAT.castle);
+    stone2.push(st2);
+  }
+
+  const groups = [
+    [stone, MAT.castle, 'castleStone'],
+    [stone2, MAT.wall, 'castleSteps'],
+    [timber, MAT.darkwood, 'castleTimber'],
+    [roof, MAT.roofSlate, 'castleRoof'],
+    [dark, MAT.darkwood, 'castleDark'],
+    [banner, MAT.banner, 'castleBanner']
+  ];
+  const built = [];
+  groups.forEach(g => {
+    const m = merge(g[2], g[0], g[1]);
+    if (m) { m.parent = root; m.receiveShadows = true; built.push(m); }
+  });
+  built.forEach(m => shadowCaster(m));
+  tag(root, 'The Ironroot Keep', 'Seat of the isle: four drum towers, a curtain wall and an eight-storey keep.');
+  return root;
+}
+
+/* ======================= HOUSES ===================================== */
+function buildHouse(o) {
+  const root = new BABYLON.TransformNode('house', scene);
+  const w = o.w, d = o.d, h = o.h;
+  const wallM = o.warm ? MAT.plasterWarm : MAT.plaster;
+  const wall = [], timber = [], roofP = [], dark = [], stoneP = [];
+  const y0 = gh(o.x, o.z);
+
+  stoneP.push(box('found', w + 0.3, 0.34, d + 0.3, 0, 0.17, 0, MAT.wall));
+  wall.push(box('body', w, h, d, 0, h / 2 + 0.3, 0, wallM));
+
+  /* half-timbering */
+  const bw = 0.13;
+  [[-w / 2, -d / 2], [w / 2, -d / 2], [-w / 2, d / 2], [w / 2, d / 2]].forEach(c => {
+    timber.push(box('post', bw, h, bw, c[0], h / 2 + 0.3, c[1], MAT.beam));
+  });
+  timber.push(box('beamA', w + 0.02, bw, bw, 0, h - 0.35, -d / 2, MAT.beam));
+  timber.push(box('beamB', w + 0.02, bw, bw, 0, h - 0.35, d / 2, MAT.beam));
+  timber.push(box('beamC', bw, bw, d + 0.02, -w / 2, h - 0.35, 0, MAT.beam));
+  timber.push(box('beamD', bw, bw, d + 0.02, w / 2, h - 0.35, 0, MAT.beam));
+  const dia = Math.hypot(w, h) * 0.55;
+  const br = box('brace', dia, bw * 0.8, bw * 0.8, -w / 4, h * 0.55, d / 2, MAT.beam);
+  br.rotation.z = Math.atan2(h * 0.55, w * 0.55);
+  timber.push(br);
+  const br2 = box('brace2', dia, bw * 0.8, bw * 0.8, w / 4, h * 0.55, d / 2, MAT.beam);
+  br2.rotation.z = -Math.atan2(h * 0.55, w * 0.55);
+  timber.push(br2);
+  /* shutters flanking the door */
+  const sh = box('shut', 0.34, 0.72, 0.07, -w * 0.16 - 0.42, 0.9, d / 2 + 0.05, MAT.beam);
+  const sh2 = box('shut2', 0.34, 0.72, 0.07, -w * 0.16 + 0.42, 0.9, d / 2 + 0.05, MAT.beam);
+  timber.push(sh, sh2);
+
+  /* gabled roof */
+  const roofM = o.roof === 'slate' ? MAT.roofSlate : (o.roof === 'green' ? MAT.roofGreen :
+    (o.roof === 'thatch' ? MAT.thatch : MAT.roofRed));
+  const rf = gableRoof('roof', w, d, o.rh, 0, h + 0.3, 0, roofM, null, 0.32);
+  roofP.push(rf);
+
+  /* chimney */
+  stoneP.push(box('chim', 0.32, o.rh + 0.42, 0.32, w * 0.28, h + 0.3 + (o.rh + 0.42) / 2 - 0.35, 0, MAT.castle));
+  stoneP.push(box('chimcap', 0.44, 0.1, 0.44, w * 0.28, h + 0.3 + o.rh + 0.14, 0, MAT.castle));
+
+  /* door + windows */
+  dark.push(box('door', 0.62, 1.05, 0.12, -w * 0.16, 0.85, d / 2 + 0.02, MAT.darkwood));
+  timber.push(box('doorfrm', 0.78, 0.14, 0.16, -w * 0.16, 1.42, d / 2 + 0.03, MAT.beam));
+  window3d('w1', w * 0.26, h * 0.62, d / 2 + 0.02, 0.42, 0.5, 'z').forEach(m => dark.push(m));
+  window3d('w2', -w / 2 - 0.02, h * 0.62, d * 0.15, 0.42, 0.5, 'x').forEach(m => dark.push(m));
+  window3d('w3', w * 0.3, h * 0.62, -d / 2 - 0.02, 0.42, 0.5, 'z').forEach(m => dark.push(m));
+
+  const built = [];
+  [[wall, wallM, 'hWall'], [stoneP, MAT.wall, 'hStone'], [timber, MAT.beam, 'hTimber'],
+   [roofP, roofM, 'hRoof'], [dark, MAT.darkwood, 'hDark']].forEach(g => {
+    const m = merge(g[2], g[0], g[1]);
+    if (m) { m.parent = root; m.receiveShadows = true; built.push(m); }
+  });
+  built.forEach(m => shadowCaster(m));
+  root.position.set(o.x, y0, o.z);
+  root.rotation.y = o.rot || 0;
+  return root;
+}
+
+/* ======================= THE VILLAGE ================================= */
+function buildVillage() {
+  const root = new BABYLON.TransformNode('village', scene);
+  const houses = [
+    { x: -10.9, z: 0.2, w: 2.5, d: 2.2, h: 2.2, rh: 1.3, rot: 0.35, roof: 'red' },
+    { x: -12.2, z: -4.8, w: 2.9, d: 2.4, h: 2.4, rh: 1.4, rot: -0.5, roof: 'thatch', warm: true },
+    { x: -8.6, z: -1.2, w: 2.6, d: 2.3, h: 2.3, rh: 1.4, rot: 1.1, roof: 'slate' },
+    { x: -10.6, z: -8.0, w: 2.8, d: 2.5, h: 2.5, rh: 1.5, rot: 0.2, roof: 'red' },
+    { x: -4.8, z: -5.4, w: 2.4, d: 2.1, h: 2.1, rh: 1.2, rot: -0.9, roof: 'green' },
+    { x: -13.1, z: -6.9, w: 2.5, d: 2.3, h: 2.2, rh: 1.3, rot: 1.4, roof: 'thatch', warm: true },
+    { x: -7.6, z: -9.4, w: 2.7, d: 2.3, h: 2.4, rh: 1.4, rot: -0.25, roof: 'red' },
+    { x: -3.4, z: -7.8, w: 2.3, d: 2.1, h: 2.1, rh: 1.2, rot: 0.8, roof: 'slate' }
+  ];
+  houses.forEach(h => {
+    const house = buildHouse(h);
+    house.parent = root;
+  });
+
+  /* the tavern */
+  const tavern = buildHouse({
+    x: -6.4, z: -2.6, w: 4.2, d: 3.4, h: 2.5, rh: 1.8, rot: 0.3, roof: 'red', warm: true
+  });
+  tavern.parent = root;
+  tag(tavern, 'The Tipsy Griffin', 'Village tavern — oak beams, warm windows and a swinging sign.');
+  /* sign */
+  const signPost = box('sp', 0.16, 2.0, 0.16, 0, 1.0, 0, MAT.beam);
+  const signArm = box('sa', 0.9, 0.12, 0.12, 0.42, 1.9, 0, MAT.beam);
+  const signBoard = box('sb', 0.85, 0.62, 0.08, 0.82, 1.5, 0, MAT.banner);
+  const signGrp = new BABYLON.TransformNode('sign', scene);
+  signGrp.parent = tavern;
+  signPost.parent = signGrp; signArm.parent = signGrp; signBoard.parent = signGrp;
+  signGrp.position.set(2.2, 0, 0.4);
+  signGrp.rotation.y = -0.25;
+  const signParts = [];
+  [signPost, signArm].forEach(m => signParts.push(m));
+  const sm = merge('signTimber', signParts, MAT.beam);
+  if (sm) { sm.parent = tavern; shadowCaster(sm); }
+  const sbm = merge('signBoard', [signBoard], MAT.banner);
+  if (sbm) { sbm.parent = tavern; }
+  anim.flags.push({ mesh: signBoard, base: 0, phase: 1.4, swing: true, pivot: signArm });
+  /* benches & barrels */
+  const props = [];
+  const bench = box('bench', 1.6, 0.12, 0.42, 0, 0.5, 0, MAT.wood);
+  bench.position.set(2.6, 0, 1.9);
+  props.push(bench);
+  const bp = merge('tavernProps', props, MAT.wood);
+  if (bp) { bp.parent = tavern; shadowCaster(bp); }
+  const barrelGrp = [];
+  [[3.4, 1.1], [3.8, 1.9], [-2.9, 2.0]].forEach(p => {
+    const b = BABYLON.MeshBuilder.CreateCylinder('bar', {
+      diameterTop: 0.62, diameterBottom: 0.56, height: 0.8, tessellation: 10
+    }, scene);
+    b.position.set(p[0], 0.4, p[1]);
+    barrelGrp.push(b);
+  });
+  const bm = merge('tavernBarrels', barrelGrp, MAT.darkwood);
+  if (bm) { bm.parent = tavern; shadowCaster(bm); }
+
+  /* market stalls */
+  const stallDefs = [
+    { x: -10.4, z: -9.8, rot: 0.3, m: MAT.awningA },
+    { x: -8.6, z: -10.8, rot: -0.4, m: MAT.awningB },
+    { x: -6.9, z: -9.6, rot: 0.15, m: MAT.awningC },
+    { x: -11.4, z: -8.4, rot: -0.9, m: MAT.awningB }
+  ];
+  stallDefs.forEach((s, i) => {
+    const g = new BABYLON.TransformNode('stall' + i, scene);
+    g.parent = root;
+    g.position.set(s.x, gh(s.x, s.z), s.z);
+    g.rotation.y = s.rot;
+    const posts = [], cloth = [], wood = [], goods = [];
+    [[-0.85, -0.6], [0.85, -0.6], [-0.85, 0.6], [0.85, 0.6]].forEach(p => {
+      posts.push(box('sp', 0.12, 1.5, 0.12, p[0], 0.75, p[1], MAT.wood));
+    });
+    wood.push(box('table', 1.9, 0.12, 1.1, 0, 0.78, 0, MAT.wood));
+    wood.push(box('tableL', 1.8, 0.6, 0.1, 0, 0.42, -0.5, MAT.wood));
+    const roof = box('awn', 2.1, 0.09, 1.5, 0, 1.56, 0, s.m);
+    roof.rotation.x = -0.18;
+    cloth.push(roof);
+    const crest = box('awn2', 2.1, 0.34, 0.08, 0, 1.36, 0.72, s.m);
+    cloth.push(crest);
+    /* produce */
+    const r = rnd(400 + i * 13);
+    for (let k = 0; k < 14; k++) {
+      const c = BABYLON.MeshBuilder.CreateSphere('pr', { diameter: 0.16 + r() * 0.1, segments: 6 }, scene);
+      c.position.set((r() - 0.5) * 1.5, 0.88, (r() - 0.5) * 0.8);
+      paint(c, ['#d1553f', '#e0a33a', '#6fae4a', '#c9558f', '#e8d05a'][Math.floor(r() * 5)]);
+      goods.push(c);
+    }
+    const gm = merge('stallGoods' + i, goods, MAT.produce);
+    if (gm) { gm.parent = g; }
+    const pm = merge('stallPost' + i, posts, MAT.wood);
+    const wm = merge('stallWood' + i, wood, MAT.wood);
+    const cm = merge('stallCloth' + i, cloth, s.m);
+    [pm, wm, cm].forEach(m => { if (m) { m.parent = g; shadowCaster(m); } });
+  });
+
+  /* fences, haystacks, crates */
+  const nature = [];
+  const fencePts = [[-13.2, -1.0], [-13.6, -4.2], [-13.2, -7.6], [-12.2, -10.6], [-10.0, -12.4], [-7.2, -12.8]];
+  fencePts.forEach((p, i) => {
+    const f = box('fp', 0.12, 1.0, 0.12, p[0], gh(p[0], p[1]) + 0.5, p[1], MAT.wood);
+    f.rotation.y = i;
+    nature.push(f);
+  });
+  for (let i = 0; i < fencePts.length - 1; i++) {
+    const a = fencePts[i], b = fencePts[i + 1];
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    const rail = box('rail', len, 0.1, 0.08, (a[0] + b[0]) / 2, gh(a[0], a[1]) + 0.72, (a[1] + b[1]) / 2, MAT.wood);
+    rail.rotation.y = -Math.atan2(b[1] - a[1], b[0] - a[0]);
+    nature.push(rail);
+  }
+  const nm = merge('villageNature', nature, MAT.wood);
+  if (nm) { nm.parent = root; shadowCaster(nm); }
+  const hay = [];
+  [[-12.6, -2.2, 0.85], [-9.2, -11.4, 0.75], [-4.0, -10.4, 0.8]].forEach(hp => {
+    const hs = BABYLON.MeshBuilder.CreateCylinder('hay', {
+      diameterTop: 0, diameterBottom: 1.25, height: hp[2] * 1.7, tessellation: 9
+    }, scene);
+    hs.position.set(hp[0], gh(hp[0], hp[1]) + hp[2] * 0.85, hp[1]);
+    hay.push(hs);
+  });
+  const hm = merge('villageHay', hay, MAT.thatch);
+  if (hm) { hm.parent = root; shadowCaster(hm); }
+
+  tag(root, 'Hollowbrook Village', 'Nine timber-framed homes, a tavern, a market row and a mill on the water.');
+  return root;
+}
+
+/* ======================= THE MILL =================================== */
+function buildMill() {
+  const root = new BABYLON.TransformNode('mill', scene);
+  const MX = 9.4, MZ = -1.6;
+  const y0 = gh(MX, MZ);
+  const house = buildHouse({
+    x: MX, z: MZ, w: 3.2, d: 2.8, h: 2.4, rh: 1.7, rot: -0.35, roof: 'slate'
+  });
+  house.parent = root;
+
+  /* the wheel */
+  const wheelRoot = new BABYLON.TransformNode('wheelRoot', scene);
+  wheelRoot.parent = root;
+  wheelRoot.position.set(MX - 2.9, y0 + 1.05, MZ + 0.6);
+  wheelRoot.rotation.y = Math.PI / 2;
+  const R = 1.5;
+  const parts = [];
+  const hub = BABYLON.MeshBuilder.CreateCylinder('hub', { diameterTop: 0.4, diameterBottom: 0.4, height: 0.9, tessellation: 12 }, scene);
+  hub.rotation.x = Math.PI / 2;
+  parts.push(hub);
+  [-0.45, 0.45].forEach(o => {
+    const rim = BABYLON.MeshBuilder.CreateTorus('rim', { diameter: R * 2, thickness: 0.16, tessellation: 18 }, scene);
+    rim.rotation.x = Math.PI / 2;
+    rim.position.z = o;
+    parts.push(rim);
+  });
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * Math.PI * 2;
+    const spoke = box('sp', R, 0.1, 0.1, Math.cos(a) * R / 2, Math.sin(a) * R / 2, 0, MAT.darkwood);
+    spoke.rotation.z = a;
+    parts.push(spoke);
+    const pad = box('pad', 0.5, 0.07, 0.85, Math.cos(a) * (R - 0.15), Math.sin(a) * (R - 0.15), 0, MAT.wood);
+    pad.rotation.z = a;
+    parts.push(pad);
+  }
+  const wm = merge('waterwheel', parts, MAT.darkwood);
+  if (wm) { wm.parent = wheelRoot; shadowCaster(wm); }
+  anim.wheels.push(wheelRoot);
+
+  /* sluice + supports */
+  const sluice = box('sluice', 1.5, 0.18, 1.2, MX - 2.1, y0 + 1.9, MZ + 0.6, MAT.wood);
+  sluice.rotation.y = -0.35;
+  const sm = merge('millSluice', [sluice], MAT.wood);
+  if (sm) { sm.parent = root; shadowCaster(sm); }
+
+  tag(root, 'Wheelwright’s Mill', 'A leaning timber mill whose wheel still turns on the turquoise current.');
+  return root;
+}
+
+/* ======================= WATCHTOWER RUIN ============================ */
+function buildWatchtower() {
+  const root = new BABYLON.TransformNode('watchtower', scene);
+  const TX = -11.6, TZ = 6.8;
+  const y0 = gh(TX, TZ);
+  const stone = [], dark = [];
+  /* rocky spur */
+  const spur = BABYLON.MeshBuilder.CreateCylinder('spur', {
+    diameterTop: 4.6, diameterBottom: 6.4, height: 1.5, tessellation: 12
+  }, scene);
+  spur.position.set(TX, y0 + 0.4, TZ);
+  spur.material = MAT.cliff;
+  spur.parent = root;
+  shadowCaster(spur);
+
+  /* broken drum: a ring of wall slabs, most of them collapsed */
+  const SLABS = 14;
+  const heights = [4.6, 4.2, 0.0, 0.0, 1.1, 3.4, 3.9, 4.4, 2.2, 0.0, 0.7, 1.8, 0.0, 3.1];
+  for (let i = 0; i < SLABS; i++) {
+    const a = (i / SLABS) * Math.PI * 2;
+    const h = heights[i];
+    if (h <= 0.01) continue;
+    const slab = box('slab' + i, 1.0, h, 0.44, TX + Math.cos(a) * 1.15, y0 + 1.0 + h / 2, TZ + Math.sin(a) * 1.15, MAT.castle);
+    slab.rotation.y = -a;
+    slab.rotation.z = (Math.sin(i * 3.3) * 0.05);
+    stone.push(slab);
+    /* merlons on the tallest stretches */
+    if (h > 3.0) {
+      const m = box('wm' + i, 0.72, 0.42, 0.44, TX + Math.cos(a) * 1.15, y0 + 1.0 + h + 0.21, TZ + Math.sin(a) * 1.15, MAT.castle);
+      m.rotation.y = -a;
+      stone.push(m);
+    }
+  }
+  /* a broken upper course drifting off the stump */
+  for (let i = 0; i < 5; i++) {
+    const a = 1.1 + i * 0.24;
+    const m = box('wtop' + i, 0.6, 0.38, 0.42, TX + Math.cos(a) * 1.1, y0 + 5.5 - i * 0.16, TZ + Math.sin(a) * 1.1, MAT.castle);
+    m.rotation.y = -a;
+    m.rotation.z = 0.12 * (i % 2 ? 1 : -1);
+    stone.push(m);
+  }
+  /* rubble */
+  const r = rnd(777);
+  for (let i = 0; i < 16; i++) {
+    const a = r() * Math.PI * 2, d = 1.6 + r() * 3.2;
+    const b = box('rb' + i, 0.3 + r() * 0.5, 0.25 + r() * 0.35, 0.3 + r() * 0.5,
+      TX + Math.cos(a) * d, y0 + 0.2, TZ + Math.sin(a) * d, MAT.cliff);
+    b.rotation.y = r() * 3;
+    stone.push(b);
+  }
+  const sm = merge('watchtowerStone', stone, MAT.castle);
+  if (sm) { sm.parent = root; shadowCaster(sm); }
+  /* a lone dead tree beside it */
+  tag(root, 'The Broken Watch', 'A collapsed drum tower overlooking the isle — nothing left but teeth of stone.');
+  return root;
+}
+
+/* ======================= BRIDGES ==================================== */
+function buildBridges() {
+  const root = new BABYLON.TransformNode('bridges', scene);
+  function bridgeSpot(zTarget) {
+    let best = 0, bd = 1e9;
+    for (let i = 0; i < RIVER.length; i++) {
+      const d = Math.abs(RIVER[i].z - zTarget);
+      if (d < bd) { bd = d; best = i; }
+    }
+    const tg = riverTangent(best);
+    return { x: RIVER[best].x, z: RIVER[best].z, len: RIVER[best].w + 3.0, rot: Math.atan2(tg.x, -tg.z) };
+  }
+  const defs = [bridgeSpot(-6.4), bridgeSpot(3.8), bridgeSpot(0.9)];
+  defs.forEach((d, i) => {
+    const g = new BABYLON.TransformNode('bridge' + i, scene);
+    g.parent = root;
+    g.position.set(d.x, 0, d.z);
+    g.rotation.y = d.rot;
+    const planks = [], posts = [], ropes = [];
+    const deckY = 0.32;
+    for (let p = 0; p < 12; p++) {
+      const x = -d.len / 2 + (p + 0.5) * (d.len / 12);
+      const plank = box('pl', d.len / 12 * 0.86, 0.1, 1.7, x, deckY, 0, MAT.wood);
+      planks.push(plank);
+    }
+    for (let p = 0; p < 12; p += 3) {
+      const x = -d.len / 2 + (p + 0.5) * (d.len / 12);
+      const post = box('bp', 0.11, 0.85, 0.11, x, deckY + 0.42, -0.78, MAT.darkwood);
+      const post2 = box('bp2', 0.11, 0.85, 0.11, x, deckY + 0.42, 0.78, MAT.darkwood);
+      posts.push(post, post2);
+    }
+    const rail1 = box('rl', d.len, 0.09, 0.09, 0, deckY + 0.8, -0.78, MAT.darkwood);
+    const rail2 = box('rl2', d.len, 0.09, 0.09, 0, deckY + 0.8, 0.78, MAT.darkwood);
+    ropes.push(rail1, rail2);
+    const dm = merge('bridgeDeck' + i, planks, MAT.wood);
+    const pm = merge('bridgePost' + i, posts, MAT.darkwood);
+    const rm = merge('bridgeRail' + i, ropes, MAT.darkwood);
+    [dm, pm, rm].forEach(m => { if (m) { m.parent = g; shadowCaster(m); } });
+  });
+  tag(root, 'Three plank bridges', 'Wobbly timber crossings over the bright current.');
+  return root;
+}
+
+/* ======================= NATURE ===================================== */
+function makePineMesh() {
+  const parts = [];
+  const trunk = BABYLON.MeshBuilder.CreateCylinder('pt', {
+    diameterTop: 0.16, diameterBottom: 0.3, height: 1.3, tessellation: 8
+  }, scene);
+  trunk.position.y = 0.65;
+  paint(trunk, '#6b4a2e');
+  parts.push(trunk);
+  for (let i = 0; i < 4; i++) {
+    const c = BABYLON.MeshBuilder.CreateCylinder('pc', {
+      diameterTop: 0.02, diameterBottom: 2.0 - i * 0.42, height: 1.5 - i * 0.1, tessellation: 9
+    }, scene);
+    c.position.y = 1.25 + i * 0.72;
+    paint(c, i % 2 ? '#2e7a4a' : '#3b9159');
+    parts.push(c);
+  }
+  const m = merge('pine', parts, MAT.leaf);
+  if (m) m.convertToFlatShadedMesh();
+  return m;
+}
+function makeRockMesh(seed) {
+  const r = rnd(seed);
+  const s = BABYLON.MeshBuilder.CreateIcoSphere('rk', { radius: 0.5, subdivisions: 2, flat: true }, scene);
+  const pos = s.getVerticesData(BABYLON.VertexBuffer.PositionKind);
+  for (let i = 0; i < pos.length; i += 3) {
+    const k = 0.72 + r() * 0.55;
+    pos[i] *= k; pos[i + 1] *= k * 0.78; pos[i + 2] *= k;
+  }
+  s.updateVerticesData(BABYLON.VertexBuffer.PositionKind, pos);
+  paint(s, '#9c8e7c');
+  return s;
+}
+function makeTuftMesh() {
+  const parts = [];
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + 0.3;
+    const b = box('g', 0.055, 0.3 + (i % 2) * 0.14, 0.055, Math.cos(a) * 0.06, 0.15, Math.sin(a) * 0.06, MAT.leaf);
+    b.rotation.z = Math.cos(a) * 0.28;
+    b.rotation.x = Math.sin(a) * 0.28;
+    paint(b, i % 2 ? '#74bd4c' : '#5da63c');
+    parts.push(b);
+  }
+  return merge('tuft', parts, MAT.leaf);
+}
+function buildNature() {
+  const root = new BABYLON.TransformNode('nature', scene);
+  const pine = makePineMesh();
+  pine.isVisible = false;
+  pine.parent = root;
+  const rockA = makeRockMesh(21), rockB = makeRockMesh(47);
+  rockA.isVisible = false; rockB.isVisible = false;
+  rockA.parent = root; rockB.parent = root;
+  const tuft = makeTuftMesh();
+  tuft.isVisible = false;
+  tuft.parent = root;
+
+  const spots = scatter(44, 4.5, 14.6, 909, function (x, z) {
+    if (nearCastle(x, z, PLATEAU_R + 0.8)) return true;
+    if (nearRiver(x, z, 3.1)) return true;
+    if (nearVillage(x, z, 7.2)) return true;
+    if (Math.hypot(x - 9.4, z + 1.6) < 5.0) return true;    // keep the mill in view
+    if (Math.hypot(x + 11.2, z - 0.6) < 3.6) return true;
+    if (Math.hypot(x + 11.6, z - 6.8) < 3.2) return true;
+    if (z < -6.0 && x > -14.5 && x < 8.0) return true;    // keep the front sight-line open
+    return false;
+  });
+  spots.forEach(s => {
+    const inst = pine.createInstance('pine');
+    inst.position.set(s.x, gh(s.x, s.z) - 0.1, s.z);
+    inst.rotation.y = s.rot;
+    inst.scaling.setAll(0.58 + s.s * 0.34);
+    inst.parent = root;
+    inst.isPickable = false;
+  });
+
+  const rocks = scatter(42, 3.0, 15.2, 313, function (x, z) {
+    if (nearCastle(x, z, PLATEAU_R)) return true;
+    if (nearRiver(x, z, 1.9)) return true;
+    if (nearVillage(x, z, 4.6)) return true;
+    if (z < -8.5 && x > -14.0 && x < 8.0) return true;
+    return false;
+  });
+  rocks.forEach(s => {
+    const src = s.r > 0.5 ? rockA : rockB;
+    const inst = src.createInstance('rock');
+    inst.position.set(s.x, gh(s.x, s.z) + 0.12 * s.s, s.z);
+    inst.rotation.set(s.r * 0.5, s.rot, s.r * 0.4);
+    inst.scaling.setAll(s.s * (0.32 + s.r * 0.5));
+    inst.parent = root;
+    inst.isPickable = false;
+  });
+
+  const tufts = scatter(320, 2.0, 15.4, 555, function (x, z) {
+    if (nearRiver(x, z, 1.5)) return true;
+    return false;
+  });
+  tufts.forEach(s => {
+    const inst = tuft.createInstance('tuft');
+    inst.position.set(s.x, gh(s.x, s.z) - 0.02, s.z);
+    inst.rotation.y = s.rot;
+    inst.scaling.setAll(s.s * 0.62);
+    inst.parent = root;
+    inst.isPickable = false;
+  });
+  shadowCaster(pine);
+  shadowCaster(rockA);
+  shadowCaster(rockB);
+  return root;
+}
+
+/* ======================= CLOUDS & DRIFTING ROCKS ==================== */
+function buildSkyDressing() {
+  const root = new BABYLON.TransformNode('skyDressing', scene);
+
+  /* sky dome */
+  const sky = BABYLON.MeshBuilder.CreateSphere('sky', {
+    diameter: 1400, segments: 24, sideOrientation: BABYLON.Mesh.BACKSIDE
+  }, scene);
+  const skyTex = new BABYLON.DynamicTexture('skyGrad', { width: 8, height: 256 }, scene, true);
+  const sctx = skyTex.getContext();
+  const grad = sctx.createLinearGradient(0, 0, 0, 256);
+  grad.addColorStop(0.00, '#2f6f9e');
+  grad.addColorStop(0.32, '#7fb9dc');
+  grad.addColorStop(0.55, '#bcdcea');
+  grad.addColorStop(0.72, '#f2e3c4');
+  grad.addColorStop(1.00, '#f7d9a8');
+  sctx.fillStyle = grad;
+  sctx.fillRect(0, 0, 8, 256);
+  skyTex.update();
+  const skyMat = new BABYLON.StandardMaterial('skyMat', scene);
+  skyMat.emissiveTexture = skyTex;
+  skyMat.diffuseColor = BABYLON.Color3.Black();
+  skyMat.specularColor = BABYLON.Color3.Black();
+  skyMat.disableLighting = true;
+  skyMat.fogEnabled = false;
+  sky.material = skyMat;
+  sky.infiniteDistance = true;
+  sky.isPickable = false;
+  sky.parent = root;
+
+  /* clouds */
+  const cloudRoot = new BABYLON.TransformNode('clouds', scene);
+  cloudRoot.parent = root;
+  anim.cloudRoot = cloudRoot;
+  const cloudMat = new BABYLON.StandardMaterial('cloudMat', scene);
+  cloudMat.diffuseColor = hex('#ffffff');
+  cloudMat.emissiveColor = hex('#dfe9f2');
+  cloudMat.specularColor = BABYLON.Color3.Black();
+  cloudMat.alpha = 0.92;
+  const r = rnd(31337);
+  for (let i = 0; i < 11; i++) {
+    const a = r() * Math.PI * 2;
+    const d = 52 + r() * 80;
+    const cx = Math.cos(a) * d, cz = Math.sin(a) * d;
+    const cy = 8 + r() * 40;
+    const parts = [];
+    const n = 4 + Math.floor(r() * 4);
+    for (let k = 0; k < n; k++) {
+      const s = BABYLON.MeshBuilder.CreateSphere('cb', {
+        diameter: 11 + r() * 16, segments: 8
+      }, scene);
+      s.position.set((r() - 0.5) * 22, (r() - 0.5) * 4.2, (r() - 0.5) * 15);
+      s.scaling.y = 0.46;
+      parts.push(s);
+    }
+    const c = merge('cloud' + i, parts, cloudMat);
+    if (c) {
+      c.position.set(cx, cy, cz);
+      c.parent = cloudRoot;
+      c.isPickable = false;
+      anim.clouds.push({ mesh: c, drift: (r() - 0.5) * 0.05, bob: r() * 6.28 });
+    }
+  }
+
+  /* small rocks drifting under the isle */
+  const driftRoot = new BABYLON.TransformNode('drift', scene);
+  driftRoot.parent = root;
+  const rockMat2 = new BABYLON.StandardMaterial('driftRock', scene);
+  rockMat2.diffuseTexture = TEX.cliffRock;
+  rockMat2.diffuseTexture.uScale = 2;
+  rockMat2.diffuseTexture.vScale = 2;
+  rockMat2.specularColor = new BABYLON.Color3(0.05, 0.05, 0.05);
+  for (let i = 0; i < 9; i++) {
+    const a = r() * Math.PI * 2;
+    const d = 10 + r() * 13;
+    const b = makeRockMesh(600 + i * 17);
+    b.material = rockMat2;
+    b.position.set(Math.cos(a) * d, -8 - r() * 16, Math.sin(a) * d);
+    b.scaling.setAll(0.5 + r() * 1.6);
+    b.rotation.set(r() * 3, r() * 3, r() * 3);
+    b.parent = driftRoot;
+    b.isPickable = false;
+    anim.drifters.push({ mesh: b, phase: r() * 6.28, amp: 0.3 + r() * 0.5, speed: 0.4 + r() * 0.5 });
+  }
+  return root;
+}
+/* =====================================================================
+   7) ANIMATION, INTERACTION, BOOT
+   ===================================================================== */
+const loadBar = document.getElementById('loadBar');
+const loadMsg = document.getElementById('loadMsg');
+const badge = document.getElementById('badge');
+function setProgress(p, msg) {
+  loadBar.style.width = Math.round(p * 100) + '%';
+  if (msg) loadMsg.textContent = msg;
+  return new Promise(function (r) { requestAnimationFrame(function () { setTimeout(r, 0); }); });
+}
+
+/* ---------------- landmark inspection card ---------------- */
+const card = document.createElement('div');
+card.className = 'landmark-card';
+card.innerHTML = '<h3></h3><p></p>';
+document.body.appendChild(card);
+let picked = null;
+
+function findLandmark(mesh) {
+  let n = mesh;
+  while (n) {
+    if (n.metadata && n.metadata.title) return n;
+    n = n.parent;
+  }
+  return null;
+}
+let downX = 0, downY = 0, dragging = false;
+canvas.addEventListener('pointerdown', function (e) { downX = e.clientX; downY = e.clientY; dragging = true; });
+canvas.addEventListener('pointerup', function (e) {
+  dragging = false;
+  if (Math.hypot(e.clientX - downX, e.clientY - downY) > 6) return;
+  const rect = canvas.getBoundingClientRect();
+  const hit = scene.pick(e.clientX - rect.left, e.clientY - rect.top,
+    function (m) { return m.isPickable !== false; });
+  const lm = hit && hit.hit ? findLandmark(hit.pickedMesh) : null;
+  if (lm) {
+    picked = lm;
+    card.querySelector('h3').textContent = lm.metadata.title;
+    card.querySelector('p').textContent = lm.metadata.blurb || '';
+    card.classList.add('show');
+  } else {
+    picked = null;
+    card.classList.remove('show');
+  }
+});
+
+/* ---------------- animation ---------------- */
+let spin = true;
+let clock = 0;
+scene.onBeforeRenderObservable.add(function () {
+  const raw = engine.getDeltaTime() / 1000;
+  const dt = Math.min(0.05, raw);
+  const spinDt = Math.min(0.3, raw);
+  clock += dt;
+
+  if (spin && !dragging) camera.alpha += 0.052 * spinDt;
+
+  /* flowing water */
+  if (TEX.water) TEX.water.vOffset -= 0.035 * dt;
+  if (MAT.fall.diffuseTexture) MAT.fall.diffuseTexture.vOffset -= 0.62 * dt;
+
+  /* the mill wheel */
+  for (let i = 0; i < anim.wheels.length; i++) anim.wheels[i].rotation.z += 0.95 * dt;
+
+  /* banners & swinging signs */
+  for (let i = 0; i < anim.flags.length; i++) {
+    const f = anim.flags[i];
+    if (!f.mesh) continue;
+    if (f.swing) f.mesh.rotation.y = Math.sin(clock * 2.1 + f.phase) * 0.16;
+    else f.mesh.rotation.z = Math.sin(clock * 3.4 + f.phase) * 0.035;
+  }
+
+  /* clouds */
+  if (anim.cloudRoot) anim.cloudRoot.rotation.y += 0.0045 * dt;
+  for (let i = 0; i < anim.clouds.length; i++) {
+    const c = anim.clouds[i];
+    c.mesh.position.y += Math.sin(clock * 0.25 + c.bob) * 0.004;
+    c.mesh.position.x += c.drift * dt;
+    c.mesh.position.z += c.drift * 0.6 * dt;
+  }
+
+  /* drifting rocks */
+  for (let i = 0; i < anim.drifters.length; i++) {
+    const d = anim.drifters[i];
+    d.mesh.position.y += Math.sin(clock * d.speed + d.phase) * 0.006 * d.amp;
+    d.mesh.rotation.y += 0.06 * dt * d.speed;
+  }
+
+  /* tilt-shift focus follows the orbit */
+  pipeline.depthOfField.focusDistance = camera.radius * 1000;
+
+  /* keep the inspection card glued to its landmark */
+  if (picked) {
+    const p = BABYLON.Vector3.Project(
+      picked.getAbsolutePosition(),
+      BABYLON.Matrix.Identity(),
+      scene.getTransformMatrix(),
+      camera.viewport.toGlobal(engine.getRenderWidth(), engine.getRenderHeight())
+    );
+    const dist = BABYLON.Vector3.Distance(camera.position, picked.getAbsolutePosition());
+    if (p.z > 0 && p.z < 1 && dist < camera.upperRadiusLimit * 1.2) {
+      const cw = card.offsetWidth || 240, ch = card.offsetHeight || 90;
+      const mx = Math.max(8, window.innerWidth - cw - 10);
+      const my = Math.max(8, Math.min(window.innerHeight - ch - 10, p.y - 14));
+      card.style.transform = 'translate(' + Math.max(8, Math.min(mx, p.x + 16)) + 'px,' + my + 'px)';
+      card.classList.add('show');
+    } else {
+      card.classList.remove('show');
+    }
+  }
+});
+
+/* ---------------- toolbar ---------------- */
+const btnSpin = document.getElementById('btnSpin');
+btnSpin.addEventListener('click', function () {
+  spin = !spin;
+  btnSpin.classList.toggle('on', spin);
+});
+document.getElementById('btnReset').addEventListener('click', function () {
+  camera.alpha = -1.74; camera.beta = 1.235; camera.radius = 40;
+  camera.setTarget(new BABYLON.Vector3(0, -0.9, 0));
+});
+function saveDataUrl(data) {
+  const a = document.createElement('a');
+  a.href = data;
+  a.download = 'floating-keep.png';
+  a.click();
+}
+document.getElementById('btnShot').addEventListener('click', function () {
+  try {
+    const out = BABYLON.Tools.CreateScreenshotUsingRenderTarget(
+      engine, camera, { width: 1600, height: 1000 },
+      function (data) { saveDataUrl(data); }, 'image/png', 4, true);
+    if (out && typeof out.then === 'function') out.then(saveDataUrl).catch(function () {});
+  } catch (err) {
+    try { saveDataUrl(canvas.toDataURL('image/png')); } catch (e) { /* not ready */ }
+  }
+});
+window.addEventListener('resize', function () { engine.resize(); });
+
+/* ---------------- boot ---------------- */
+async function boot() {
+  await setProgress(0.08, 'carving the isle…');
+  buildIsland();
+
+  await setProgress(0.34, 'raising the keep…');
+  buildCastle();
+
+  await setProgress(0.52, 'lighting the hearths…');
+  buildVillage();
+
+  await setProgress(0.64, 'turning the mill wheel…');
+  buildMill();
+  buildBridges();
+
+  await setProgress(0.76, 'planting the pines…');
+  buildNature();
+
+  await setProgress(0.88, 'building the watchtower…');
+  buildWatchtower();
+
+  await setProgress(0.96, 'clouds over the isle…');
+  buildSkyDressing();
+
+  /* paths between the landmarks */
+  buildPath('pathGate', [[CASTLE.x + 0.4, CASTLE.z - 5.4], [-3.8, -6.2], [-6.4, -4.2], [-8.8, -2.6]], 1.6);
+  buildPath('pathMill', [[1.6, -3.0], [4.2, -2.2], [7.0, -1.8], [8.8, -1.6]], 1.2);
+  buildPath('pathWatch', [[-5.2, 1.8], [-7.6, 3.8], [-10.0, 5.8], [-11.4, 6.8]], 1.1);
+  buildPath('pathMarket', [[-6.4, -4.2], [-7.8, -7.0], [-8.8, -9.8]], 1.3);
+
+  await setProgress(1, 'ready');
+
+  /* warm window glow for the village at dusk-lit corners */
+  badge.textContent = 'Ironroot Isle · 1 keep, 9 homes, 3 bridges';
+
+  let started = false;
+  function start() {
+    if (started) return;
+    started = true;
+    document.getElementById('loader').classList.add('done');
+    setTimeout(function () { const l = document.getElementById('loader'); if (l) l.style.display = 'none'; }, 900);
+    engine.runRenderLoop(function () { scene.render(); });
+  }
+  scene.executeWhenReady(start);
+  setTimeout(start, 5000);
+}
+boot();
+
+/* expose a tiny handle for debugging */
+window.diorama = { scene: scene, engine: engine, camera: camera, anim: anim };
+</script>
+</body>
+</html>

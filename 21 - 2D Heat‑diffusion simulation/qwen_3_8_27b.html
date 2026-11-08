@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Heat Diffusion — p5.js</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+<style>
+  html,body{margin:0;padding:0;background:#111;color:#ddd;font-family:'Segoe UI',Arial,sans-serif;overflow:hidden;}
+  #app{display:flex;height:100vh;}
+  #canvas-holder{flex:1;display:flex;align-items:center;justify-content:center;background:#0a0a0f;}
+  #panel{width:280px;background:#1a1a22;padding:14px;box-sizing:border-box;overflow-y:auto;font-size:13px;}
+  #panel h2{font-size:15px;margin:0 0 10px;color:#ff9955;}
+  .group{margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #2c2c38;}
+  .row{display:flex;align-items:center;justify-content:space-between;margin:6px 0;}
+  .row label{flex:1;}
+  .row .val{width:44px;text-align:right;color:#8fd3ff;font-family:monospace;}
+  input[type=range]{width:120px;accent-color:#ff7733;}
+  select,button{background:#26263a;color:#ddd;border:1px solid #3a3a55;border-radius:4px;padding:3px 6px;font-size:12px;cursor:pointer;}
+  button:hover{background:#34344f;}
+  .btnrow{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px;}
+  .keys{font-size:11px;line-height:1.7;color:#999;}
+  .keys b{color:#ffd27f;font-family:monospace;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="canvas-holder"></div>
+  <div id="panel">
+    <h2>🔥 Heat Diffusion</h2>
+
+    <div class="group">
+      <div class="row"><label>Diffusion α</label><input type="range" id="alpha" min="0.05" max="1" step="0.01" value="0.45"><span class="val" id="alphaV"></span></div>
+      <div class="row"><label>Substeps / frame</label><input type="range" id="substeps" min="1" max="10" step="1" value="4"><span class="val" id="substepsV"></span></div>
+      <div class="row"><label>Ambient cooling</label><input type="range" id="loss" min="0" max="0.05" step="0.001" value="0.002"><span class="val" id="lossV"></span></div>
+      <div class="row"><label>Resolution</label>
+        <select id="res">
+          <option value="64">64²</option><option value="96">96²</option>
+          <option value="128" selected>128²</option><option value="192">192²</option>
+          <option value="256">256²</option><option value="384">384²</option>
+          <option value="512">512²</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="row"><label>Boundary</label>
+        <select id="boundary">
+          <option value="insulated" selected>Insulated (Neumann)</option>
+          <option value="fixed">Fixed temperature</option>
+        </select>
+      </div>
+      <div class="row"><label>Fixed T (°)</label><input type="range" id="fixedT" min="0" max="100" step="1" value="0"><span class="val" id="fixedTV"></span></div>
+    </div>
+
+    <div class="group">
+      <div class="row"><label>Convection</label><input type="range" id="conv" min="0" max="0.9" step="0.01" value="0"><span class="val" id="convV"></span></div>
+      <div class="row"><label>Wind angle</label><input type="range" id="wind" min="0" max="360" step="5" value="0"><span class="val" id="windV"></span></div>
+    </div>
+
+    <div class="group">
+      <div class="row"><label>Brush radius</label><input type="range" id="brush" min="1" max="20" step="1" value="5"><span class="val" id="brushV"></span></div>
+      <div class="row"><label>Heat strength</label><input type="range" id="heat" min="5" max="100" step="5" value="45"><span class="val" id="heatV"></span></div>
+      <div class="row"><label>Material value</label><input type="range" id="matval" min="0.1" max="3" step="0.1" value="1"><span class="val" id="matvalV"></span></div>
+      <div class="row"><label><input type="checkbox" id="paintmat"> Paint material</label></div>
+    </div>
+
+    <div class="group">
+      <label>Material presets</label>
+      <div class="btnrow">
+        <button onclick="applyMaterial('uniform')">Uniform</button>
+        <button onclick="applyMaterial('metal')">Metal rails</button>
+        <button onclick="applyMaterial('insulator')">Insulator block</button>
+        <button onclick="applyMaterial('checker')">Checkerboard</button>
+      </div>
+    </div>
+
+    <div class="group keys">
+      <b>Click / drag</b> — add heat<br>
+      <b>Shift+Click</b> — toggle persistent source<br>
+      <b>Hold C</b> — cool at cursor<br>
+      <b>M</b> — toggle material painting<br>
+      <b>B</b> — toggle boundary condition<br>
+      <b>G</b> — toggle material grid overlay<br>
+      <b>Space</b> — reset field<br>
+      <b>1–4</b> — material presets
+    </div>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   2D Heat Equation:  ∂T/∂t = α·k(x,y)·∇²T  (+ optional advection)
+   Explicit FTCS finite differences on a grid.
+   Stability: α·kmax·dt ≤ 0.25  (dt clamped automatically)
+   ============================================================ */
+
+const P = {
+  alpha: 0.45, substeps: 4, res: 128,
+  boundary: 'insulated', fixedTemp: 0,
+  convection: 0, windAngle: 0,
+  ambientLoss: 0.002,
+  brush: 5, heatStrength: 45, matValue: 1,
+  paintMaterial: false, showGrid: false
+};
+
+let W, H, N;
+let T, Tnew, cond;      // temperature, scratch buffer, conductivity
+let maxCond = 1;
+let sources = [];        // persistent emitters {gx, gy}
+let heatGfx;             // offscreen pixel buffer at grid resolution
+const LUT = new Uint8Array(256 * 3);   // color lookup table
+const SIZE = 640;
+
+/* ---------- color LUT: blue → cyan → green → yellow → red → white ---------- */
+function buildLUT() {
+  const stops = [
+    [0.00,   8,   8,  45],
+    [0.22,  25,  70, 200],
+    [0.42,   0, 195, 220],
+    [0.58,  70, 225, 120],
+    [0.74, 250, 230,  60],
+    [0.88, 255, 120,  20],
+    [1.00, 255, 250, 235]
+  ];
+  for (let i = 0; i < 256; i++) {
+    const t = i / 255;
+    let a = stops[0], b = stops[stops.length - 1];
+    for (let s = 0; s < stops.length - 1; s++)
+      if (t >= stops[s][0] && t <= stops[s + 1][0]) { a = stops[s]; b = stops[s + 1]; break; }
+    const f = (t - a[0]) / Math.max(1e-6, b[0] - a[0]);
+    LUT[i*3]   = a[1] + (b[1] - a[1]) * f;
+    LUT[i*3+1] = a[2] + (b[2] - a[2]) * f;
+    LUT[i*3+2] = a[3] + (b[3] - a[3]) * f;
+  }
+}
+
+/* ---------- grid setup / resolution change (nearest-neighbor resample) ---------- */
+function setResolution(nr) {
+  const oT = T, oC = cond, oW = W, oH = H;
+  W = H = nr; N = W * H;
+  T = new Float32Array(N);
+  Tnew = new Float32Array(N);
+  cond = new Float32Array(N);
+  if (oT) {
+    for (let y = 0; y < H; y++)
+      for (let x = 0; x < W; x++) {
+        const ox = Math.min(oW - 1, (x * oW / W) | 0);
+        const oy = Math.min(oH - 1, (y * oH / H) | 0);
+        T[y*W+x] = oT[oy*oW+ox];
+        cond[y*W+x] = oC[oy*oW+ox];
+      }
+  } else cond.fill(1);
+  heatGfx = createGraphics(W, H);
+  computeMaxCond();
+}
+
+function computeMaxCond() {
+  let m = 0;
+  for (let i = 0; i < N; i++) if (cond[i] > m) m = cond[i];
+  maxCond = Math.max(0.05, m);
+}
+
+/* ---------- material presets ---------- */
+function applyMaterial(name) {
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < W; x++) {
+      const i = y*W+x, u = x/W, v = y/H;
+      switch (name) {
+        case 'uniform':   cond[i] = 1; break;
+        case 'metal':     cond[i] = (u < 0.18 || u > 0.82) ? 2.6 : 0.55; break;
+        case 'insulator': cond[i] = (u > 0.3 && u < 0.7 && v > 0.3 && v < 0.7) ? 0.12 : 1; break;
+        case 'checker':   cond[i] = (((x >> 4) + (y >> 4)) & 1) ? 0.3 : 1.7; break;
+      }
+    }
+  computeMaxCond();
+}
+
+/* ---------- one explicit FTCS substep ---------- */
+function step() {
+  // Stability-limited timestep: α·kmax·dt ≤ 0.24
+  const dt = Math.min(0.24 / (P.alpha * maxCond + 1e-6), 1);
+  const conv = P.convection;
+  const vx = conv * Math.cos(P.windAngle * Math.PI / 180);
+  const vy = conv * Math.sin(P.windAngle * Math.PI / 180);
+  const useConv = conv > 0.001;
+  const dtc = useConv ? 0.9 / conv : 0;   // CFL-limited advection step
+
+  for (let y = 1; y < H - 1; y++) {
+    let i = y * W + 1;
+    for (let x = 1; x < W - 1; x++, i++) {
+      const c = cond[i];
+      let v = T[i];
+
+      // Upwind advection (convection)
+      if (useConv) {
+        let adv = 0;
+        if (vx > 0) adv += vx * (T[i] - T[i-1]);
+        else        adv += -vx * (T[i] - T[i+1]);
+        if (vy > 0) adv += vy * (T[i] - T[i-W]);
+        else        adv += -vy * (T[i] - T[i+W]);
+        v -= dtc * adv;
+      }
+
+      // 5-point Laplacian, weighted by local conductivity
+      const lap = T[i-1] + T[i+1] + T[i-W] + T[i+W] - 4 * T[i];
+      let nv = v + dt * P.alpha * c * lap;
+      Tnew[i] = nv < 0 ? 0 : (nv > 100 ? 100 : nv);
+    }
+  }
+
+  // Boundary conditions
+  if (P.boundary === 'fixed') {
+    const ft = P.fixedTemp;
+    for (let x = 0; x < W; x++) { Tnew[x] = ft; Tnew[(H-1)*W + x] = ft; }
+    for (let y = 0; y < H; y++) { Tnew[y*W] = ft; Tnew[y*W + W - 1] = ft; }
+  } else { // insulated: zero-flux → copy nearest interior
+    for (let x = 0; x < W; x++) {
+      Tnew[x] = Tnew[W + x];
+      Tnew[(H-1)*W + x] = Tnew[(H-2)*W + x];
+    }
+    for (let y = 0; y < H; y++) {
+      Tnew[y*W] = Tnew[y*W + 1];
+      Tnew[y*W + W - 1] = Tnew[y*W + W - 2];
+    }
+  }
+
+  // Swap buffers
+  const tmp = T; T = Tnew; Tnew = tmp;
+}
+
+/* ---------- persistent sources & ambient loss (once per frame) ---------- */
+function applyFrameEffects() {
+  for (const s of sources) {
+    const i = s.gy * W + s.gx;
+    T[i] = 100;
+    // small hot core
+    if (s.gx > 0 && s.gx < W-1) T[i-1] = Math.max(T[i-1], 85);
+    if (s.gx > 0 && s.gx < W-1) T[i+1] = Math.max(T[i+1], 85);
+    if (s.gy > 0 && s.gy < H-1) T[i-W] = Math.max(T[i-W], 85);
+    if (s.gy > 0 && s.gy < H-1) T[i+W] = Math.max(T[i+W], 85);
+  }
+  if (P.ambientLoss > 0) {
+    const f = 1 - P.ambientLoss;
+    for (let i = 0; i < N; i++) T[i] *= f;
+  }
+}
+
+/* ---------- brush: add heat / cool / paint material ---------- */
+function brush(gx, gy, mode) {
+  const r = P.brush;
+  const x0 = Math.max(1, (gx - r) | 0), x1 = Math.min(W - 2, (gx + r) | 0);
+  const y0 = Math.max(1, (gy - r) | 0), y1 = Math.min(H - 2, (gy + r) | 0);
+  for (let y = y0; y <= y1; y++)
+    for (let x = x0; x <= x1; x++) {
+      const d2 = (x - gx) * (x - gx) + (y - gy) * (y - gy);
+      if (d2 > r * r) continue;
+      const fall = 1 - Math.sqrt(d2) / r;
+      const i = y * W + x;
+      if (mode === 'heat')  T[i] = Math.min(100, T[i] + P.heatStrength * fall);
+      else if (mode === 'cool') T[i] = Math.max(0, T[i] - P.heatStrength * 1.5 * fall);
+      else if (mode === 'material') cond[i] = P.matValue;
+    }
+  if (mode === 'material') computeMaxCond();
+}
+
+/* ---------- rendering: write grid → ImageData → scaled image ---------- */
+function renderHeat() {
+  heatGfx.loadPixels();
+  const px = heatGfx.pixels;
+  for (let i = 0; i < N; i++) {
+    let t = T[i];
+    if (t < 0) t = 0; else if (t > 100) t = 100;
+    const l = ((t * 2.55) | 0) * 3, o = i * 4;
+    px[o] = LUT[l]; px[o+1] = LUT[l+1]; px[o+2] = LUT[l+2]; px[o+3] = 255;
+  }
+  heatGfx.updatePixels();
+  image(heatGfx, 0, 0, width, height);
+}
+
+function drawOverlay() {
+  // material grid overlay
+  if (P.showGrid) {
+    stroke(255, 255, 255, 40);
+    const stepPx = width / 16;
+    for (let g = stepPx; g < width; g += stepPx) {
+      line(g, 0, g, height); line(0, g, width, g);
+    }
+  }
+  // persistent source markers
+  noFill(); stroke(255, 255, 255, 220); strokeWeight(2);
+  for (const s of sources) {
+    const px = s.gx / W * width, py = s.gy / H * height;
+    circle(px, py, 14);
+    stroke(255, 200, 80, 160);
+    circle(px, py, 6);
+    stroke(255, 255, 255, 220);
+  }
+  // brush cursor
+  if (mouseX > 0 && mouseX < width && mouseY > 0 && mouseY < height) {
+    noFill(); stroke(255, 255, 255, 150); strokeWeight(1);
+    circle(mouseX, mouseY, P.brush * 2 * width / W);
+  }
+  // HUD
+  noStroke(); fill(255, 255, 255, 200); textFont('monospace'); textSize(12);
+  text(`fps: ${frameRate().toFixed(0)}   grid: ${W}×${H}   α: ${P.alpha.toFixed(2)}   ` +
+       `bc: ${P.boundary}   sources: ${sources.length}`, 10, 18);
+}
+
+/* ---------- p5 lifecycle ---------- */
+function setup() {
+  const c = createCanvas(SIZE, SIZE);
+  c.parent('canvas-holder');
+  buildLUT();
+  setResolution(P.res);
+  bindUI();
+  // seed a demo source
+  sources.push({ gx: (W * 0.3) | 0, gy: (H * 0.5) | 0 });
+}
+
+function draw() {
+  for (let s = 0; s < P.substeps; s++) step();
+  applyFrameEffects();
+
+  // interactions
+  const gx = (mouseX / width * W) | 0, gy = (mouseY / height * H) | 0;
+  const inCanvas = mouseX > 0 && mouseX < width && mouseY > 0 && mouseY < height;
+  if (inCanvas) {
+    if (P.paintMaterial && mouseIsPressed) brush(gx, gy, 'material');
+    else if (mouseIsPressed && !keyIsDown(16)) brush(gx, gy, 'heat');   // 16 = Shift
+    if (keyIsDown(67)) brush(gx, gy, 'cool');                            // C key
+  }
+
+  renderHeat();
+  drawOverlay();
+}
+
+function mousePressed() {
+  if (mouseX < 0 || mouseX > width || mouseY < 0 || mouseY > height) return;
+  if (keyIsDown(16)) { // Shift+Click: toggle persistent source
+    const gx = (mouseX / width * W) | 0, gy = (mouseY / height * H) | 0;
+    const idx = sources.findIndex(s => s.gx === gx && s.gy === gy);
+    if (idx >= 0) sources.splice(idx, 1);
+    else sources.push({ gx, gy });
+  }
+}
+
+function keyPressed() {
+  if (key === ' ') { T.fill(0); sources = []; return false; }
+  if (key === 'm' || key === 'M') { P.paintMaterial = !P.paintMaterial; document.getElementById('paintmat').checked = P.paintMaterial; }
+  if (key === 'b' || key === 'B') {
+    P.boundary = P.boundary === 'insulated' ? 'fixed' : 'insulated';
+    document.getElementById('boundary').value = P.boundary;
+  }
+  if (key === 'g' || key === 'G') P.showGrid = !P.showGrid;
+  if (key === '1') applyMaterial('uniform');
+  if (key === '2') applyMaterial('metal');
+  if (key === '3') applyMaterial('insulator');
+  if (key === '4') applyMaterial('checker');
+}
+
+/* ---------- UI binding ---------- */
+function bindUI() {
+  const link = (id, fn, fmt) => {
+    const el = document.getElementById(id), vEl = document.getElementById(id + 'V');
+    const upd = () => { fn(parseFloat(el.value)); if (vEl) vEl.textContent = fmt ? fmt(parseFloat(el.value)) : el.value; };
+    el.addEventListener('input', upd); upd();
+  };
+  link('alpha',    v => P.alpha = v);
+  link('substeps', v => P.substeps = v | 0);
+  link('loss',     v => P.ambientLoss = v, v => v.toFixed(3));
+  link('fixedT',   v => P.fixedTemp = v);
+  link('conv',     v => P.convection = v, v => v.toFixed(2));
+  link('wind',     v => P.windAngle = v, v => v + '°');
+  link('brush',    v => P.brush = v | 0);
+  link('heat',     v => P.heatStrength = v);
+  link('matval',   v => P.matValue = v, v => v.toFixed(1));
+  document.getElementById('res').addEventListener('change', e => setResolution(parseInt(e.target.value)));
+  document.getElementById('boundary').addEventListener('change', e => P.boundary = e.target.value);
+  document.getElementById('paintmat').addEventListener('change', e => P.paintMaterial = e.target.checked);
+}
+</script>
+</body>
+</html>

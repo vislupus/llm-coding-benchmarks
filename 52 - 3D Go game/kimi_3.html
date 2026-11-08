@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>GO · 碁 — 3D Master</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<style>
+  :root{
+    --gold:#d4af37; --gold-dim:#a8862a; --ink:#0c0906;
+    --panel:rgba(18,14,10,.72); --line:rgba(212,175,55,.28);
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;overflow:hidden;font-family:'Inter',sans-serif;color:#e9e2d4;
+    background:radial-gradient(120% 120% at 50% 20%, #241b12 0%, #120d08 45%, #050403 100%);}
+  #scene{position:fixed;inset:0;z-index:1}
+  canvas{display:block}
+
+  /* ---------- Header ---------- */
+  #header{position:fixed;top:18px;left:24px;z-index:10;pointer-events:none;user-select:none}
+  #header h1{font-family:'Cormorant Garamond',serif;font-size:34px;font-weight:700;letter-spacing:.14em;
+    color:var(--gold);text-shadow:0 0 24px rgba(212,175,55,.35);line-height:1}
+  #header h1 span{font-size:30px;margin-left:6px;color:#f4e9c8}
+  #header p{font-size:11px;letter-spacing:.34em;text-transform:uppercase;color:#8f8371;margin-top:6px}
+
+  /* ---------- Thinking ---------- */
+  #thinking{position:fixed;top:22px;left:50%;transform:translateX(-50%);z-index:10;
+    padding:10px 22px;border-radius:30px;background:var(--panel);border:1px solid var(--line);
+    backdrop-filter:blur(12px);font-size:12px;letter-spacing:.22em;text-transform:uppercase;color:var(--gold);
+    display:none;align-items:center;gap:10px}
+  #thinking.on{display:flex}
+  .pulse{width:8px;height:8px;border-radius:50%;background:var(--gold);animation:pl 1s infinite}
+  @keyframes pl{0%,100%{opacity:.25;transform:scale(.7)}50%{opacity:1;transform:scale(1.15)}}
+
+  /* ---------- Panel ---------- */
+  #panel{position:fixed;top:50%;right:22px;transform:translateY(-50%);z-index:10;width:280px;
+    display:flex;flex-direction:column;gap:12px;max-height:calc(100vh - 40px);overflow-y:auto;scrollbar-width:none}
+  #panel::-webkit-scrollbar{display:none}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px;
+    backdrop-filter:blur(14px);box-shadow:0 12px 32px rgba(0,0,0,.45)}
+  .label{font-size:10px;letter-spacing:.28em;text-transform:uppercase;color:#9a8c72;margin-bottom:6px}
+
+  .turnRow{display:flex;align-items:center;gap:14px}
+  #turnStone{width:34px;height:34px;border-radius:50%;flex-shrink:0;
+    box-shadow:0 4px 10px rgba(0,0,0,.6), inset -3px -4px 8px rgba(0,0,0,.4), inset 3px 4px 8px rgba(255,255,255,.25);
+    transition:background .3s}
+  #turnText{font-family:'Cormorant Garamond',serif;font-size:21px;font-weight:600;color:#f2ead6}
+  #status{font-size:11px;color:#b7a780;margin-top:8px;min-height:15px;line-height:1.45}
+
+  .scoreGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .sc{border-radius:12px;padding:10px 12px;border:1px solid rgba(255,255,255,.07);background:rgba(255,255,255,.03)}
+  .sc .nm{display:flex;align-items:center;gap:7px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#c9bc9f}
+  .dot{width:11px;height:11px;border-radius:50%;box-shadow:inset -1px -2px 3px rgba(0,0,0,.5)}
+  .dot.b{background:#151312}.dot.w{background:#efe9db}
+  .sc .pts{font-family:'Cormorant Garamond',serif;font-size:27px;font-weight:700;color:#f4ecd8;margin-top:3px}
+  .sc .cap{font-size:10.5px;color:#8d8069;margin-top:2px}
+
+  .btnRow{display:flex;gap:8px;flex-wrap:wrap}
+  .pills{display:flex;gap:6px}
+  .pill{flex:1;padding:8px 0;text-align:center;border-radius:10px;border:1px solid rgba(255,255,255,.1);
+    background:rgba(255,255,255,.04);font-size:12px;font-weight:500;color:#bfb29a;cursor:pointer;
+    transition:all .2s;user-select:none}
+  .pill:hover{border-color:var(--line);color:#eee3c6}
+  .pill.active{background:linear-gradient(180deg,rgba(212,175,55,.25),rgba(212,175,55,.1));
+    border-color:var(--gold);color:var(--gold);box-shadow:0 0 14px rgba(212,175,55,.18)}
+
+  .btn{flex:1 1 calc(50% - 4px);padding:11px 0;border-radius:12px;border:1px solid rgba(255,255,255,.1);
+    background:rgba(255,255,255,.05);color:#ddd2ba;font-family:'Inter',sans-serif;font-size:12px;font-weight:500;
+    letter-spacing:.08em;cursor:pointer;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:7px}
+  .btn:hover:not(:disabled){border-color:var(--gold);color:var(--gold);background:rgba(212,175,55,.08)}
+  .btn:disabled{opacity:.35;cursor:default}
+  .btn.primary{grid-column:1/-1;background:linear-gradient(180deg,rgba(212,175,55,.28),rgba(212,175,55,.12));
+    border-color:var(--gold-dim);color:#f2e3b0}
+  .btn.primary:hover{background:linear-gradient(180deg,rgba(212,175,55,.4),rgba(212,175,55,.18));color:#fff3cf}
+
+  /* ---------- Modal ---------- */
+  #modal{position:fixed;inset:0;z-index:50;display:none;align-items:center;justify-content:center;
+    background:rgba(5,4,2,.72);backdrop-filter:blur(8px)}
+  #modal.on{display:flex}
+  .mbox{width:min(400px,90vw);background:linear-gradient(180deg,#1d1710,#120d08);border:1px solid var(--gold-dim);
+    border-radius:22px;padding:34px 30px;text-align:center;box-shadow:0 30px 80px rgba(0,0,0,.8),0 0 60px rgba(212,175,55,.1);
+    animation:pop .4s cubic-bezier(.2,1.4,.4,1)}
+  @keyframes pop{from{transform:scale(.85);opacity:0}}
+  .mbox h2{font-family:'Cormorant Garamond',serif;font-size:31px;color:var(--gold);margin-bottom:4px}
+  .mbox .sub{font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:#9a8c72;margin-bottom:20px}
+  .mscore{display:flex;justify-content:center;gap:26px;margin-bottom:22px}
+  .mscore .cell .big{font-family:'Cormorant Garamond',serif;font-size:42px;font-weight:700}
+  .mscore .cell .who{font-size:10px;letter-spacing:.24em;text-transform:uppercase;color:#9a8c72}
+  .mbreak{font-size:11.5px;color:#a7987d;line-height:1.8;margin-bottom:22px;border-top:1px solid rgba(255,255,255,.07);padding-top:14px}
+
+  #hint{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:9;font-size:10.5px;
+    letter-spacing:.18em;text-transform:uppercase;color:#6f6450;pointer-events:none;text-align:center}
+
+  @media (max-width:920px){
+    #header{top:10px;left:14px}#header h1{font-size:24px}
+    #panel{top:auto;bottom:0;right:0;left:0;transform:none;width:100%;flex-direction:row;flex-wrap:nowrap;
+      overflow-x:auto;overflow-y:hidden;padding:10px;gap:10px;background:linear-gradient(0deg,rgba(8,6,4,.9),transparent);
+      max-height:none;align-items:stretch}
+    .card{min-width:230px;flex-shrink:0;padding:12px}
+    #hint{display:none}
+    #thinking{top:8px}
+  }
+</style>
+</head>
+<body>
+
+<div id="scene"></div>
+
+<div id="header">
+  <h1>GO<span>碁</span></h1>
+  <p>3D Master · Monte Carlo AI</p>
+</div>
+
+<div id="thinking"><span class="pulse"></span>AI Contemplating</div>
+
+<div id="panel">
+  <div class="card">
+    <div class="turnRow">
+      <div id="turnStone" style="background:#151312"></div>
+      <div>
+        <div class="label">Turn</div>
+        <div id="turnText">Black — You</div>
+      </div>
+    </div>
+    <div id="status">Your move. Click any intersection.</div>
+  </div>
+
+  <div class="card">
+    <div class="label">Score Estimate · Komi 7.5</div>
+    <div class="scoreGrid">
+      <div class="sc"><div class="nm"><span class="dot b"></span>Black</div><div class="pts" id="scoreB">0</div><div class="cap" id="capB">Captured: 0</div></div>
+      <div class="sc"><div class="nm"><span class="dot w"></span>White</div><div class="pts" id="scoreW">7.5</div><div class="cap" id="capW">Captured: 0</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="label">AI Difficulty</div>
+    <div class="pills" style="margin-bottom:14px">
+      <div class="pill" data-diff="easy">Easy</div>
+      <div class="pill active" data-diff="medium">Medium</div>
+      <div class="pill" data-diff="hard">Hard</div>
+    </div>
+    <div class="label">Board Size</div>
+    <div class="pills">
+      <div class="pill" data-size="9">9 × 9</div>
+      <div class="pill" data-size="13">13 × 13</div>
+      <div class="pill active" data-size="19">19 × 19</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="btnRow">
+      <button class="btn primary" id="btnPass">Pass Turn</button>
+      <button class="btn" id="btnUndo">↺ Undo</button>
+      <button class="btn" id="btnRestart">✦ Restart</button>
+      <button class="btn" id="btnCam">⌖ Reset View</button>
+      <button class="btn" id="btnSound">♪ Sound: On</button>
+    </div>
+  </div>
+</div>
+
+<div id="hint">Drag to orbit · Scroll to zoom · Click intersection to play</div>
+
+<div id="modal">
+  <div class="mbox">
+    <h2 id="mTitle">Black Wins</h2>
+    <div class="sub" id="mSub">Game Complete</div>
+    <div class="mscore">
+      <div class="cell"><div class="big" id="mB" style="color:#e8e0cd">0</div><div class="who">● Black</div></div>
+      <div class="cell"><div class="big" style="color:var(--gold);font-size:26px;align-self:center">—</div></div>
+      <div class="cell"><div class="big" id="mW" style="color:#f5f0e2">0</div><div class="who">○ White</div></div>
+    </div>
+    <div class="mbreak" id="mBreak"></div>
+    <button class="btn primary" style="width:100%" id="btnNew">Begin New Game</button>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   GO ENGINE — rules: captures, liberties, suicide, ko, scoring
+============================================================ */
+const EMPTY=0, BLACK=1, WHITE=2, KOMI=7.5;
+let _seen=new Int32Array(400), _gen=0;
+
+function flood(board,N,start){
+  _gen++; const gen=_gen, color=board[start];
+  const stack=[start], stones=[]; let libs=0;
+  _seen[start]=gen;
+  while(stack.length){
+    const i=stack.pop(); stones.push(i);
+    const x=i%N, y=(i/N)|0;
+    let n;
+    if(x>0){n=i-1; if(board[n]===EMPTY)libs++; else if(board[n]===color&&_seen[n]!==gen){_seen[n]=gen;stack.push(n);}}
+    if(x<N-1){n=i+1; if(board[n]===EMPTY)libs++; else if(board[n]===color&&_seen[n]!==gen){_seen[n]=gen;stack.push(n);}}
+    if(y>0){n=i-N; if(board[n]===EMPTY)libs++; else if(board[n]===color&&_seen[n]!==gen){_seen[n]=gen;stack.push(n);}}
+    if(y<N-1){n=i+N; if(board[n]===EMPTY)libs++; else if(board[n]===color&&_seen[n]!==gen){_seen[n]=gen;stack.push(n);}}
+  }
+  return {stones,libs};
+}
+
+function tryPlay(board,N,ko,move,color){
+  if(board[move]!==EMPTY||move===ko) return null;
+  const opp=3-color, x=move%N, y=(move/N)|0, captured=[];
+  board[move]=color;
+  const ns=[];
+  if(x>0)ns.push(move-1); if(x<N-1)ns.push(move+1);
+  if(y>0)ns.push(move-N); if(y<N-1)ns.push(move+N);
+  for(const n of ns){
+    if(board[n]===opp){
+      const g=flood(board,N,n);
+      if(g.libs===0){ for(const s of g.stones){board[s]=EMPTY;captured.push(s);} }
+    }
+  }
+  const self=flood(board,N,move);
+  if(self.libs===0){ // suicide — restore
+    board[move]=EMPTY;
+    for(const s of captured)board[s]=opp;
+    return null;
+  }
+  let newKo=-1;
+  if(captured.length===1&&self.stones.length===1&&self.libs===1) newKo=captured[0];
+  return {captured,ko:newKo};
+}
+
+function quickLegal(board,N,ko,move,color){
+  if(board[move]!==EMPTY||move===ko)return false;
+  const opp=3-color, x=move%N, y=(move/N)|0;
+  const ns=[];
+  if(x>0)ns.push(move-1); if(x<N-1)ns.push(move+1);
+  if(y>0)ns.push(move-N); if(y<N-1)ns.push(move+N);
+  for(const n of ns){
+    if(board[n]===EMPTY)return true;
+    if(board[n]===opp){ if(flood(board,N,n).libs===1)return true; }
+    else if(flood(board,N,n).libs>1)return true;
+  }
+  return false;
+}
+
+function areaScore(board,N){
+  let bS=0,wS=0,bT=0,wT=0;
+  const seen=new Uint8Array(N*N);
+  for(let i=0;i<board.length;i++){ if(board[i]===BLACK)bS++; else if(board[i]===WHITE)wS++; }
+  for(let i=0;i<board.length;i++){
+    if(board[i]!==EMPTY||seen[i])continue;
+    const stack=[i], region=[]; let mask=0; seen[i]=1;
+    while(stack.length){
+      const p=stack.pop(); region.push(p);
+      const x=p%N,y=(p/N)|0, ns=[];
+      if(x>0)ns.push(p-1); if(x<N-1)ns.push(p+1);
+      if(y>0)ns.push(p-N); if(y<N-1)ns.push(p+N);
+      for(const n of ns){
+        if(board[n]===EMPTY){ if(!seen[n]){seen[n]=1;stack.push(n);} }
+        else mask|=board[n];
+      }
+    }
+    if(mask===BLACK)bT+=region.length; else if(mask===WHITE)wT+=region.length;
+  }
+  return {black:bS+bT, white:wS+wT, bStones:bS, wStones:wS, bTerr:bT, wTerr:wT};
+}
+
+class GoGame{
+  constructor(size){
+    this.size=size; this.board=new Int8Array(size*size);
+    this.turn=BLACK; this.ko=-1; this.passes=0; this.lastMove=-1;
+    this.captures={[BLACK]:0,[WHITE]:0}; this.history=[]; this.over=false;
+  }
+  snap(){ this.history.push({board:this.board.slice(),ko:this.ko,turn:this.turn,
+    passes:this.passes,lastMove:this.lastMove,over:this.over,
+    captures:{[BLACK]:this.captures[BLACK],[WHITE]:this.captures[WHITE]}}); }
+  play(move){
+    this.snap();
+    const r=tryPlay(this.board,this.size,this.ko,move,this.turn);
+    if(!r){ this.history.pop(); return null; }
+    this.captures[this.turn]+=r.captured.length;
+    this.ko=r.ko; this.passes=0; this.lastMove=move; this.turn=3-this.turn;
+    return r;
+  }
+  pass(){
+    this.snap(); this.passes++; this.lastMove=-1; this.turn=3-this.turn;
+    if(this.passes>=2)this.over=true;
+  }
+  revert(){
+    const s=this.history.pop(); if(!s)return;
+    this.board=s.board; this.ko=s.ko; this.turn=s.turn; this.passes=s.passes;
+    this.lastMove=s.lastMove; this.over=s.over; this.captures=s.captures;
+  }
+}
+
+/* ============================================================
+   MONTE CARLO TREE SEARCH AI
+============================================================ */
+function shuffle(a){ for(let i=a.length-1;i>0;i--){const j=(Math.random()*(i+1))|0; const t=a[i];a[i]=a[j];a[j]=t;} return a; }
+
+function genMoves(board,N){
+  const ms=[];
+  for(let i=0;i<board.length;i++) if(board[i]===EMPTY)ms.push(i);
+  shuffle(ms); ms.push(-1); return ms;
+}
+
+function pickPlayoutMove(board,N,ko,color,smart,moves){
+  const opp=3-color;
+  if(moves>N*N*0.85&&Math.random()<0.06)return -1;
+  const tries=smart?26:12;
+  for(let t=0;t<tries;t++){
+    const m=(Math.random()*board.length)|0;
+    if(board[m]!==EMPTY||m===ko)continue;
+    const x=m%N,y=(m/N)|0, ns=[];
+    if(x>0)ns.push(m-1); if(x<N-1)ns.push(m+1);
+    if(y>0)ns.push(m-N); if(y<N-1)ns.push(m+N);
+    let hasEmpty=false,ownSafe=false,ownRisky=false,captures=false,ownEye=true;
+    for(const n of ns){
+      const v=board[n];
+      if(v===EMPTY){hasEmpty=true;ownEye=false;}
+      else if(v===opp){ if(flood(board,N,n).libs===1)captures=true; ownEye=false; }
+      else{ const g=flood(board,N,n); if(g.libs>1)ownSafe=true; else ownRisky=true; }
+    }
+    if(captures)return m;
+    if(ownEye)continue;
+    if(!hasEmpty&&!ownSafe)continue;
+    if(smart&&ownRisky&&!hasEmpty&&Math.random()<0.7)continue;
+    return m;
+  }
+  return -1;
+}
+
+function playout(board,N,ko,turn,passes,smart){
+  let moves=0; const max=N*N*2;
+  while(passes<2&&moves<max){
+    const m=pickPlayoutMove(board,N,ko,turn,smart,moves);
+    if(m===-1)passes++;
+    else{ const r=tryPlay(board,N,ko,m,turn); if(!r)passes++; else{ko=r.ko;passes=0;} }
+    turn=3-turn; moves++;
+  }
+  const s=areaScore(board,N);
+  const b=s.black, w=s.white+KOMI;
+  return b>w?BLACK:(w>b?WHITE:0);
+}
+
+function bestChildUCB(node,C){
+  let best=null,bestV=-1e9;
+  for(const ch of node.children){
+    const v=ch.wins/ch.visits + C*Math.sqrt(Math.log(node.visits+1)/ch.visits);
+    if(v>bestV+1e-12 || (Math.abs(v-bestV)<1e-12&&Math.random()<0.5)){bestV=v;best=ch;}
+  }
+  return best;
+}
+
+function mctsChoose(game,diff){
+  const N=game.size, aiColor=game.turn;
+  let sims = diff==='easy'?150 : diff==='medium'?500 : 1400;
+  if(N===9)sims=Math.round(sims*1.6);
+  const smart = diff!=='easy';
+  const C = diff==='easy'?1.1:1.35;
+  const rootBoard=game.board.slice();
+  const root={parent:null,move:-2,color:3-aiColor,children:[],visits:0,wins:0,untried:null};
+
+  for(let s=0;s<sims;s++){
+    const board=rootBoard.slice();
+    let ko=game.ko, turn=game.turn, passes=game.passes, node=root;
+    // selection
+    while(node.untried!==null&&node.untried.length===0&&node.children.length>0){
+      node=bestChildUCB(node,C);
+      if(node.move===-1)passes++;
+      else{ const r=tryPlay(board,N,ko,node.move,turn); ko=r.ko; passes=0; }
+      turn=3-turn;
+    }
+    // expansion
+    if(node.untried===null)node.untried=genMoves(board,N);
+    if(passes<2){
+      while(node.untried.length>0){
+        const m=node.untried.pop();
+        const b2=board.slice(); let ko2=ko,p2=passes;
+        if(m===-1)p2++;
+        else{ const r=tryPlay(b2,N,ko,m,turn); if(!r)continue; ko2=r.ko; p2=0; }
+        const child={parent:node,move:m,color:turn,children:[],visits:0,wins:0,untried:null};
+        node.children.push(child);
+        board.set(b2); ko=ko2; passes=p2; turn=3-turn; node=child;
+        break;
+      }
+    }
+    // simulation
+    const winner=playout(board,N,ko,turn,passes,smart);
+    // backprop
+    while(node){ node.visits++; if(node.color===winner)node.wins++; node=node.parent; }
+  }
+  let best=null,bv=-1;
+  for(const ch of root.children) if(ch.visits>bv){bv=ch.visits;best=ch;}
+  return best?best.move:-1;
+}
+
+/* ============================================================
+   SOUND — WebAudio synthesized
+============================================================ */
+let audioCtx=null, soundOn=true;
+function ac(){ if(!audioCtx)audioCtx=new (window.AudioContext||window.webkitAudioContext)(); return audioCtx; }
+function tone(f0,f1,dur,type,vol,delay=0){
+  if(!soundOn)return;
+  try{
+    const c=ac(),t=c.currentTime+delay;
+    const o=c.createOscillator(),g=c.createGain();
+    o.type=type; o.frequency.setValueAtTime(f0,t);
+    o.frequency.exponentialRampToValueAtTime(Math.max(f1,1),t+dur);
+    g.gain.setValueAtTime(vol,t); g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    o.connect(g); g.connect(c.destination); o.start(t); o.stop(t+dur+0.02);
+  }catch(e){}
+}
+const sfx={
+  place(){ tone(420,90,0.09,'sine',0.3); tone(1500,900,0.03,'triangle',0.07); },
+  capture(){ tone(300,60,0.18,'sine',0.32); tone(900,300,0.08,'triangle',0.1,0.02); },
+  pass(){ tone(520,520,0.14,'sine',0.12); tone(392,392,0.18,'sine',0.1,0.12); },
+  illegal(){ tone(160,110,0.12,'square',0.08); },
+  win(){ [523,659,784,1046].forEach((f,i)=>tone(f,f,0.35,'sine',0.14,i*0.13)); },
+  lose(){ [392,330,262,196].forEach((f,i)=>tone(f,f,0.35,'sine',0.12,i*0.13)); }
+};
+
+/* ============================================================
+   THREE.JS SCENE
+============================================================ */
+const container=document.getElementById('scene');
+const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth,innerHeight);
+renderer.shadowMap.enabled=true;
+renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+renderer.outputEncoding=THREE.sRGBEncoding;
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure=1.12;
+container.appendChild(renderer.domElement);
+
+const scene=new THREE.Scene();
+scene.fog=new THREE.Fog(0x0a0705,30,80);
+
+const camera=new THREE.PerspectiveCamera(42,innerWidth/innerHeight,0.1,200);
+const controls=new THREE.OrbitControls(camera,renderer.domElement);
+controls.enableDamping=true; controls.dampingFactor=0.06;
+controls.maxPolarAngle=Math.PI*0.49; controls.minDistance=5; controls.maxDistance=60;
+controls.enablePan=false;
+
+/* Lights */
+scene.add(new THREE.HemisphereLight(0xfff2dd,0x241608,0.55));
+const key=new THREE.DirectionalLight(0xffe6bd,1.25);
+key.position.set(10,18,8); key.castShadow=true;
+key.shadow.mapSize.set(2048,2048);
+key.shadow.camera.left=-16; key.shadow.camera.right=16;
+key.shadow.camera.top=16; key.shadow.camera.bottom=-16;
+key.shadow.camera.far=60; key.shadow.bias=-0.0004;
+scene.add(key);
+const rim=new THREE.DirectionalLight(0x7fa0ff,0.3); rim.position.set(-8,6,-10); scene.add(rim);
+const fill=new THREE.PointLight(0xffd9a0,0.35,50); fill.position.set(-4,6,10); scene.add(fill);
+
+/* Ground shadow catcher */
+const ground=new THREE.Mesh(new THREE.PlaneGeometry(120,120),new THREE.ShadowMaterial({opacity:0.4}));
+ground.rotation.x=-Math.PI/2; ground.position.y=-0.95; ground.receiveShadow=true; scene.add(ground);
+
+/* Board texture */
+const HOSHI={9:[[2,2],[2,6],[6,2],[6,6],[4,4]],
+  13:[[3,3],[3,9],[9,3],[9,9],[6,6]],
+  19:[[3,3],[3,9],[3,15],[9,3],[9,9],[9,15],[15,3],[15,9],[15,15]]};
+const LETTERS="ABCDEFGHJKLMNOPQRSTUVWXYZ";
+
+function makeBoardTexture(N){
+  const S=2048,c=document.createElement('canvas'); c.width=c.height=S;
+  const g=c.getContext('2d');
+  const gr=g.createLinearGradient(0,0,S,S);
+  gr.addColorStop(0,'#e2b87f'); gr.addColorStop(0.45,'#d2a468'); gr.addColorStop(1,'#bb8a4f');
+  g.fillStyle=gr; g.fillRect(0,0,S,S);
+  // wood grain
+  for(let i=0;i<260;i++){
+    const dark=Math.random()<0.6;
+    g.strokeStyle=dark?`rgba(88,54,22,${0.03+Math.random()*0.07})`:`rgba(255,228,185,${0.03+Math.random()*0.05})`;
+    g.lineWidth=0.8+Math.random()*3.4;
+    g.beginPath();
+    const y0=Math.random()*S;
+    g.moveTo(-10,y0);
+    g.bezierCurveTo(S*0.3,y0+(Math.random()-0.5)*110,S*0.65,y0+(Math.random()-0.5)*110,S+10,y0+(Math.random()-0.5)*60);
+    g.stroke();
+  }
+  // subtle knots
+  for(let i=0;i<7;i++){
+    const kx=Math.random()*S,ky=Math.random()*S,kr=15+Math.random()*40;
+    const rg=g.createRadialGradient(kx,ky,2,kx,ky,kr);
+    rg.addColorStop(0,'rgba(90,55,22,0.18)'); rg.addColorStop(1,'rgba(90,55,22,0)');
+    g.fillStyle=rg; g.beginPath(); g.arc(kx,ky,kr,0,7); g.fill();
+  }
+  // vignette
+  const vg=g.createRadialGradient(S/2,S/2,S*0.3,S/2,S/2,S*0.72);
+  vg.addColorStop(0,'rgba(60,35,10,0)'); vg.addColorStop(1,'rgba(50,28,8,0.32)');
+  g.fillStyle=vg; g.fillRect(0,0,S,S);
+  // grid
+  const m=S*0.075, cell=(S-2*m)/(N-1);
+  g.strokeStyle='rgba(48,27,10,0.92)'; g.lineWidth=S*0.0014;
+  g.beginPath();
+  for(let i=0;i<N;i++){
+    const p=m+i*cell;
+    g.moveTo(m,p); g.lineTo(S-m,p);
+    g.moveTo(p,m); g.lineTo(p,S-m);
+  }
+  g.stroke();
+  g.lineWidth=S*0.003;
+  g.strokeRect(m,m,S-2*m,S-2*m);
+  // hoshi
+  g.fillStyle='rgba(45,25,9,0.95)';
+  for(const [hx,hy] of HOSHI[N]){
+    g.beginPath(); g.arc(m+hx*cell,m+hy*cell,S*0.0058,0,7); g.fill();
+  }
+  // coordinates
+  g.fillStyle='rgba(60,36,13,0.7)';
+  g.font=`600 ${S*0.017}px Inter, sans-serif`;
+  g.textAlign='center'; g.textBaseline='middle';
+  for(let i=0;i<N;i++){
+    const p=m+i*cell, L=LETTERS[i], num=String(N-i);
+    g.fillText(L,p,m*0.45); g.fillText(L,p,S-m*0.45);
+    g.fillText(num,m*0.42,p); g.fillText(num,S-m*0.42,p);
+  }
+  const tex=new THREE.CanvasTexture(c);
+  tex.anisotropy=renderer.capabilities.getMaxAnisotropy();
+  tex.encoding=THREE.sRGBEncoding;
+  return tex;
+}
+
+/* Stone assets */
+const stoneGeo=new THREE.SphereGeometry(0.465,36,26);
+const matBlack=new THREE.MeshPhysicalMaterial({color:0x141211,roughness:0.22,metalness:0.05,
+  clearcoat:0.9,clearcoatRoughness:0.25,reflectivity:0.55});
+const matWhite=new THREE.MeshPhysicalMaterial({color:0xf3ede0,roughness:0.3,metalness:0.02,
+  clearcoat:0.7,clearcoatRoughness:0.35,reflectivity:0.4});
+const ghostMatB=new THREE.MeshBasicMaterial({color:0x222222,transparent:true,opacity:0.5});
+const ghostMatW=new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.55});
+
+/* Board group (rebuilt per size) */
+let boardGroup=null, stones3D=new Map(), anims=[];
+let boardTopY=0.35, halfBoard=0;
+const ghost=new THREE.Mesh(stoneGeo,ghostMatB);
+ghost.scale.set(1,0.42,1); ghost.visible=false; scene.add(ghost);
+const marker=new THREE.Mesh(new THREE.TorusGeometry(0.2,0.028,10,40),
+  new THREE.MeshBasicMaterial({color:0xd4af37,transparent:true,opacity:0.9}));
+marker.rotation.x=-Math.PI/2; marker.visible=false; scene.add(marker);
+
+function idxToWorld(i,N){
+  const x=i%N,y=(i/N)|0,off=(N-1)/2;
+  return {wx:x-off, wz:y-off};
+}
+
+function buildBoard(N){
+  if(boardGroup){ scene.remove(boardGroup); boardGroup.traverse(o=>{if(o.geometry)o.geometry.dispose();}); }
+  stones3D.forEach(m=>scene.remove(m)); stones3D.clear(); anims=[];
+  marker.visible=false; ghost.visible=false;
+
+  boardGroup=new THREE.Group();
+  const boxSize=(N-1)/0.85; halfBoard=boxSize/2;
+  const tex=makeBoardTexture(N);
+  const side=new THREE.MeshStandardMaterial({color:0x7d5228,roughness:0.65,metalness:0.05});
+  const top=new THREE.MeshStandardMaterial({map:tex,roughness:0.55,metalness:0.04});
+  const board=new THREE.Mesh(new THREE.BoxGeometry(boxSize,0.7,boxSize),
+    [side,side,top,side,side,side]);
+  board.castShadow=true; board.receiveShadow=true;
+  boardGroup.add(board);
+  const base=new THREE.Mesh(new THREE.BoxGeometry(boxSize+0.7,0.28,boxSize+0.7),
+    new THREE.MeshStandardMaterial({color:0x4a2c12,roughness:0.7}));
+  base.position.y=-0.47; base.castShadow=true; base.receiveShadow=true;
+  boardGroup.add(base);
+  scene.add(boardGroup);
+
+  const d=boxSize*0.95;
+  camera.position.set(0,d*0.85,d*0.72);
+  controls.target.set(0,0,0); controls.update();
+}
+
+function spawnStone(idx,color,animate=true){
+  const N=game.size,{wx,wz}=idxToWorld(idx,N);
+  const mesh=new THREE.Mesh(stoneGeo,color===BLACK?matBlack:matWhite);
+  mesh.scale.set(1,0.42,1);
+  const restY=boardTopY+0.465*0.42;
+  mesh.position.set(wx,restY,wz);
+  mesh.castShadow=true; mesh.receiveShadow=true;
+  scene.add(mesh); stones3D.set(idx,mesh);
+  if(animate) anims.push({mesh,type:'place',t:0,restY});
+}
+
+function captureStones(list){
+  for(const idx of list){
+    const mesh=stones3D.get(idx);
+    if(mesh){ stones3D.delete(idx); anims.push({mesh,type:'capture',t:0}); }
+  }
+}
+
+function syncStones(){
+  stones3D.forEach(m=>scene.remove(m)); stones3D.clear();
+  anims=anims.filter(a=>a.type==='capture');
+  for(let i=0;i<game.board.length;i++)
+    if(game.board[i]!==EMPTY) spawnStone(i,game.board[i],false);
+  if(game.lastMove>=0){
+    const {wx,wz}=idxToWorld(game.lastMove,game.size);
+    marker.position.set(wx,boardTopY+0.465*0.42+0.145,wz); marker.visible=true;
+  } else marker.visible=false;
+}
+
+/* Animation loop */
+const clock=new THREE.Clock();
+function easeOutBounce(t){const n=7.5625,d=2.75;
+  if(t<1/d)return n*t*t; if(t<2/d)return n*(t-=1.5/d)*t+0.75;
+  if(t<2.5/d)return n*(t-=2.25/d)*t+0.9375; return n*(t-=2.625/d)*t+0.984375;}
+
+function animate(){
+  requestAnimationFrame(animate);
+  const dt=Math.min(clock.getDelta(),0.05), t=clock.elapsedTime;
+  for(let i=anims.length-1;i>=0;i--){
+    const a=anims[i]; a.t+=dt;
+    if(a.type==='place'){
+      const k=Math.min(a.t/0.38,1);
+      a.mesh.position.y=a.restY+(1-easeOutBounce(k))*3.2;
+      const s=0.3+0.7*Math.min(a.t/0.15,1);
+      a.mesh.scale.set(s,0.42*s,s);
+      if(k>=1){a.mesh.position.y=a.restY;a.mesh.scale.set(1,0.42,1);anims.splice(i,1);}
+    } else {
+      const k=Math.min(a.t/0.4,1);
+      a.mesh.position.y+=dt*2.2;
+      const s=1-k; a.mesh.scale.set(s,0.42*s,s);
+      if(k>=1){scene.remove(a.mesh);anims.splice(i,1);}
+    }
+  }
+  if(marker.visible){ const p=1+Math.sin(t*3.5)*0.12; marker.scale.set(p,p,1); }
+  controls.update();
+  renderer.render(scene,camera);
+}
+
+/* ============================================================
+   GAME CONTROLLER / UI
+============================================================ */
+let game=new GoGame(19);
+let difficulty='medium';
+const playerColor=BLACK, aiColor=WHITE;
+let aiThinking=false, hoverIdx=-1;
+
+const $=id=>document.getElementById(id);
+const statusEl=$('status');
+
+function setStatus(msg){ statusEl.textContent=msg; }
+
+function updateUI(){
+  const s=areaScore(game.board,game.size);
+  $('scoreB').textContent=s.black;
+  $('scoreW').textContent=(s.white+KOMI).toFixed(1);
+  $('capB').textContent=`Captured: ${game.captures[BLACK]}`;
+  $('capW').textContent=`Captured: ${game.captures[WHITE]}`;
+  const isB=game.turn===BLACK;
+  $('turnStone').style.background=isB?'#151312':'#efe9db';
+  $('turnText').textContent=game.over?'Game Over':(isB?'Black — You':'White — AI');
+  $('btnUndo').disabled=game.history.length===0||aiThinking;
+  $('btnPass').disabled=game.over||aiThinking||game.turn!==playerColor;
+}
+
+function showGameOver(){
+  const s=areaScore(game.board,game.size);
+  const b=s.black, w=s.white+KOMI;
+  const bWin=b>w;
+  $('mTitle').textContent=bWin?'Black Wins':'White Wins';
+  $('mSub').textContent=bWin?'Victory is yours · 勝利':(b===w?'A rare draw':'The AI prevails');
+  $('mB').textContent=b; $('mW').textContent=w.toFixed(1);
+  $('mBreak').innerHTML=
+    `Black — Stones ${s.bStones} · Territory ${s.bTerr} · Captures ${game.captures[BLACK]}<br>`+
+    `White — Stones ${s.wStones} · Territory ${s.wTerr} · Komi ${KOMI} · Captures ${game.captures[WHITE]}<br>`+
+    `Margin: ${Math.abs(b-w).toFixed(1)} points`;
+  $('modal').classList.add('on');
+  bWin?sfx.win():sfx.lose();
+}
+
+function postMove(){
+  updateUI();
+  if(game.over){ setStatus('Both players passed. Final score.'); setTimeout(showGameOver,900); return; }
+  if(game.turn===aiColor){
+    aiThinking=true; $('thinking').classList.add('on'); updateUI();
+    setStatus('White is contemplating…');
+    setTimeout(runAI,300);
+  } else setStatus('Your move. Click any intersection.');
+}
+
+function runAI(){
+  const move=mctsChoose(game,difficulty);
+  if(move===-1){
+    game.pass(); sfx.pass();
+    setStatus('AI passes.');
+  } else {
+    const r=game.play(move);
+    spawnStone(move,aiColor,true);
+    if(r.captured.length){ setTimeout(()=>captureStones(r.captured),200); sfx.capture(); }
+    else sfx.place();
+    if(game.lastMove>=0){
+      const {wx,wz}=idxToWorld(move,game.size);
+      marker.position.set(wx,boardTopY+0.465*0.42+0.145,wz); marker.visible=true;
+    }
+    setStatus(r.captured.length?`AI captured ${r.captured.length} stone${r.captured.length>1?'s':''}.`:'AI plays. Your turn.');
+  }
+  aiThinking=false; $('thinking').classList.remove('on');
+  if(game.over){ updateUI(); setTimeout(showGameOver,900); return; }
+  updateUI();
+}
+
+function playerPlay(idx){
+  if(game.over||aiThinking||game.turn!==playerColor)return;
+  const r=game.play(idx);
+  if(!r){ sfx.illegal(); setStatus('Illegal move — occupied, suicide, or ko.'); return; }
+  spawnStone(idx,playerColor,true);
+  if(r.captured.length){ setTimeout(()=>captureStones(r.captured),200); sfx.capture(); }
+  else sfx.place();
+  marker.visible=false;
+  ghost.visible=false; hoverIdx=-1;
+  if(r.captured.length)setStatus(`You captured ${r.captured.length} stone${r.captured.length>1?'s':''}!`);
+  postMove();
+}
+
+/* Pointer interaction */
+const raycaster=new THREE.Raycaster(), pointer=new THREE.Vector2();
+function pickIntersection(e){
+  const rect=renderer.domElement.getBoundingClientRect();
+  pointer.x=((e.clientX-rect.left)/rect.width)*2-1;
+  pointer.y=-((e.clientY-rect.top)/rect.height)*2+1;
+  raycaster.setFromCamera(pointer,camera);
+  const dy=raycaster.ray.direction.y;
+  if(Math.abs(dy)<1e-6)return -1;
+  const t=(boardTopY-raycaster.ray.origin.y)/dy;
+  if(t<0)return -1;
+  const px=raycaster.ray.origin.x+raycaster.ray.direction.x*t;
+  const pz=raycaster.ray.origin.z+raycaster.ray.direction.z*t;
+  const N=game.size, off=(N-1)/2;
+  const gx=Math.round(px+off), gy=Math.round(pz+off);
+  if(gx<0||gx>=N||gy<0||gy>=N)return -1;
+  const wx=gx-off, wz=gy-off;
+  if(Math.abs(px-wx)>0.48||Math.abs(pz-wz)>0.48)return -1;
+  return gy*N+gx;
+}
+
+renderer.domElement.addEventListener('pointermove',e=>{
+  if(game.over||aiThinking||game.turn!==playerColor){ghost.visible=false;return;}
+  const idx=pickIntersection(e);
+  if(idx>=0&&quickLegal(game.board,game.size,game.ko,idx,playerColor)){
+    hoverIdx=idx;
+    const {wx,wz}=idxToWorld(idx,game.size);
+    ghost.position.set(wx,boardTopY+0.465*0.42+0.01,wz);
+    ghost.material=playerColor===BLACK?ghostMatB:ghostMatW;
+    ghost.visible=true;
+    renderer.domElement.style.cursor='pointer';
+  } else { ghost.visible=false; hoverIdx=-1; renderer.domElement.style.cursor='default'; }
+});
+
+let downPos=null;
+renderer.domElement.addEventListener('pointerdown',e=>{downPos={x:e.clientX,y:e.clientY};});
+renderer.domElement.addEventListener('pointerup',e=>{
+  if(!downPos)return;
+  const moved=Math.hypot(e.clientX-downPos.x,e.clientY-downPos.y);
+  downPos=null;
+  if(moved>6)return; // was a drag
+  const idx=pickIntersection(e);
+  if(idx>=0)playerPlay(idx);
+});
+
+/* Buttons */
+$('btnPass').onclick=()=>{
+  if(game.over||aiThinking||game.turn!==playerColor)return;
+  game.pass(); sfx.pass(); setStatus('You pass.');
+  postMove();
+};
+$('btnUndo').onclick=()=>{
+  if(aiThinking||game.history.length===0)return;
+  do{ game.revert(); }while(game.history.length>0&&game.turn!==playerColor);
+  $('modal').classList.remove('on');
+  syncStones(); updateUI();
+  setStatus('Move undone. Your turn.');
+};
+$('btnRestart').onclick=()=>newGame(game.size);
+$('btnNew').onclick=()=>{ $('modal').classList.remove('on'); newGame(game.size); };
+$('btnCam').onclick=()=>buildBoardCamera();
+$('btnSound').onclick=function(){
+  soundOn=!soundOn; this.textContent=`♪ Sound: ${soundOn?'On':'Off'}`;
+};
+
+function buildBoardCamera(){
+  const boxSize=(game.size-1)/0.85, d=boxSize*0.95;
+  camera.position.set(0,d*0.85,d*0.72);
+  controls.target.set(0,0,0);
+}
+
+document.querySelectorAll('[data-diff]').forEach(el=>{
+  el.onclick=()=>{
+    document.querySelectorAll('[data-diff]').forEach(x=>x.classList.remove('active'));
+    el.classList.add('active'); difficulty=el.dataset.diff;
+    setStatus(`Difficulty: ${difficulty[0].toUpperCase()+difficulty.slice(1)}.`);
+  };
+});
+document.querySelectorAll('[data-size]').forEach(el=>{
+  el.onclick=()=>{
+    document.querySelectorAll('[data-size]').forEach(x=>x.classList.remove('active'));
+    el.classList.add('active');
+    newGame(parseInt(el.dataset.size));
+  };
+});
+
+function newGame(size){
+  game=new GoGame(size);
+  aiThinking=false; $('thinking').classList.remove('on');
+  $('modal').classList.remove('on');
+  buildBoard(size);
+  updateUI();
+  setStatus('Your move. Click any intersection.');
+}
+
+addEventListener('resize',()=>{
+  camera.aspect=innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+});
+
+/* Init */
+buildBoard(19);
+updateUI();
+animate();
+</script>
+</body>
+</html>

@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Equal Earth Projection — Interactive SVG.js World Map</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/svg.js/3.2.0/svg.min.js"></script>
+<style>
+  :root{ --bg:#0f172a; --panel:#1e293b; --ink:#e2e8f0; --accent:#38bdf8; --danger:#f43f5e; }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{display:flex;flex-direction:column;background:var(--bg);color:var(--ink);
+       font:14px/1.45 system-ui,"Segoe UI",Roboto,sans-serif}
+  header{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 14px;
+         background:var(--panel);border-bottom:1px solid #334155}
+  header h1{font-size:15px;margin:0 10px 0 0;font-weight:600;white-space:nowrap}
+  .grp{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .sep{width:1px;height:22px;background:#475569;margin:0 4px}
+  label{font-size:12px;color:#94a3b8}
+  input[type=number]{width:92px;background:#0f172a;border:1px solid #475569;color:var(--ink);
+                     border-radius:6px;padding:6px 8px}
+  button{background:#0f172a;border:1px solid #475569;color:var(--ink);border-radius:6px;
+         padding:6px 10px;cursor:pointer;font-size:13px}
+  button:hover{border-color:var(--accent);color:#fff}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#082f49;font-weight:600}
+  .chip{border-radius:999px;padding:4px 11px;font-size:12px}
+  #stage{position:relative;flex:1;min-height:320px}
+  #map{position:absolute;inset:0;touch-action:none;cursor:grab}
+  #map.dragging{cursor:grabbing}
+  #map svg{width:100%;height:100%;display:block}
+  .card{position:absolute;background:rgba(15,23,42,.88);border:1px solid #334155;
+        border-radius:10px;padding:10px 12px;backdrop-filter:blur(4px)}
+  #readout{top:12px;left:12px;font-family:ui-monospace,Consolas,monospace;font-size:12.5px;min-width:225px}
+  #readout .t,#list .t{color:#94a3b8;font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px}
+  #readout .row{display:flex;justify-content:space-between;gap:16px}
+  #readout .v{color:#fff}
+  #list{right:12px;bottom:12px;max-height:42%;max-width:255px;overflow:auto;font-size:12.5px}
+  #list .item{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:2px 0}
+  #list .x{cursor:pointer;color:#94a3b8;padding:0 4px}
+  #list .x:hover{color:var(--danger)}
+  #hint{left:12px;bottom:12px;font-size:11.5px;color:#94a3b8}
+</style>
+</head>
+<body>
+<header>
+  <h1>🌍 Equal Earth Map</h1>
+  <div class="grp">
+    <label for="latIn">lat</label><input id="latIn" type="number" step="0.0001" value="51.5074" min="-90" max="90">
+    <label for="lonIn">lon</label><input id="lonIn" type="number" step="0.0001" value="-0.1278" min="-180" max="180">
+    <button class="primary" id="addBtn">＋ Plot marker</button>
+    <button id="clearBtn">Clear markers</button>
+  </div>
+  <div class="sep"></div>
+  <div class="grp" id="cities"></div>
+  <div class="sep"></div>
+  <div class="grp">
+    <button id="zin" title="Zoom in">＋</button>
+    <button id="zout" title="Zoom out">－</button>
+    <button id="zreset">Reset view</button>
+  </div>
+</header>
+
+<div id="stage">
+  <div id="map"></div>
+  <div class="card" id="readout">
+    <div class="t">Equal Earth · hover</div>
+    <div class="row"><span>lat</span><span class="v" id="rLat">—</span></div>
+    <div class="row"><span>lon</span><span class="v" id="rLon">—</span></div>
+    <div class="row"><span>last click</span><span class="v" id="rClick">none</span></div>
+    <div class="row"><span>zoom</span><span class="v" id="rZoom">1.00×</span></div>
+  </div>
+  <div class="card" id="hint">🖱 wheel = zoom at cursor · drag = pan · click = lat/lon → marker</div>
+  <div class="card" id="list"><div class="t">Markers</div><div id="items"></div></div>
+</div>
+
+<script>
+'use strict';
+if (typeof SVG === 'undefined') {
+  document.getElementById('hint').textContent = 'Failed to load SVG.js from CDN — check your connection.';
+  throw new Error('SVG.js not loaded');
+}
+
+/* ================= Equal Earth projection (Šavrič, Jenny & Patterson, 2018) =================
+   Forward:  θ = asin(M·sin φ),  M = √3/2
+             x = λ·cosθ / [ M·(A1 + 3A2θ² + θ⁶(7A3 + 9A4θ²)) ]
+             y = θ·(A1 + A2θ² + θ⁶(A3 + A4θ²))
+   Inverse:  solve the y-polynomial for θ with Newton–Raphson, then
+             φ = asin(sinθ / M),  λ = x·M·(A1 + 3A2θ² + θ⁶(7A3 + 9A4θ²)) / cosθ        */
+const A1 = 1.340264, A2 = -0.081106, A3 = 0.000893, A4 = 0.003796;
+const M  = Math.sqrt(3) / 2;
+const D2R = Math.PI / 180, R2D = 180 / Math.PI;
+const SCALE = 220;                 // px per projected unit at zoom = 1
+const VW = 1200, VH = 640;         // SVG viewBox size (user units)
+
+// forward: degrees -> base map px (y down)
+function fwd(lonDeg, latDeg) {
+  const lam = lonDeg * D2R, phi = latDeg * D2R;
+  const th  = Math.asin(M * Math.sin(phi));
+  const t2 = th * th, t6 = t2 * t2 * t2;
+  const den = M * (A1 + 3 * A2 * t2 + t6 * (7 * A3 + 9 * A4 * t2));
+  const x = lam * Math.cos(th) / den;
+  const y = th * (A1 + A2 * t2 + t6 * (A3 + A4 * t2));
+  return [x * SCALE, -y * SCALE];
+}
+// inverse: base map px (y down) -> {lon, lat} in degrees
+function inv(px, py) {
+  const x = px / SCALE, y = -py / SCALE;
+  let th = y;                                   // Newton–Raphson on the y-polynomial
+  for (let i = 0; i < 30; i++) {
+    const t2 = th * th, t6 = t2 * t2 * t2;
+    const f  = th * (A1 + A2 * t2 + t6 * (A3 + A4 * t2)) - y;
+    const df = A1 + 3 * A2 * t2 + t6 * (7 * A3 + 9 * A4 * t2);
+    const d = f / df; th -= d;
+    if (Math.abs(d) < 1e-13) break;
+  }
+  const phi = Math.asin(Math.max(-1, Math.min(1, Math.sin(th) / M)));
+  const t2 = th * th, t6 = t2 * t2 * t2;
+  const lam = x * M * (A1 + 3 * A2 * t2 + t6 * (7 * A3 + 9 * A4 * t2)) / Math.cos(th);
+  return { lon: lam * R2D, lat: phi * R2D };
+}
+
+/* ================= SVG.js setup: two layers ================= */
+const draw    = SVG().addTo('#map').viewbox(0, 0, VW, VH);
+draw.attr('preserveAspectRatio', 'xMidYMid meet');
+draw.node.style.background = '#0b1526';
+const world   = draw.group();   // pan/zoom layer — ALL map geometry lives here
+const overlay = draw.group();   // screen-space layer — markers, labels, crosshair
+
+// projected bounds of the whole map (base px)
+const B = { x0: fwd(-180, 0)[0], x1: fwd(180, 0)[0], y0: fwd(0, 90)[1], y1: fwd(0, -90)[1] };
+
+/* ================= simplified coastline data [lon, lat] ================= */
+const LAND = [
+  // North America
+  [[-168,65.5],[-164,60],[-158,57.5],[-152,60],[-146,60.5],[-140,59.5],[-134,57],[-130,54],[-127,50],[-125,48.5],[-124,42],[-120,34],[-117,32.7],[-113.5,28.5],[-110,24],[-106,23],[-105,20],[-97,16],[-94,18.5],[-90,21.3],[-87,21.6],[-88,18.5],[-83,15.5],[-83,11],[-85.5,10],[-80,8.5],[-77.5,7.5],[-75,10.5],[-72,12],[-64,10.5],[-61,10],[-55,6],[-51,4],[-50,0],[-44,-2.5],[-38,-4.5],[-35,-8],[-39,-13],[-41,-20],[-48,-26],[-53,-33],[-57,-38],[-62,-41],[-65,-45],[-68,-50],[-70,-54],[-73,-52],[-74,-46],[-73.5,-38],[-72,-32],[-70.5,-25],[-70,-18],[-75,-14],[-77,-9],[-80,-5],[-81,2],[-81.5,8],[-79,9],[-83,10],[-88,13],[-92,15],[-97,16],[-97,21],[-95,25],[-93.5,29.5],[-90,29],[-87,30.3],[-84,30],[-80.5,25.5],[-80,27],[-81,31],[-79,32.5],[-76,35],[-74,40],[-70,42],[-66,45],[-60,46.5],[-53,47],[-57,52],[-60,56],[-64,58],[-68,58.5],[-74,61],[-80,64],[-86,66],[-93,67],[-100,68.5],[-110,68],[-120,69.5],[-130,69.5],[-140,70],[-150,70.5],[-157,71],[-163,70],[-168,67]],
+  // South America
+  [[-77.5,7.5],[-75,10.5],[-72,12],[-64,10.5],[-61,10],[-55,6],[-51,4],[-50,0],[-44,-2.5],[-38,-4.5],[-35,-8],[-39,-13],[-41,-20],[-48,-26],[-53,-33],[-57,-38],[-62,-41],[-65,-45],[-68,-50],[-70,-54],[-73,-52],[-74,-46],[-73.5,-38],[-72,-32],[-70.5,-25],[-70,-18],[-75,-14],[-77,-9],[-80,-5],[-81,2],[-81.5,8],[-79,9]],
+  // Africa
+  [[-6,35.2],[-9.5,32.5],[-13,28],[-16,22],[-17,15],[-15.5,11],[-12,8],[-8,4.5],[0,5.5],[4,6],[8,4.5],[9,2],[11,-2],[13,-8],[12.5,-15],[14,-22],[16,-28],[18.5,-34],[20,-34.8],[24,-33],[28,-32.5],[31,-29],[33,-26],[36,-21],[38,-16],[40,-10],[40,-4],[42,0],[46,5],[51,11],[46,4],[42,-1],[40,-7],[38,-13],[36,-19],[35,-23],[33,-28],[30,-31],[26,-33.5],[20,-34.8],[18.5,-34],[16,-28],[14,-22],[12.5,-15],[13,-8],[11,-2],[9,2],[8,4.5],[4,6],[0,5.5],[-8,4.5],[-12,8],[-15.5,11],[-17,15],[-16,22],[-17,24],[-15,28],[-13,31],[-10,31.5],[-6,35.2],[-2,35.3],[3,36.8],[9,37],[10,37],[11,33.5],[15,32.4],[19,30.5],[23,32.3],[26,31.8],[30,31.3],[32.3,31.2],[34,28],[35,24],[36,20],[38,15],[43,12.5],[48,11],[51,11]],
+  // Eurasia
+  [[-9,37],[-9.5,40],[-6,43],[-2,43.7],[-1.5,46],[-4.5,48.3],[-1,49.5],[1.5,51],[4,52],[8,54],[8.5,57.5],[5.5,58.5],[5,60.5],[6,62.5],[9,64],[12,66],[16,68.5],[20,70],[25,71],[29,70.5],[33,69.5],[38,68],[44,67.5],[50,68],[56,69.5],[62,70],[68,72.5],[74,72.5],[80,73],[86,74],[92,75.5],[98,76.5],[104,77],[110,74],[115,73.5],[120,73],[126,72],[131,71],[136,71.5],[141,72],[146,72],[152,70.5],[158,70],[163,69],[169,66.5],[175,65],[179,64],[170,60],[163,58.5],[157,52],[150,59.5],[142,54.5],[138,47],[135,43.5],[129,35.5],[126.5,38],[122,37.5],[120.5,34],[122,30.5],[120,27.5],[118,24.5],[115,23],[110,20.3],[108,18.5],[106.5,15],[109,11],[105.5,9],[103,1.5],[100,5.5],[98.5,9.5],[96,14],[92,21.5],[88,22],[86,20.5],[82,15],[80,10],[77.5,8],[74,14],[72,20],[68,23],[66,25.2],[61,25.2],[57,26.5],[59.5,22.5],[55,17],[50,14.5],[45,12.5],[42,15],[39,20],[36,27],[34.5,29],[32.5,31],[35.5,33],[36,36],[30,36.3],[27,37],[23.5,36.5],[20,40],[19,41.5],[15.5,44],[13.5,45.5],[8,44.5],[6,43],[3,42],[0,39.5],[-2,37],[-6,36.2],[-9,37]],
+  // Greenland, Iceland, British Isles
+  [[-45,59.8],[-40,63],[-32,68],[-25,70],[-20,74],[-22,77],[-30,81],[-42,82],[-55,82],[-63,81],[-68,78],[-70,74],[-68,70],[-60,66],[-52,64],[-48,62]],
+  [[-22,64],[-18,63.5],[-14,64.5],[-15,66],[-20,66.5],[-23,65.5]],
+  [[-5.5,50],[-3,53],[-4.5,55],[-3,57],[-5.5,58.5],[-2,57.5],[0,54],[1.5,52],[0,50.5]],
+  [[-6,55.2],[-8,55],[-10,51.8],[-8,52],[-6,53]],
+  // Japan
+  [[130,31.5],[132,33],[135,34.5],[137,35],[140,35.5],[141,38.5],[141,41],[142,43],[145,44],[144,44.5],[141,42],[139,37],[135,35],[131,34],[129.5,32.5]],
+  // SE Asia / Oceania islands
+  [[95.5,5],[99,2],[103,-2],[106,-5.5],[104,-6],[100,-1],[96,3]],
+  [[109,1.5],[112,3],[116,6.5],[118.5,3],[117,-2],[113,-3.5],[110,-1]],
+  [[105.5,-6],[110,-6.8],[114,-7.8],[113,-8.5],[108,-8],[105.5,-7.2]],
+  [[119,0],[121,-2],[120,-5],[118,-2]],
+  [[131,-1],[135,-2.5],[139,-3.5],[143,-5],[147,-6.5],[150,-9.5],[147,-9],[143,-8],[139,-7],[135,-4],[132,-3]],
+  [[120,18.5],[122,16],[123,12],[122,8],[120,10],[119,14],[118.5,17]],
+  // Madagascar, New Zealand, Tasmania
+  [[43.5,-16],[46,-15.5],[49,-16],[50,-19],[48,-23],[45.5,-25],[44,-22],[43.5,-18]],
+  [[166.5,-45.5],[170,-42.5],[173,-40.5],[176,-38],[174.5,-36.5],[172,-40],[169,-44],[167,-46]],
+  [[145,-40.7],[148,-41],[146.5,-43],[145.5,-42]],
+  // Australia
+  [[113.5,-22],[114,-28.5],[115.5,-33.5],[118,-35],[124,-33],[129,-32],[132,-31.5],[135,-34.5],[137.5,-35],[139,-37],[143,-38.5],[147,-38.5],[150,-37],[153,-32],[153.5,-27],[151,-24],[148,-20],[145,-16],[142,-11],[138,-12],[136,-15],[132,-11.5],[128,-15],[124,-16.5],[120,-19.5],[116,-20.5]],
+  // Caribbean
+  [[-84.5,22],[-80,23],[-75,20],[-78,20],[-82,21.5]],
+  [[-74,18],[-70,19.5],[-68.5,18.5],[-72,17.8]],
+  // Antarctica (closes along the south pole line)
+  [[-180,-70],[-150,-72],[-120,-73],[-90,-71],[-60,-69],[-30,-71],[0,-69],[30,-67],[60,-66],[90,-66],[120,-66],[150,-68],[180,-70],[180,-90],[-180,-90]]
+];
+
+/* ================= draw the map (all inside the transformable `world` group) ================= */
+const pathOf = pts => 'M' + pts.map(p => p[0].toFixed(2) + ' ' + p[1].toFixed(2)).join('L') + 'Z';
+const NS = 'vector-effect', nss = 'non-scaling-stroke';
+
+// projection boundary = ocean fill
+function boundaryPath() {
+  const pts = [];
+  for (let lon = -180; lon <= 180; lon += 2) pts.push(fwd(lon, 90));
+  for (let lat = 90; lat >= -90; lat -= 2)  pts.push(fwd(180, lat));
+  for (let lon = 180; lon >= -180; lon -= 2) pts.push(fwd(lon, -90));
+  for (let lat = -90; lat <= 90; lat += 2)  pts.push(fwd(-180, lat));
+  return pathOf(pts);
+}
+world.path(boundaryPath()).fill('#a5cfe3');
+
+// graticule every 15°
+const grat = world.group();
+const gLine = (pts, w, col) => grat.path(pathOf(pts)).fill('none')
+  .stroke({ color: col, width: w }).attr(NS, nss);
+for (let lon = -165; lon <= 165; lon += 15) {
+  const pts = []; for (let lat = -90; lat <= 90; lat += 2) pts.push(fwd(lon, lat));
+  gLine(pts, 0.7, 'rgba(255,255,255,.45)');
+}
+for (let lat = -75; lat <= 75; lat += 15) {
+  const pts = []; for (let lon = -180; lon <= 180; lon += 2) pts.push(fwd(lon, lat));
+  gLine(pts, 0.7, 'rgba(255,255,255,.45)');
+}
+// emphasized equator & prime meridian
+{ const pts = []; for (let lon = -180; lon <= 180; lon += 2) pts.push(fwd(lon, 0));  gLine(pts, 1.4, 'rgba(255,255,255,.9)'); }
+{ const pts = []; for (let lat = -90; lat <= 90; lat += 2)  pts.push(fwd(0, lat));   gLine(pts, 1.4, 'rgba(255,255,255,.9)'); }
+
+// continents
+for (const poly of LAND) {
+  world.path(pathOf(poly.map(p => fwd(p[0], p[1]))))
+       .fill('#f1e9d2').stroke({ color: '#8f7a55', width: 1 }).attr(NS, nss);
+}
+// boundary outline on top
+world.path(boundaryPath()).fill('none').stroke({ color: '#1f4e6b', width: 2 }).attr(NS, nss);
+
+/* ================= pan / zoom state ================= */
+let k = 1, tx = VW / 2, ty = VH / 2;   // screen = translate(tx,ty) · scale(k) · worldPoint
+
+function clampPan() {
+  const m = 30, w = k * (B.x1 - B.x0), h = k * (B.y1 - B.y0);
+  if (w >= VW - 2 * m) tx = Math.min(Math.max(tx, VW - m - k * B.x1), m - k * B.x0);
+  else tx = (VW - w) / 2 - k * B.x0;
+  if (h >= VH - 2 * m) ty = Math.min(Math.max(ty, VH - m - k * B.y1), m - k * B.y0);
+  else ty = (VH - h) / 2 - k * B.y0;
+}
+
+/* ================= markers + graticule labels (screen-space overlay) ================= */
+const markers = [];
+const itemsEl = document.getElementById('items');
+const cross = overlay.circle(5).fill('none').stroke({ color: '#fff', width: 1.5, opacity: .9 }).hide();
+
+function addMarker(lon, lat, label) {
+  const g = overlay.group();
+  g.circle(7).fill('#f43f5e').stroke({ color: '#fff', width: 2 });
+  g.text(label || `${lat.toFixed(4)}°, ${lon.toFixed(4)}°`)
+   .attr({ x: 11, y: -9, 'text-anchor': 'start', 'paint-order': 'stroke',
+           stroke: '#ffffff', 'stroke-width': 3, fill: '#0f172a' })
+   .font({ family: 'system-ui,sans-serif', size: 12, weight: 600 });
+  const mk = { lon, lat, g, row: null };
+  const row = document.createElement('div');
+  row.className = 'item';
+  const span = document.createElement('span');
+  span.textContent = `📍 ${lat.toFixed(3)}, ${lon.toFixed(3)}`;
+  const x = document.createElement('span');
+  x.className = 'x'; x.textContent = '✕';
+  x.onclick = () => { g.remove(); row.remove(); markers.splice(markers.indexOf(mk), 1); };
+  row.append(span, x); itemsEl.append(row);
+  mk.row = row; markers.push(mk);
+  render();
+}
+
+// graticule labels along the boundary (screen-space so they stay readable at any zoom)
+const labelEls = [];
+const mkLabel = (txt, geo, dx, dy, anchor) => {
+  const el = overlay.text(txt).font({ family: 'ui-monospace,Consolas,monospace', size: 11 })
+                   .fill('#cbd5e1').attr('text-anchor', anchor);
+  labelEls.push({ el, geo, dx, dy });
+};
+for (let lon = -180; lon <= 180; lon += 30)
+  mkLabel(lon > 0 ? lon + '°E' : lon < 0 ? -lon + '°W' : '0°', [lon, -90], 0, 16, 'middle');
+for (let lat = -60; lat <= 60; lat += 30)
+  mkLabel(lat > 0 ? lat + '°N' : lat < 0 ? -lat + '°S' : '0°', [-180, lat], -8, 4, 'end');
+
+function render() {
+  clampPan();
+  world.attr('transform', `translate(${tx} ${ty}) scale(${k})`);
+  for (const mk of markers) {                       // screen = t + k·project(lon,lat)
+    const p = fwd(mk.lon, mk.lat);
+    mk.g.attr('transform', `translate(${tx + k * p[0]} ${ty + k * p[1]})`);
+  }
+  for (const L of labelEls) {
+    const p = fwd(L.geo[0], L.geo[1]);
+    const sx = Math.max(16, Math.min(VW - 16, tx + k * p[0]));
+    const sy = Math.max(12, Math.min(VH - 6,  ty + k * p[1]));
+    L.el.attr({ x: sx + (L.dx || 0), y: sy + (L.dy || 0) });
+  }
+  document.getElementById('rZoom').textContent = k.toFixed(2) + '×';
+}
+
+/* ================= coordinate ↔ screen conversion under current pan/zoom ================= */
+function screenToGeo(clientX, clientY) {
+  const p = draw.point(clientX, clientY);                    // client px -> viewBox units
+  const bx = (p.x - tx) / k, by = (p.y - ty) / k;            // undo pan/zoom -> base map px
+  if (bx < B.x0 || bx > B.x1 || by < B.y0 || by > B.y1) return null;
+  const g = inv(bx, by);                                     // inverse Equal Earth
+  return (Math.abs(g.lon) <= 180.001 && Math.abs(g.lat) <= 90.001) ? g : null;
+}
+
+/* ================= pointer interaction: pan, zoom-at-cursor, click-to-invert ================= */
+const svgNode = draw.node;
+let panning = false, lastPt = null, movedPx = 0;
+
+svgNode.addEventListener('pointerdown', e => {
+  svgNode.setPointerCapture(e.pointerId);
+  panning = true; movedPx = 0; lastPt = { x: e.clientX, y: e.clientY };
+  svgNode.classList.add('dragging');
+});
+svgNode.addEventListener('pointermove', e => {
+  const r = svgNode.getBoundingClientRect();
+  const ux = VW / r.width, uy = VH / r.height;              // client px -> viewBox units
+  if (panning && lastPt) {
+    tx += (e.clientX - lastPt.x) * ux;
+    ty += (e.clientY - lastPt.y) * uy;
+    movedPx += Math.abs(e.clientX - lastPt.x) + Math.abs(e.clientY - lastPt.y);
+    lastPt = { x: e.clientX, y: e.clientY };
+    render();
+  } else {
+    const g = screenToGeo(e.clientX, e.clientY);
+    document.getElementById('rLat').textContent = g ? g.lat.toFixed(5) + '°' : '—';
+    document.getElementById('rLon').textContent = g ? g.lon.toFixed(5) + '°' : '—';
+    if (g) {
+      const p = fwd(g.lon, g.lat);
+      cross.show().attr('cx', tx + k * p[0]).attr('cy', ty + k * p[1]);
+    } else cross.hide();
+  }
+});
+svgNode.addEventListener('pointerup', e => {
+  if (panning) {
+    panning = false; svgNode.classList.remove('dragging');
+    if (movedPx < 6) {                                       // treat as a click
+      const g = screenToGeo(e.clientX, e.clientY);
+      if (g) {
+        addMarker(g.lon, g.lat);
+        document.getElementById('rClick').textContent = `${g.lat.toFixed(5)}°, ${g.lon.toFixed(5)}°`;
+        document.getElementById('latIn').value = g.lat.toFixed(5);
+        document.getElementById('lonIn').value = g.lon.toFixed(5);
+        console.log(`[EqualEarth inverse] lat=${g.lat.toFixed(6)}, lon=${g.lon.toFixed(6)}`);
+      }
+    }
+  }
+});
+svgNode.addEventListener('pointercancel', () => { panning = false; svgNode.classList.remove('dragging'); });
+
+svgNode.addEventListener('wheel', e => {                     // zoom keeping cursor anchored
+  e.preventDefault();
+  const p = draw.point(e.clientX, e.clientY);
+  const nk = Math.min(60, Math.max(0.35, k * Math.exp(-e.deltaY * 0.0015)));
+  tx = p.x - (p.x - tx) * (nk / k);
+  ty = p.y - (p.y - ty) * (nk / k);
+  k = nk; render();
+}, { passive: false });
+
+/* ================= toolbar ================= */
+const latIn = document.getElementById('latIn'), lonIn = document.getElementById('lonIn');
+function plotFromInputs() {
+  const la = +latIn.value, lo = +lonIn.value;
+  if (!isFinite(la) || !isFinite(lo) || la < -90 || la > 90 || lo < -180 || lo > 180) {
+    alert('Latitude must be in [-90, 90] and longitude in [-180, 180].'); return;
+  }
+  addMarker(lo, la);
+}
+document.getElementById('addBtn').onclick = plotFromInputs;
+latIn.addEventListener('keydown', e => { if (e.key === 'Enter') plotFromInputs(); });
+lonIn.addEventListener('keydown', e => { if (e.key === 'Enter') plotFromInputs(); });
+document.getElementById('clearBtn').onclick = () => {
+  for (const mk of [...markers]) { mk.g.remove(); mk.row.remove(); }
+  markers.length = 0; render();
+};
+const zoomAt = (cx, cy, f) => {
+  const nk = Math.min(60, Math.max(0.35, k * f));
+  tx = cx - (cx - tx) * (nk / k); ty = cy - (cy - ty) * (nk / k); k = nk; render();
+};
+document.getElementById('zin').onclick   = () => zoomAt(VW / 2, VH / 2, 1.4);
+document.getElementById('zout').onclick  = () => zoomAt(VW / 2, VH / 2, 1 / 1.4);
+document.getElementById('zreset').onclick = () => { k = 1; tx = VW / 2; ty = VH / 2; render(); };
+
+const CITIES = [['London',51.5074,-0.1278],['New York',40.7128,-74.0060],['Tokyo',35.6762,139.6503],
+  ['Sydney',-33.8688,151.2093],['Cairo',30.0444,31.2357],['Rio',-22.9068,-43.1729],
+  ['Cape Town',-33.9249,18.4241],['Mumbai',19.076,72.8777],['Beijing',39.9042,116.4074],
+  ['Reykjavík',64.1466,-21.9426],['Honolulu',21.3069,-157.8583],['Singapore',1.3521,103.8198]];
+const citiesEl = document.getElementById('cities');
+for (const [name, lat, lon] of CITIES) {
+  const b = document.createElement('button');
+  b.className = 'chip'; b.textContent = name;
+  b.onclick = () => { latIn.value = lat; lonIn.value = lon; addMarker(lon, lat, name); };
+  citiesEl.append(b);
+}
+
+render();
+</script>
+</body>
+</html>

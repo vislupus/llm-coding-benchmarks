@@ -1,0 +1,2207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Emberfall — A Voxel Realm</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#0C0A08;
+    --parchment:#F2E6CE;
+    --parchment-dim:#C9B896;
+    --gold:#E8B45C;
+    --ember:#E2703A;
+    --glass:rgba(18,15,12,.58);
+    --line:rgba(232,180,92,.32);
+    --sans:'Inter',system-ui,sans-serif;
+    --display:'Cinzel',Georgia,serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;overflow:hidden;background:var(--ink);}
+  body{font-family:var(--sans);color:var(--parchment);-webkit-font-smoothing:antialiased;}
+  canvas#gpu{position:fixed;inset:0;width:100%;height:100%;display:block;cursor:grab;}
+  canvas#gpu.locked{cursor:none;}
+
+  .hud{position:fixed;inset:0;pointer-events:none;z-index:10;}
+  .hud > *{pointer-events:auto;}
+  body.shot .hud{opacity:0;transition:opacity .5s ease;}
+  body.shot .letterbox{opacity:1;}
+  .letterbox{position:fixed;left:0;right:0;height:0;background:#000;z-index:20;opacity:0;transition:height .55s cubic-bezier(.2,.7,.3,1),opacity .35s ease;pointer-events:none;}
+  .letterbox.top{top:0;}
+  .letterbox.bottom{bottom:0;}
+  body.shot .letterbox{height:8.5vh;}
+
+  .cartouche{
+    position:absolute;top:26px;left:28px;padding:16px 26px 15px 24px;
+    background:linear-gradient(140deg,rgba(20,16,12,.72),rgba(20,16,12,.34));
+    border-left:2px solid var(--gold);
+    backdrop-filter:blur(9px) saturate(1.1);-webkit-backdrop-filter:blur(9px) saturate(1.1);
+    box-shadow:0 18px 48px rgba(0,0,0,.42);
+    max-width:min(46vw,520px);
+  }
+  .cartouche h1{
+    margin:0;font-family:var(--display);font-weight:700;
+    font-size:clamp(23px,3.1vw,42px);line-height:.98;letter-spacing:.012em;
+    color:var(--parchment);text-shadow:0 3px 18px rgba(0,0,0,.6);
+  }
+  .cartouche h1 em{font-style:normal;color:var(--gold);}
+  .cartouche .sub{
+    margin-top:9px;display:flex;align-items:center;gap:11px;flex-wrap:wrap;
+    font-size:9.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--parchment-dim);font-weight:500;
+  }
+  .cartouche .rule{width:34px;height:1px;background:var(--line);}
+  .hint{
+    margin-top:11px;font-size:11.5px;line-height:1.65;color:rgba(242,230,206,.72);
+    letter-spacing:.012em;max-width:420px;
+  }
+  .hint b{color:var(--gold);font-weight:600;}
+  kbd{
+    display:inline-block;padding:1px 6px;margin:0 1px;border:1px solid rgba(232,180,92,.35);
+    border-bottom-width:2px;border-radius:3px;background:rgba(232,180,92,.12);
+    font-family:var(--sans);font-size:10px;font-weight:600;color:var(--parchment);
+  }
+
+  .dock{
+    position:absolute;left:50%;bottom:26px;transform:translateX(-50%);
+    display:flex;align-items:center;gap:7px;padding:9px 11px;
+    background:var(--glass);border:1px solid var(--line);
+    backdrop-filter:blur(14px) saturate(1.2);-webkit-backdrop-filter:blur(14px) saturate(1.2);
+    box-shadow:0 20px 50px rgba(0,0,0,.5);
+    border-radius:2px;flex-wrap:wrap;justify-content:center;max-width:calc(100vw - 40px);
+  }
+  .pill{
+    height:32px;padding:0 14px;display:flex;align-items:center;gap:7px;
+    font-size:10.5px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;
+    color:rgba(242,230,206,.8);background:transparent;
+    border:1px solid transparent;border-radius:1px;cursor:pointer;
+    transition:color .18s ease,background .18s ease,border-color .18s ease,transform .18s ease;
+  }
+  .pill:hover{color:var(--parchment);background:rgba(232,180,92,.14);border-color:rgba(232,180,92,.28);}
+  .pill:active{transform:translateY(1px);}
+  .pill.on{background:rgba(232,180,92,.2);border-color:var(--gold);color:#fff;}
+  .pill .dot{width:5px;height:5px;border-radius:50%;background:currentColor;opacity:.6;}
+  .div{width:1px;height:22px;background:var(--line);margin:0 4px;}
+
+  .dial{
+    position:absolute;right:28px;top:26px;width:236px;padding:15px 17px 14px;
+    background:var(--glass);border:1px solid var(--line);
+    backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    box-shadow:0 18px 46px rgba(0,0,0,.45);border-radius:2px;
+  }
+  .dial h2{
+    margin:0 0 12px;font-family:var(--display);font-size:12px;font-weight:600;
+    letter-spacing:.2em;text-transform:uppercase;color:var(--gold);
+  }
+  .dial .times{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
+  .tbtn{
+    height:34px;display:flex;align-items:center;gap:8px;padding:0 11px;cursor:pointer;
+    border:1px solid rgba(232,180,92,.2);background:rgba(255,255,255,.02);border-radius:1px;
+    font-size:10px;font-weight:600;letter-spacing:.15em;text-transform:uppercase;
+    color:rgba(242,230,206,.78);transition:all .2s ease;
+  }
+  .tbtn:hover{border-color:rgba(232,180,92,.55);color:#fff;background:rgba(232,180,92,.12);}
+  .tbtn.on{background:linear-gradient(120deg,rgba(232,180,92,.28),rgba(226,112,58,.2));border-color:var(--gold);color:#fff;}
+  .swatch{width:12px;height:12px;border-radius:50%;box-shadow:0 0 0 1px rgba(255,255,255,.25);}
+
+  .legend{
+    position:absolute;left:28px;bottom:26px;width:216px;padding:13px 16px;
+    background:var(--glass);border:1px solid var(--line);
+    backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    box-shadow:0 18px 46px rgba(0,0,0,.45);border-radius:2px;
+    font-variant-numeric:tabular-nums;
+  }
+  .legend .row{display:flex;justify-content:space-between;align-items:baseline;padding:3.5px 0;font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:rgba(242,230,206,.56);font-weight:500;}
+  .legend .row span:last-child{color:var(--parchment);font-size:12px;letter-spacing:.02em;text-transform:none;font-weight:600;}
+  .legend .row + .row{border-top:1px solid rgba(232,180,92,.13);}
+  .legend .bar{height:3px;margin-top:9px;background:rgba(232,180,92,.16);border-radius:2px;overflow:hidden;}
+  .legend .bar i{display:block;height:100%;width:38%;background:linear-gradient(90deg,var(--gold),var(--ember));transition:width .3s ease;}
+
+  .toast{
+    position:absolute;left:50%;top:22px;transform:translate(-50%,-24px);
+    padding:11px 22px;background:rgba(20,16,12,.86);border:1px solid var(--gold);
+    font-size:11px;letter-spacing:.18em;text-transform:uppercase;font-weight:600;
+    color:var(--parchment);opacity:0;transition:all .45s cubic-bezier(.2,.7,.3,1);
+    pointer-events:none;border-radius:1px;
+  }
+  .toast.show{opacity:1;transform:translate(-50%,0);}
+
+  .loader{
+    position:fixed;inset:0;z-index:60;background:
+      radial-gradient(120% 90% at 50% 40%,#1B1712 0%,#0C0A08 62%,#070605 100%);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    transition:opacity .8s ease,visibility .8s;
+  }
+  .loader.done{opacity:0;visibility:hidden;}
+  .loader .frame{position:absolute;inset:26px;border:1px solid rgba(232,180,92,.22);pointer-events:none;}
+  .loader h1{
+    font-family:var(--display);font-size:clamp(30px,6vw,68px);font-weight:700;margin:0;
+    letter-spacing:.03em;color:var(--parchment);
+  }
+  .loader h1 em{font-style:normal;color:var(--ember);}
+  .loader .tag{margin-top:14px;font-size:10px;letter-spacing:.42em;text-transform:uppercase;color:var(--parchment-dim);}
+  .track{width:min(340px,62vw);height:2px;background:rgba(232,180,92,.18);margin-top:34px;position:relative;overflow:hidden;}
+  .track i{position:absolute;left:0;top:0;height:100%;width:0;background:linear-gradient(90deg,var(--gold),var(--ember));transition:width .35s ease;}
+  .status{margin-top:15px;font-size:10.5px;letter-spacing:.24em;text-transform:uppercase;color:rgba(242,230,206,.5);min-height:16px;}
+
+  .fallback{
+    position:fixed;inset:0;z-index:70;display:none;align-items:center;justify-content:center;
+    background:#0C0A08;padding:32px;text-align:center;
+  }
+  .fallback.show{display:flex;}
+  .fallback h1{font-family:var(--display);font-size:28px;margin:0 0 14px;color:var(--gold);}
+  .fallback p{max-width:520px;line-height:1.8;color:rgba(242,230,206,.72);font-size:13.5px;}
+
+  @media (max-width: 900px){
+    .legend{display:none;}
+    .dial{width:180px;}
+    .cartouche{max-width:62vw;}
+  }
+</style>
+</head>
+<body>
+
+<canvas id="gpu"></canvas>
+
+<div class="letterbox top"></div>
+<div class="letterbox bottom"></div>
+
+<div class="hud">
+  <div class="cartouche">
+    <h1>Realm of <em>Emberfall</em></h1>
+    <div class="sub">
+      <span>Voxel Diorama</span><span class="rule"></span>
+      <span id="subTime">High Sun</span><span class="rule"></span>
+      <span>WebGPU</span>
+    </div>
+    <div class="hint">
+      <b>Click the world</b> to capture the mouse. <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> fly ·
+      <kbd>Space</kbd> rise · <kbd>Shift</kbd> fall · <kbd>E</kbd>/<kbd>Q</kbd> fast/slow ·
+      <kbd>F</kbd> walk · <kbd>C</kbd> orbit · <kbd>K</kbd> screenshot · <kbd>G</kbd> hide UI
+    </div>
+  </div>
+
+  <div class="dial">
+    <h2>Hour of the Realm</h2>
+    <div class="times" id="times">
+      <div class="tbtn" data-time="dawn"><span class="swatch" style="background:#F0A268"></span>Dawn</div>
+      <div class="tbtn on" data-time="day"><span class="swatch" style="background:#8FC4F5"></span>Day</div>
+      <div class="tbtn" data-time="dusk"><span class="swatch" style="background:#E2703A"></span>Dusk</div>
+      <div class="tbtn" data-time="night"><span class="swatch" style="background:#3B4C7A"></span>Night</div>
+    </div>
+    <div style="margin-top:11px;display:flex;gap:6px;">
+      <button class="pill" id="btnBloom" style="flex:1;justify-content:center;border-color:rgba(232,180,92,.25);height:29px;">Bloom</button>
+      <button class="pill on" id="btnClouds" style="flex:1;justify-content:center;border-color:rgba(232,180,92,.25);height:29px;">Clouds</button>
+    </div>
+  </div>
+
+  <div class="legend">
+    <div class="row"><span>Altitude</span><span id="lgAlt">—</span></div>
+    <div class="row"><span>Heading</span><span id="lgHead">—</span></div>
+    <div class="row"><span>Region</span><span id="lgRegion">—</span></div>
+    <div class="row"><span>Frame</span><span id="lgFps">—</span></div>
+    <div class="bar"><i id="lgBar"></i></div>
+  </div>
+
+  <div class="dock">
+    <button class="pill on" id="btnFly"><span class="dot"></span>Fly</button>
+    <button class="pill" id="btnWalk">Walk</button>
+    <div class="div"></div>
+    <button class="pill" id="btnOrbit">Orbit</button>
+    <button class="pill" id="btnShot">Screenshot</button>
+    <div class="div"></div>
+    <button class="pill" id="btnHome">Vantage</button>
+    <button class="pill" id="btnSun">Follow Sun</button>
+    <div class="div"></div>
+    <button class="pill" id="btnQuality" style="opacity:.6;cursor:default;">WebGPU · 60 FPS</button>
+  </div>
+
+  <div class="toast" id="toast"></div>
+</div>
+
+<div class="loader" id="loader">
+  <div class="frame"></div>
+  <h1>EMBER<em>FALL</em></h1>
+  <div class="tag">A Handcrafted Voxel Realm</div>
+  <div class="track"><i id="trackFill"></i></div>
+  <div class="status" id="loadStatus">Forging the world</div>
+</div>
+
+<div class="fallback" id="fallback">
+  <div>
+    <h1>WebGPU is required</h1>
+    <p>This diorama is rendered with pure WebGPU — no engines, no dependencies.
+       Please open it in a recent version of Chrome or Edge with hardware acceleration enabled.</p>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+/* =====================================================================
+   EMBERFALL — pure WebGPU voxel diorama
+   ===================================================================== */
+
+const W = 224, D = 224, H = 96;
+const CHUNK = 16;
+const CX = W / CHUNK, CZ = D / CHUNK;
+const WATER_Y = 24;
+const SEED = 20260214;
+
+const canvas = document.getElementById('gpu');
+const loadEl = document.getElementById('loader');
+const trackFill = document.getElementById('trackFill');
+const loadStatus = document.getElementById('loadStatus');
+
+function progress(p, msg){
+  trackFill.style.width = (p * 100).toFixed(1) + '%';
+  if (msg) loadStatus.textContent = msg;
+}
+function frame(){ return new Promise(r => requestAnimationFrame(() => r())); }
+
+/* ---------------------------- maths ---------------------------- */
+function mat4Mul(a, b){
+  const o = new Float32Array(16);
+  for (let c = 0; c < 4; c++)
+    for (let r = 0; r < 4; r++){
+      let s = 0;
+      for (let k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k];
+      o[c * 4 + r] = s;
+    }
+  return o;
+}
+function mat4Perspective(fovy, aspect, near, far){
+  const f = 1 / Math.tan(fovy / 2), nf = 1 / (near - far);
+  return new Float32Array([
+    f / aspect, 0, 0, 0,
+    0, f, 0, 0,
+    0, 0, far * nf, -1,
+    0, 0, far * near * nf, 0
+  ]);
+}
+function mat4LookAt(eye, target, up){
+  let zx = eye[0]-target[0], zy = eye[1]-target[1], zz = eye[2]-target[2];
+  let l = Math.hypot(zx,zy,zz) || 1; zx/=l; zy/=l; zz/=l;
+  let xx = up[1]*zz - up[2]*zy, xy = up[2]*zx - up[0]*zz, xz = up[0]*zy - up[1]*zx;
+  l = Math.hypot(xx,xy,xz) || 1; xx/=l; xy/=l; xz/=l;
+  const yx = zy*xz - zz*xy, yy = zz*xx - zx*xz, yz = zx*xy - zy*xx;
+  return new Float32Array([
+    xx, yx, zx, 0,
+    xy, yy, zy, 0,
+    xz, yz, zz, 0,
+    -(xx*eye[0] + xy*eye[1] + xz*eye[2]),
+    -(yx*eye[0] + yy*eye[1] + yz*eye[2]),
+    -(zx*eye[0] + zy*eye[1] + zz*eye[2]), 1
+  ]);
+}
+function norm3(v){ const l = Math.hypot(v[0],v[1],v[2]) || 1; return [v[0]/l, v[1]/l, v[2]/l]; }
+function cross3(a,b){ return [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]]; }
+function lerp(a,b,t){ return a + (b-a)*t; }
+function lerp3(a,b,t){ return [lerp(a[0],b[0],t), lerp(a[1],b[1],t), lerp(a[2],b[2],t)]; }
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+function smoothstep(e0,e1,x){ const t = clamp((x-e0)/(e1-e0),0,1); return t*t*(3-2*t); }
+
+/* ---------------------------- WGSL ---------------------------- */
+const WGSL_MAIN = `
+struct U {
+  viewProj  : mat4x4<f32>,
+  camPos    : vec4<f32>,
+  sunDir    : vec4<f32>,
+  sunColor  : vec4<f32>,
+  skyColor  : vec4<f32>,
+  ground    : vec4<f32>,
+  fogColor  : vec4<f32>,
+  params    : vec4<f32>,
+  camRight  : vec4<f32>,
+  camUp     : vec4<f32>,
+  camFwd    : vec4<f32>,
+  skyParams : vec4<f32>,
+  res       : vec4<f32>,
+};
+
+@group(0) @binding(0) var<uniform> u : U;
+@group(0) @binding(1) var<storage, read> heights : array<f32>;
+
+struct VOut {
+  @builtin(position) pos : vec4<f32>,
+  @location(0) world  : vec3<f32>,
+  @location(1) normal : vec3<f32>,
+  @location(2) color  : vec3<f32>,
+  @location(3) mat    : vec2<f32>,
+};
+
+fn transformVertex(p : vec3<f32>, n : vec3<f32>, c : vec3<f32>, m : vec2<f32>) -> VOut {
+  var wp = p;
+  let t = u.camPos.w;
+  if (m.y > 0.5 && m.y < 1.5) {
+    wp.y = wp.y + sin(wp.x * 0.34 + t * 1.45) * 0.09 * u.camUp.w
+                 + sin(wp.z * 0.27 - t * 1.12) * 0.075 * u.camUp.w;
+  } else if (m.y > 1.5 && m.y < 2.5) {
+    wp.z = wp.z + sin(t * 2.6 + wp.x * 0.75 + wp.y * 0.5) * 0.3;
+    wp.y = wp.y + sin(t * 3.1 + wp.x * 1.2) * 0.055;
+  }
+  var out : VOut;
+  out.pos    = u.viewProj * vec4<f32>(wp, 1.0);
+  out.world  = wp;
+  out.normal = n;
+  out.color  = c;
+  out.mat    = m;
+  return out;
+}
+
+@vertex
+fn vsMain(@location(0) p : vec3<f32>, @location(1) n : vec3<f32>,
+          @location(2) c : vec3<f32>, @location(3) m : vec2<f32>) -> VOut {
+  return transformVertex(p, n, c, m);
+}
+
+@vertex
+fn vsWater(@location(0) p : vec3<f32>, @location(1) n : vec3<f32>,
+           @location(2) c : vec3<f32>, @location(3) m : vec2<f32>) -> VOut {
+  return transformVertex(p, n, c, m);
+}
+
+fn heightAt(x : i32, z : i32) -> f32 {
+  if (x < 0 || z < 0 || x >= ${W} || z >= ${D}) { return -500.0; }
+  return heights[u32(z * ${W} + x)];
+}
+
+fn shadowAt(p : vec3<f32>) -> f32 {
+  let sd = normalize(u.sunDir.xyz);
+  if (sd.y < 0.06) { return 0.22; }
+  var t = 1.7;
+  for (var i = 0; i < 14; i = i + 1) {
+    let q = p + sd * t;
+    if (q.x < 1.0 || q.z < 1.0 || q.x > f32(${W - 1}) || q.z > f32(${D - 1})) { break; }
+    if (heightAt(i32(q.x), i32(q.z)) > q.y + 0.35) { return 0.16; }
+    t = t + 1.25 + t * 0.13;
+  }
+  return 1.0;
+}
+
+@fragment
+fn fsMain(vin : VOut) -> @location(0) vec4<f32> {
+  let n  = normalize(vin.normal);
+  let sd = normalize(u.sunDir.xyz);
+  let shadow = shadowAt(vin.world + n * 0.3);
+  let ndl = max(dot(n, sd), 0.0);
+  let skyf = clamp(0.5 + 0.5 * n.y, 0.0, 1.0);
+  let amb = mix(u.ground.rgb, u.skyColor.rgb, skyf);
+
+  var col = vin.color * (amb * 1.14 + u.sunColor.rgb * u.sunDir.w * ndl * shadow);
+  col = col + vin.color * u.skyColor.rgb * 0.13 * skyf;
+
+  if (vin.mat.x > 0.01) {
+    var e = vin.mat.x;
+    if (e > 1.5) {
+      let fl = 0.80 + 0.30 * sin(u.camPos.w * 8.3 + vin.world.x * 3.7 + vin.world.z * 2.9)
+                       + 0.10 * sin(u.camPos.w * 19.0 + vin.world.y * 5.1);
+      e = e * fl;
+    }
+    col = col + vin.color * e * 1.3;
+  }
+
+  let dist = length(vin.world - u.camPos.xyz);
+  let f = 1.0 - exp(-pow(dist * u.ground.w, 1.85));
+  col = mix(col, u.fogColor.rgb, clamp(f, 0.0, 1.0));
+  return vec4<f32>(col, 1.0);
+}
+
+@fragment
+fn fsWater(vin : VOut) -> @location(0) vec4<f32> {
+  let t = u.camPos.w;
+  let w = vin.world;
+  let n = normalize(vec3<f32>(
+    sin(w.x * 0.42 + t * 1.6) * 0.20 + sin(w.z * 0.19 - t * 0.9) * 0.12,
+    1.0,
+    cos(w.z * 0.36 - t * 1.25) * 0.20 + cos(w.x * 0.17 + t * 0.8) * 0.12));
+  let view = normalize(u.camPos.xyz - w);
+  let fres = pow(1.0 - max(dot(n, view), 0.0), 3.2);
+  let sd = normalize(u.sunDir.xyz);
+  let hvec = normalize(view + sd);
+  let spec = pow(max(dot(n, hvec), 0.0), 190.0) * 2.6;
+
+  var base = vin.color;
+  let depthTint = clamp((u.camFwd.w - w.y) * 0.32, 0.0, 1.0);
+  base = mix(base * 1.35, base * 0.62, depthTint);
+
+  let skyf = clamp(0.5 + 0.5 * n.y, 0.0, 1.0);
+  let amb = mix(u.ground.rgb, u.skyColor.rgb, skyf);
+  let wshadow = shadowAt(w + vec3<f32>(0.0, 0.4, 0.0));
+  var col = base * (amb * 1.3 + u.sunColor.rgb * u.sunDir.w * max(dot(n, sd), 0.0) * 0.8 * wshadow);
+  col = mix(col, u.skyColor.rgb * 1.1 + u.fogColor.rgb * 0.2, clamp(fres * 0.92, 0.0, 1.0));
+  col = col + u.sunColor.rgb * spec * u.sunDir.w;
+
+  let dist = length(w - u.camPos.xyz);
+  let f = 1.0 - exp(-pow(dist * u.ground.w, 1.85));
+  col = mix(col, u.fogColor.rgb, clamp(f, 0.0, 1.0));
+  return vec4<f32>(col, 0.80);
+}
+`;
+
+const WGSL_SKY = `
+struct U {
+  viewProj  : mat4x4<f32>,
+  camPos    : vec4<f32>,
+  sunDir    : vec4<f32>,
+  sunColor  : vec4<f32>,
+  skyColor  : vec4<f32>,
+  ground    : vec4<f32>,
+  fogColor  : vec4<f32>,
+  params    : vec4<f32>,
+  camRight  : vec4<f32>,
+  camUp     : vec4<f32>,
+  camFwd    : vec4<f32>,
+  skyParams : vec4<f32>,
+  res       : vec4<f32>,
+};
+@group(0) @binding(0) var<uniform> u : U;
+
+fn hash21(p : vec2<f32>) -> f32 {
+  var q = fract(p * vec2<f32>(127.1, 311.7));
+  q = q + dot(q, q + 34.23);
+  return fract(q.x * q.y);
+}
+fn vnoise(p : vec2<f32>) -> f32 {
+  let i = floor(p); let f = fract(p);
+  let a = hash21(i);
+  let b = hash21(i + vec2<f32>(1.0, 0.0));
+  let c = hash21(i + vec2<f32>(0.0, 1.0));
+  let d = hash21(i + vec2<f32>(1.0, 1.0));
+  let uu = f * f * (3.0 - 2.0 * f);
+  return mix(mix(a, b, uu.x), mix(c, d, uu.x), uu.y);
+}
+fn fbm2(p : vec2<f32>) -> f32 {
+  var s = 0.0; var a = 0.5; var q = p;
+  for (var i = 0; i < 5; i = i + 1) { s = s + vnoise(q) * a; q = q * 2.03; a = a * 0.5; }
+  return s;
+}
+
+@vertex
+fn vsSky(@builtin(vertex_index) vi : u32) -> @builtin(position) vec4<f32> {
+  var pts = array<vec2<f32>, 3>(vec2<f32>(-1.0, -1.0), vec2<f32>(3.0, -1.0), vec2<f32>(-1.0, 3.0));
+  return vec4<f32>(pts[vi], 1.0, 1.0);
+}
+
+@fragment
+fn fsSky(@builtin(position) fc : vec4<f32>) -> @location(0) vec4<f32> {
+  let ndc = vec2<f32>(fc.x * u.res.z * 2.0 - 1.0, 1.0 - fc.y * u.res.w * 2.0);
+  let dir = normalize(u.camFwd.xyz
+            + u.camRight.xyz * ndc.x * u.camRight.w * u.params.w
+            + u.camUp.xyz * ndc.y * u.camRight.w);
+
+  let sd = normalize(u.sunDir.xyz);
+  let h = clamp(dir.y, -1.0, 1.0);
+  let tt = clamp(pow(1.0 - max(h, 0.0), 2.2), 0.0, 1.0);
+  var col = mix(u.skyColor.rgb, u.fogColor.rgb, tt);
+
+  let sunAmt = max(dot(dir, sd), 0.0);
+  col = col + u.sunColor.rgb * pow(sunAmt, 6.0) * 0.5 * u.skyParams.z;
+  col = col + u.sunColor.rgb * pow(sunAmt, 60.0) * 1.3;
+  col = col + u.sunColor.rgb * pow(sunAmt, 900.0) * 11.0;
+
+  if (u.skyParams.x > 0.01 && dir.y > 0.0) {
+    let sp = dir.xz / max(dir.y, 0.06) * 34.0;
+    let st = hash21(floor(sp));
+    let tw = 0.65 + 0.35 * sin(u.skyParams.w * 2.1 + st * 42.0);
+    col = col + vec3<f32>(1.0, 0.96, 0.9) * step(0.9955, st) * tw * u.skyParams.x * 1.7 * smoothstep(0.0, 0.35, dir.y);
+  }
+
+  if (u.skyParams.y > 0.01 && dir.y > 0.015) {
+    let uv = dir.xz / (dir.y + 0.14) * 1.5 + vec2<f32>(u.skyParams.w * 0.011, u.skyParams.w * 0.0042);
+    var n = fbm2(uv * 0.42);
+    n = smoothstep(0.46, 0.86, n) * u.skyParams.y;
+    let shade = 0.72 + 0.28 * smoothstep(0.4, 1.0, n);
+    let cloudCol = mix(u.skyColor.rgb * 1.3 + vec3<f32>(0.14, 0.13, 0.12), u.sunColor.rgb * 1.1, pow(sunAmt, 3.0) * 0.7);
+    col = mix(col, cloudCol * shade, clamp(n * smoothstep(0.0, 0.16, dir.y), 0.0, 0.94));
+  }
+
+  col = mix(col, u.fogColor.rgb, 1.0 - smoothstep(-0.10, 0.14, dir.y));
+  return vec4<f32>(col, 1.0);
+}
+`;
+
+const WGSL_POST = `
+struct U {
+  viewProj  : mat4x4<f32>,
+  camPos    : vec4<f32>,
+  sunDir    : vec4<f32>,
+  sunColor  : vec4<f32>,
+  skyColor  : vec4<f32>,
+  ground    : vec4<f32>,
+  fogColor  : vec4<f32>,
+  params    : vec4<f32>,
+  camRight  : vec4<f32>,
+  camUp     : vec4<f32>,
+  camFwd    : vec4<f32>,
+  skyParams : vec4<f32>,
+  res       : vec4<f32>,
+};
+@group(0) @binding(0) var srcTex : texture_2d<f32>;
+@group(0) @binding(1) var srcSamp : sampler;
+@group(1) @binding(0) var bloomTex : texture_2d<f32>;
+@group(1) @binding(1) var<uniform> u : U;
+
+struct POut {
+  @builtin(position) pos : vec4<f32>,
+  @location(0) uv : vec2<f32>,
+};
+
+@vertex
+fn vsFull(@builtin(vertex_index) vi : u32) -> POut {
+  var pts = array<vec2<f32>, 3>(vec2<f32>(-1.0, -1.0), vec2<f32>(3.0, -1.0), vec2<f32>(-1.0, 3.0));
+  var out : POut;
+  out.pos = vec4<f32>(pts[vi], 0.0, 1.0);
+  out.uv  = vec2<f32>(pts[vi].x * 0.5 + 0.5, 0.5 - pts[vi].y * 0.5);
+  return out;
+}
+
+@fragment
+fn fsBright(pin : POut) -> @location(0) vec4<f32> {
+  let uv = pin.uv;
+  let c = textureSample(srcTex, srcSamp, uv).rgb;
+  let l = dot(c, vec3<f32>(0.2126, 0.7152, 0.0722));
+  let k = max(l - 1.05, 0.0);
+  return vec4<f32>(c * (k / max(l, 0.001)), 1.0);
+}
+
+@fragment
+fn fsBlurH(pin : POut) -> @location(0) vec4<f32> {
+  let uv = pin.uv;
+  let px = 0.0032;
+  var s = textureSample(srcTex, srcSamp, uv).rgb * 0.227;
+  s = s + (textureSample(srcTex, srcSamp, uv + vec2<f32>(px * 1.384, 0.0)).rgb
+        + textureSample(srcTex, srcSamp, uv - vec2<f32>(px * 1.384, 0.0)).rgb) * 0.316;
+  s = s + (textureSample(srcTex, srcSamp, uv + vec2<f32>(px * 3.230, 0.0)).rgb
+        + textureSample(srcTex, srcSamp, uv - vec2<f32>(px * 3.230, 0.0)).rgb) * 0.0702;
+  return vec4<f32>(s, 1.0);
+}
+
+@fragment
+fn fsBlurV(pin : POut) -> @location(0) vec4<f32> {
+  let uv = pin.uv;
+  let py = 0.0032;
+  var s = textureSample(srcTex, srcSamp, uv).rgb * 0.227;
+  s = s + (textureSample(srcTex, srcSamp, uv + vec2<f32>(0.0, py * 1.384)).rgb
+        + textureSample(srcTex, srcSamp, uv - vec2<f32>(0.0, py * 1.384)).rgb) * 0.316;
+  s = s + (textureSample(srcTex, srcSamp, uv + vec2<f32>(0.0, py * 3.230)).rgb
+        + textureSample(srcTex, srcSamp, uv - vec2<f32>(0.0, py * 3.230)).rgb) * 0.0702;
+  return vec4<f32>(s, 1.0);
+}
+
+fn aces(x : vec3<f32>) -> vec3<f32> {
+  let a = 2.51; let b = 0.03; let c = 2.43; let d = 0.59; let e = 0.14;
+  return clamp((x * (a * x + b)) / (x * (c * x + d) + e), vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
+@fragment
+fn fsComposite(pin : POut) -> @location(0) vec4<f32> {
+  let uv = pin.uv;
+  var col = textureSample(srcTex, srcSamp, uv).rgb;
+  let bl = textureSample(bloomTex, srcSamp, uv).rgb;
+  col = col + bl * u.params.y;
+  col = col * u.params.x;
+  col = aces(col);
+  let lum = dot(col, vec3<f32>(0.2126, 0.7152, 0.0722));
+  col = mix(vec3<f32>(lum), col, 1.12);
+  col = pow(col, vec3<f32>(0.96, 1.0, 1.03));
+  let v = distance(uv, vec2<f32>(0.5, 0.52));
+  col = col * (1.0 - smoothstep(0.36, 0.94, v) * 0.52);
+  return vec4<f32>(col, 1.0);
+}
+`;
+
+/* ---------------------------- renderer state ---------------------------- */
+let device, context, format;
+let uniformBuf, heightBuf, sampler;
+let pipeOpaque, pipeWater, pipeSky, pipeBright, pipeBlurH, pipeBlurV, pipeComposite;
+let bindScene, bindSky, bindBright, bindBlur, bindComposite, bindComposite0;
+let depthTex, sceneTex, sceneView, bloomA, bloomAView, bloomB, bloomBView;
+let birdBuf = null, birdVerts = 0;
+let curW = 0, curH = 0;
+const U = new Float32Array(68);
+
+const draws = { opaque: [], water: [] };
+
+/* ---------------------------- world state ---------------------------- */
+let voxels, heightMap;
+function vidx(x, y, z){ return (y * D + z) * W + x; }
+function inB(x, y, z){ return x >= 0 && y >= 0 && z >= 0 && x < W && y < H && z < D; }
+function getVox(x, y, z){ return inB(x, y, z) ? voxels[vidx(x, y, z)] : 0; }
+function setVox(x, y, z, t){
+  if (!inB(x, y, z)) return;
+  voxels[vidx(x, y, z)] = t;
+}
+function isSolid(t){ return t !== 0 && t !== 5 && t !== 12; }
+
+/* =====================================================================
+   MATERIALS
+   ===================================================================== */
+const MAT_COL = [
+  [0,0,0],                      // 0 air
+  [0.28,0.52,0.20],             // 1 grass
+  [0.40,0.29,0.19],             // 2 dirt
+  [0.50,0.50,0.52],             // 3 stone
+  [0.82,0.73,0.52],             // 4 sand
+  [0.11,0.30,0.45],             // 5 water
+  [0.35,0.24,0.14],             // 6 log
+  [0.20,0.42,0.16],             // 7 leaves
+  [0.62,0.45,0.27],             // 8 planks
+  [0.44,0.43,0.41],             // 9 cobble
+  [0.62,0.60,0.57],             // 10 stone brick
+  [0.16,0.15,0.17],             // 11 basalt
+  [1.00,0.42,0.08],             // 12 lava
+  [0.92,0.95,0.99],             // 13 snow
+  [0.58,0.51,0.40],             // 14 path
+  [0.56,0.19,0.14],             // 15 red roof
+  [0.17,0.28,0.44],             // 16 blue slate roof
+  [0.72,0.58,0.30],             // 17 thatch
+  [1.00,0.83,0.44],             // 18 glowing window
+  [1.00,0.72,0.30],             // 19 torch
+  [0.86,0.69,0.28],             // 20 gold
+  [0.26,0.18,0.11],             // 21 dark wood
+  [0.56,0.63,0.20],             // 22 crop
+  [0.86,0.36,0.46],             // 23 flower
+  [0.42,0.58,0.24],             // 24 reed
+  [0.30,0.27,0.26],             // 25 ash
+  [0.46,0.22,0.16],             // 26 red rock
+  [0.83,0.81,0.77],             // 27 marble
+  [0.76,0.16,0.18],             // 28 red flag
+  [0.17,0.31,0.63],             // 29 blue flag
+  [0.30,0.44,0.22],             // 30 hedge
+  [1.00,0.62,0.22]              // 31 lantern
+];
+const MAT_EMIT = [0,0,0,0,0,0,0,0,0,0,0,0,2.6,0,0,0,0,0,1.75,3.1,0.12,0,0,0,0,0,0,0,0,0,0,2.3];
+const MAT_FLAG = [0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,2,0,0];
+
+const M = {
+  AIR:0, GRASS:1, DIRT:2, STONE:3, SAND:4, WATER:5, LOG:6, LEAF:7, PLANK:8,
+  COBBLE:9, BRICK:10, BASALT:11, LAVA:12, SNOW:13, PATH:14, ROOF_R:15, ROOF_B:16,
+  THATCH:17, WINDOW:18, TORCH:19, GOLD:20, DARK:21, CROP:22, FLOWER:23, REED:24,
+  ASH:25, REDROCK:26, MARBLE:27, FLAG_R:28, FLAG_B:29, HEDGE:30, LANTERN:31
+};
+
+/* =====================================================================
+   NOISE
+   ===================================================================== */
+function hash2(x, z){
+  let n = (x * 374761393 + z * 668265263 + SEED * 144665) | 0;
+  n = (n ^ (n >> 13)) | 0;
+  n = Math.imul(n, 1274126177) | 0;
+  return ((n ^ (n >> 16)) >>> 0) / 4294967296;
+}
+function vnoise(x, z){
+  const xi = Math.floor(x), zi = Math.floor(z);
+  const xf = x - xi, zf = z - zi;
+  const u = xf * xf * (3 - 2 * xf), v = zf * zf * (3 - 2 * zf);
+  const a = hash2(xi, zi), b = hash2(xi + 1, zi), c = hash2(xi, zi + 1), d = hash2(xi + 1, zi + 1);
+  return (a * (1 - u) + b * u) * (1 - v) + (c * (1 - u) + d * u) * v;
+}
+function fbm(x, z, oct){
+  let s = 0, amp = 0.5, f = 1, norm = 0;
+  for (let i = 0; i < oct; i++){ s += vnoise(x * f, z * f) * amp; norm += amp; f *= 2.03; amp *= 0.5; }
+  return s / norm;
+}
+function hash3(x, y, z){
+  let n = (x * 92837111 + y * 689287499 + z * 283923481 + SEED) | 0;
+  n = (n ^ (n >> 13)) | 0;
+  n = Math.imul(n, 1274126177) | 0;
+  return ((n ^ (n >> 16)) >>> 0) / 4294967296;
+}
+
+/* =====================================================================
+   TERRAIN
+   ===================================================================== */
+let terrainH;
+const VOLC = { x: 46, z: 54, r: 42 };
+const CASTLE = { x: 158, z: 62, r: 34 };
+const VILLAGE = { x: 88, z: 142 };
+
+function riverCenter(z){
+  return 98 + 30 * Math.sin(z * 0.0165 + 0.7) + 12 * Math.sin(z * 0.041);
+}
+function terrainHeight(x, z){
+  const dx = (x - W / 2) / 112, dz = (z - D / 2) / 112;
+  const r = Math.sqrt(dx * dx + dz * dz);
+  const island = smoothstep(1.03, 0.58, r);
+
+  let h = 18 + fbm(x * 0.0135, z * 0.0135, 5) * 30 + fbm(x * 0.055, z * 0.055, 3) * 3.6;
+
+  // snowy mountains in the south-east
+  const mtn = smoothstep(0.34, 0.92, fbm(x * 0.0072 + 4.1, z * 0.0072 + 2.3, 4))
+            * smoothstep(112, 190, (x + z) / 2);
+  h += mtn * 46;
+
+  // castle terraced hill
+  const cd = Math.hypot(x - CASTLE.x, z - CASTLE.z);
+  if (cd < CASTLE.r + 12){
+    const t = smoothstep(CASTLE.r + 12, 6, cd);
+    let hill = 22 + t * 24;
+    hill = Math.round(hill / 3) * 3 + (cd < CASTLE.r ? 0 : 0);
+    h = Math.max(h * (1 - t * 0.85) + hill * t, h);
+  }
+
+  // volcano cone
+  const vd = Math.hypot(x - VOLC.x, z - VOLC.z);
+  if (vd < VOLC.r){
+    const t = 1 - vd / VOLC.r;
+    const cone = 16 + Math.pow(t, 1.35) * 58;
+    h = Math.max(h, cone + fbm(x * 0.09, z * 0.09, 3) * 4 - 2);
+    if (vd < 9) h = 49 + fbm(x * 0.2, z * 0.2, 2) * 3;
+  }
+
+  h = 8 + (h - 8) * island;
+
+  // river carve
+  const rcx = riverCenter(z);
+  const dr = Math.abs(x - rcx);
+  const rw = 15 + 5 * Math.sin(z * 0.028) + 4 * fbm(z * 0.02, 3.1, 2);
+  if (dr < rw + 10){
+    const t = smoothstep(rw + 10, 2, dr);
+    h = lerp(h, 17.5, t * 0.96);
+  }
+  return h;
+}
+
+function generateTerrain(){
+  terrainH = new Float32Array(W * D);
+  for (let z = 0; z < D; z++){
+    for (let x = 0; x < W; x++){
+      const h = terrainHeight(x, z);
+      terrainH[z * W + x] = h;
+      const top = Math.floor(h);
+      const vd = Math.hypot(x - VOLC.x, z - VOLC.z);
+      const rcx = riverCenter(z);
+      const nearRiver = Math.abs(x - rcx) < 19;
+      const mtnSnow = top > 52;
+
+      for (let y = 0; y <= top && y < H; y++){
+        let t = M.STONE;
+        if (y > top - 4) t = M.DIRT;
+        if (y === top){
+          if (vd < VOLC.r + 2) t = (top > 30 ? (hash2(x, z) > 0.55 ? M.BASALT : M.REDROCK) : M.ASH);
+          else if (mtnSnow) t = M.SNOW;
+          else if (top < WATER_Y + 1) t = M.SAND;
+          else if (nearRiver && top < WATER_Y + 5) t = M.SAND;
+          else t = M.GRASS;
+        }
+        setVox(x, y, z, t);
+      }
+      // water fill
+      for (let y = top + 1; y <= WATER_Y; y++) setVox(x, y, z, M.WATER);
+
+      // volcano crater lava
+      if (vd < 9.5 && top >= 30){
+        for (let y = top - 3; y <= 54; y++) setVox(x, y, z, M.LAVA);
+      }
+    }
+  }
+}
+
+function scatter(){
+  // forests
+  for (let z = 3; z < D - 3; z += 1){
+    for (let x = 3; x < W - 3; x += 1){
+      const h = terrainH[z * W + x];
+      if (h < WATER_Y + 3 || h > 52) continue;
+      const vd = Math.hypot(x - VOLC.x, z - VOLC.z);
+      if (vd < VOLC.r + 8) continue;
+      const cd = Math.hypot(x - CASTLE.x, z - CASTLE.z);
+      if (cd < CASTLE.r + 8) continue;
+      const rcx = riverCenter(z);
+      if (Math.abs(x - rcx) < 22) continue;
+      const d = Math.hypot(x - VILLAGE.x, z - VILLAGE.z);
+      if (d < 52) continue;
+      const density = fbm(x * 0.031, z * 0.031, 3);
+      if (density < 0.52) continue;
+      if (hash2(x * 7, z * 13) > 0.19) continue;
+      const y = Math.floor(h) + 1;
+      const snowy = h > 44;
+      if (hash2(x, z * 3) > 0.42) pine(x, y, z, snowy ? 7 : 8, snowy);
+      else oak(x, y, z);
+    }
+  }
+  // reeds along the water line
+  for (let z = 2; z < D - 2; z++){
+    const rcx = riverCenter(z);
+    for (let x = 2; x < W - 2; x++){
+      const h = terrainH[z * W + x];
+      if (Math.abs(x - rcx) > 24) continue;
+      if (h > WATER_Y + 1.4 || h < WATER_Y - 6) continue;
+      if (hash2(x * 5, z * 11) > 0.12) continue;
+      const y = Math.floor(h) + 1;
+      const len = 2 + Math.floor(hash2(x, z) * 3);
+      for (let i = 0; i < len; i++) setVox(x, y + i, z, M.REED);
+    }
+  }
+  // flowers on the meadows
+  for (let z = 4; z < D - 4; z += 1){
+    for (let x = 4; x < W - 4; x += 1){
+      const h = terrainH[z * W + x];
+      if (h < WATER_Y + 6 || h > 46) continue;
+      if (getVox(x, Math.floor(h), z) !== M.GRASS) continue;
+      if (hash2(x * 17, z * 23) > 0.022) continue;
+      setVox(x, Math.floor(h) + 1, z, hash2(x, z) > 0.5 ? M.FLOWER : M.CROP);
+    }
+  }
+}
+
+function pine(x, y, z, height, snowy){
+  for (let i = 0; i < height; i++) setVox(x, y + i, z, M.LOG);
+  for (let i = 0; i < height - 1; i++){
+    const r = Math.max(1, Math.floor((height - i) * 0.42));
+    for (let dx = -r; dx <= r; dx++)
+      for (let dz = -r; dz <= r; dz++){
+        if (Math.abs(dx) + Math.abs(dz) > r + 1) continue;
+        const yy = y + Math.floor(i * 0.85) + 1;
+        if (getVox(x + dx, yy, z + dz) === M.AIR) setVox(x + dx, yy, z + dz, snowy && i > height * 0.5 ? M.SNOW : M.LEAF);
+      }
+  }
+}
+function oak(x, y, z){
+  const h = 5 + Math.floor(hash2(x, z) * 3);
+  for (let i = 0; i < h; i++) setVox(x, y + i, z, M.LOG);
+  for (let dx = -3; dx <= 3; dx++)
+    for (let dz = -3; dz <= 3; dz++)
+      for (let dy = -1; dy <= 2; dy++){
+        const d = Math.abs(dx) + Math.abs(dz) + Math.abs(dy) * 1.6;
+        if (d > 4.2) continue;
+        if (dx === 0 && dz === 0 && dy < 1) continue;
+        const yy = y + h - 2 + dy;
+        if (getVox(x + dx, yy, z + dz) === M.AIR) setVox(x + dx, yy, z + dz, M.LEAF);
+      }
+}
+
+/* =====================================================================
+   BUILD HELPERS
+   ===================================================================== */
+function fillBox(x0, y0, z0, x1, y1, z1, t){
+  for (let y = y0; y <= y1; y++)
+    for (let z = z0; z <= z1; z++)
+      for (let x = x0; x <= x1; x++) setVox(x, y, z, t);
+}
+function clearBox(x0, y0, z0, x1, y1, z1){
+  fillBox(x0, y0, z0, x1, y1, z1, M.AIR);
+}
+function clearAbove(x0, z0, x1, z1, y){
+  for (let z = z0; z <= z1; z++)
+    for (let x = x0; x <= x1; x++){
+      const top = Math.max(terrainH[z * W + x], y);
+      for (let y2 = Math.floor(top) + 1; y2 < H; y2++) setVox(x, y2, z, M.AIR);
+    }
+}
+function groundAt(x, z){ return Math.floor(terrainH[z * W + x]); }
+
+function crenellate(x0, y, z0, x1, z1, t){
+  for (let x = x0; x <= x1; x++)
+    for (let z = z0; z <= z1; z++){
+      const edge = (x === x0 || x === x1 || z === z0 || z === z1);
+      if (!edge) continue;
+      if ((x + z) % 2 === 0) setVox(x, y, z, t);
+    }
+}
+function battlementRing(cx, cy, cz, r, t){
+  for (let a = 0; a < 360; a += 12){
+    const x = Math.round(cx + Math.cos(a * Math.PI / 180) * r);
+    const z = Math.round(cz + Math.sin(a * Math.PI / 180) * r);
+    if (a % 24 === 0) setVox(x, cy, z, t);
+  }
+}
+function tower(cx, baseY, cz, r, height, wall, roof, roofH){
+  for (let y = 0; y < height; y++)
+    for (let dx = -r; dx <= r; dx++)
+      for (let dz = -r; dz <= r; dz++){
+        const d = Math.hypot(dx, dz);
+        if (d > r + 0.35) continue;
+        const shell = d > r - 1.15;
+        if (!shell && y < height - 1) continue;
+        setVox(cx + dx, baseY + y, cz + dz, wall);
+      }
+  // windows
+  for (let y = 6; y < height - 3; y += 6){
+    setVox(cx + r, baseY + y, cz, M.WINDOW);
+    setVox(cx - r, baseY + y, cz, M.WINDOW);
+    setVox(cx, baseY + y, cz + r, M.WINDOW);
+    setVox(cx, baseY + y, cz - r, M.WINDOW);
+  }
+  battlementRing(cx, baseY + height, cz, r - 0.4, wall);
+  if (roof){
+    for (let i = 0; i < roofH; i++){
+      const rr = Math.max(0.6, r + 1.4 - i * (r + 1.4) / roofH);
+      for (let dx = -Math.ceil(rr); dx <= Math.ceil(rr); dx++)
+        for (let dz = -Math.ceil(rr); dz <= Math.ceil(rr); dz++)
+          if (Math.hypot(dx, dz) <= rr) setVox(cx + dx, baseY + height + 1 + i, cz + dz, roof);
+    }
+    setVox(cx, baseY + height + roofH + 1, cz, M.GOLD);
+  }
+}
+
+function hipRoof(x0, y, z0, x1, z1, t, steps){
+  const w = Math.floor((x1 - x0) / 2), d = Math.floor((z1 - z0) / 2);
+  const cx = Math.floor((x0 + x1) / 2), cz = Math.floor((z0 + z1) / 2);
+  const n = Math.min(steps, Math.min(w, d) + 1);
+  for (let s = 0; s <= n; s++){
+    const hw = Math.max(0, w + 1 - s), hd = Math.max(0, d + 1 - s);
+    for (let x = cx - hw; x <= cx + hw; x++)
+      for (let z = cz - hd; z <= cz + hd; z++){
+        const edge = (Math.abs(x - cx) >= hw - 1 || Math.abs(z - cz) >= hd - 1 || hw <= 1 || hd <= 1);
+        if (edge || s === n) setVox(x, y + s, z, t);
+      }
+  }
+}
+
+function lamp(x, y, z, t){
+  setVox(x, y, z, t || M.LANTERN);
+}
+function post(x, y, z, h, t){
+  for (let i = 0; i < h; i++) setVox(x, y + i, z, t || M.DARK);
+}
+function fence(x0, z0, x1, z1, y){
+  for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++)
+    for (let z = Math.min(z0, z1); z <= Math.max(z0, z1); z++){
+      if (!(x === x0 || x === x1 || z === z0 || z === z1)) continue;
+      const step = ((x + z) % 3 === 0);
+      if (step){
+        setVox(x, y, z, M.DARK); setVox(x, y + 1, z, M.DARK); setVox(x, y + 2, z, M.DARK);
+      } else {
+        setVox(x, y + 1, z, M.DARK);
+      }
+    }
+}
+
+/* =====================================================================
+   CASTLE
+   ===================================================================== */
+function buildCastle(){
+  const cx = CASTLE.x, cz = CASTLE.z;
+  const base = 44;
+  const R = 25;
+
+  // plateau
+  for (let x = cx - R - 6; x <= cx + R + 6; x++)
+    for (let z = cz - R - 6; z <= cz + R + 6; z++){
+      const d = Math.hypot(x - cx, z - cz);
+      if (d < R + 6){
+        const y = d < R ? base : base - Math.round((d - R) * 1.6);
+        for (let yy = y; yy > y - 4; yy--) setVox(x, yy, z, d < R ? M.COBBLE : M.STONE);
+        for (let yy = y + 1; yy < H; yy++) setVox(x, yy, z, M.AIR);
+      }
+    }
+
+  // moat
+  for (let x = cx - R - 18; x <= cx + R + 18; x++)
+    for (let z = cz - R - 18; z <= cz + R + 18; z++){
+      const d = Math.hypot(x - cx, z - cz);
+      if (d > R + 5 && d < R + 13){
+        for (let yy = WATER_Y - 7; yy <= base + 10; yy++){
+          setVox(x, yy, z, yy <= WATER_Y ? M.WATER : M.AIR);
+        }
+        for (let yy = WATER_Y - 8; yy > WATER_Y - 11; yy--) setVox(x, yy, z, M.STONE);
+      }
+    }
+
+  // curtain wall
+  const wallY = base + 1;
+  for (let x = cx - R; x <= cx + R; x++)
+    for (let z = cz - R; z <= cz + R; z++){
+      const edge = (Math.abs(x - cx) === R || Math.abs(z - cz) === R);
+      if (!edge) continue;
+      for (let y = 0; y < 11; y++) setVox(x, wallY + y, z, M.BRICK);
+    }
+  crenellate(cx - R, wallY + 11, cz - R, cx + R, cz + R, M.BRICK);
+
+  // gatehouse (south face)
+  const gz = cz + R;
+  clearBox(cx - 4, wallY, gz - 1, cx + 4, wallY + 8, gz + 1);
+  for (let y = 0; y < 13; y++)
+    for (let dx = -6; dx <= 6; dx++)
+      for (let dz = -2; dz <= 2; dz++){
+        const opening = (Math.abs(dx) <= 2 && y < 7 && Math.abs(dz) <= 1);
+        if (opening) continue;
+        setVox(cx + dx, wallY + y, gz + dz, M.BRICK);
+      }
+  crenellate(cx - 6, wallY + 13, gz - 2, cx + 6, gz + 2, M.BRICK);
+  lamp(cx - 3, wallY + 5, gz + 2, M.TORCH);
+  lamp(cx + 3, wallY + 5, gz + 2, M.TORCH);
+  for (let y = 1; y < 7; y += 2) setVox(cx, wallY + y, gz - 1, M.DARK);
+
+  // corner towers
+  tower(cx - R, wallY, cz - R, 5, 17, M.BRICK, M.ROOF_B, 8);
+  tower(cx + R, wallY, cz - R, 5, 17, M.BRICK, M.ROOF_B, 8);
+  tower(cx - R, wallY, cz + R, 5, 17, M.BRICK, M.ROOF_B, 8);
+  tower(cx + R, wallY, cz + R, 5, 17, M.BRICK, M.ROOF_B, 8);
+
+  // royal keep
+  const kx = cx - 4, kz = cz - 6;
+  fillBox(kx - 11, base + 1, kz - 9, kx + 11, base + 1, kz + 9, M.COBBLE);
+  for (let y = 0; y < 24; y++)
+    for (let x = kx - 10; x <= kx + 10; x++)
+      for (let z = kz - 8; z <= kz + 8; z++){
+        const shell = (Math.abs(x - kx) === 10 || Math.abs(z - kz) === 8);
+        if (!shell && y < 21) continue;
+        setVox(x, base + 2 + y, z, M.BRICK);
+      }
+  crenellate(kx - 10, base + 26, kz - 8, kx + 10, kz + 8, M.BRICK);
+  tower(kx - 10, base + 1, kz - 8, 4, 27, M.BRICK, M.ROOF_R, 9);
+  tower(kx + 10, base + 1, kz - 8, 4, 27, M.BRICK, M.ROOF_R, 9);
+  tower(kx - 10, base + 1, kz + 8, 4, 27, M.BRICK, M.ROOF_R, 9);
+  tower(kx + 10, base + 1, kz + 8, 4, 27, M.BRICK, M.ROOF_R, 9);
+  // keep windows
+  for (let y = 7; y <= 19; y += 6){
+    for (let x = kx - 7; x <= kx + 7; x += 7){
+      setVox(x, base + 2 + y, kz - 8, M.WINDOW);
+      setVox(x, base + 2 + y, kz + 8, M.WINDOW);
+    }
+    for (let z = kz - 5; z <= kz + 5; z += 5){
+      setVox(kx - 10, base + 2 + y, z, M.WINDOW);
+      setVox(kx + 10, base + 2 + y, z, M.WINDOW);
+    }
+  }
+  // keep banners
+  for (let y = 4; y < 16; y++){
+    setVox(kx - 3, base + 2 + y, kz + 8, y % 4 === 0 ? M.GOLD : M.FLAG_R);
+    setVox(kx + 3, base + 2 + y, kz + 8, y % 4 === 0 ? M.GOLD : M.FLAG_R);
+  }
+
+  // chapel
+  const hx = cx + 12, hz = cz + 12;
+  fillBox(hx - 6, base + 1, hz - 5, hx + 6, base + 1, hz + 5, M.MARBLE);
+  for (let y = 0; y < 12; y++)
+    for (let x = hx - 6; x <= hx + 6; x++)
+      for (let z = hz - 5; z <= hz + 5; z++){
+        const shell = (Math.abs(x - hx) === 6 || Math.abs(z - hz) === 5);
+        if (!shell && y < 11) continue;
+        setVox(x, base + 2 + y, z, M.MARBLE);
+      }
+  hipRoof(hx - 7, base + 14, hz - 6, hx + 7, hz + 6, M.ROOF_B, 5);
+  for (let y = 0; y < 20; y++) for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++)
+    if (Math.abs(dx) === 2 || Math.abs(dz) === 2) setVox(hx + dx, base + 2 + y, hz + dz, M.MARBLE);
+  for (let i = 0; i < 9; i++) for (let dx = -2 + Math.floor(i / 3); dx <= 2 - Math.floor(i / 3); dx++)
+    for (let dz = -2 + Math.floor(i / 3); dz <= 2 - Math.floor(i / 3); dz++) setVox(hx + dx, base + 22 + i, hz + dz, M.ROOF_B);
+  setVox(hx, base + 32, hz, M.GOLD);
+  setVox(hx, base + 33, hz, M.GOLD);
+  setVox(hx - 1, base + 33, hz, M.GOLD);
+  setVox(hx + 1, base + 33, hz, M.GOLD);
+  for (let x = hx - 5; x <= hx + 5; x += 5){ setVox(x, base + 8, hz - 5, M.WINDOW); setVox(x, base + 8, hz + 5, M.WINDOW); }
+
+  // courtyard: gardens, well, flags
+  for (let x = cx - 20; x <= cx + 20; x += 2)
+    for (let z = cz - 20; z <= cz + 20; z += 2){
+      const d = Math.hypot(x - cx, z - cz);
+      if (d > R - 4) continue;
+      if (x > kx - 14 && x < kx + 14 && z > kz - 12 && z < kz + 12) continue;
+      if (x > hx - 9 && x < hx + 9 && z > hz - 8 && z < hz + 8) continue;
+      if (hash2(x, z) > 0.55){
+        setVox(x, base + 1, z, M.HEDGE);
+        if (hash2(z, x) > 0.6) setVox(x, base + 2, z, M.FLOWER);
+      }
+    }
+  // well
+  const wx = cx + 12, wz = cz - 16;
+  for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++)
+    if (Math.max(Math.abs(dx), Math.abs(dz)) === 2) setVox(wx + dx, base + 1, wz + dz, M.COBBLE);
+  setVox(wx, base + 1, wz, M.WATER);
+  post(wx - 2, base + 1, wz - 2, 5, M.DARK);
+  post(wx + 2, base + 1, wz - 2, 5, M.DARK);
+  post(wx - 2, base + 1, wz + 2, 5, M.DARK);
+  post(wx + 2, base + 1, wz + 2, 5, M.DARK);
+  hipRoof(wx - 3, base + 6, wz - 3, wx + 3, wz + 3, M.ROOF_R, 3);
+
+  // flags on the wall
+  for (const [fx, fz] of [[cx - R, cz - R], [cx + R, cz - R], [cx - R, cz + R], [cx + R, cz + R], [cx, gz]]){
+    const fy = base + (fx === cx && fz === gz ? 15 : 13);
+    post(fx, fy, fz, 7, M.DARK);
+    for (let i = 0; i < 5; i++){
+      setVox(fx + 1, fy + 5 + i, fz, i < 3 ? M.FLAG_R : M.GOLD);
+      setVox(fx + 2, fy + 5 + i, fz, M.FLAG_R);
+      setVox(fx + 3, fy + 6, fz, M.FLAG_R);
+    }
+  }
+
+  // torches along the wall walk
+  for (let x = cx - R + 4; x <= cx + R - 4; x += 8){
+    lamp(x, wallY + 5, cz - R + 1, M.TORCH);
+    lamp(x, wallY + 5, cz + R - 1, M.TORCH);
+  }
+  for (let z = cz - R + 4; z <= cz + R - 4; z += 8){
+    lamp(cx - R + 1, wallY + 5, z, M.TORCH);
+    lamp(cx + R - 1, wallY + 5, z, M.TORCH);
+  }
+}
+
+/* =====================================================================
+   BRIDGE + ROADS
+   ===================================================================== */
+function buildBridge(){
+  const z = 100;
+  const c = riverCenter(z);
+  const y = WATER_Y + 4;
+  for (let x = Math.floor(c) - 26; x <= Math.floor(c) + 26; x++){
+    const span = Math.abs(x - c) / 26;
+    const arch = Math.round(Math.cos(span * Math.PI * 0.5) * 6);
+    const top = y + arch;
+    for (let dz = -4; dz <= 4; dz++){
+      setVox(x, top, z + dz, M.COBBLE);
+      if (Math.abs(dz) === 4){
+        setVox(x, top + 1, z + dz, M.BRICK);
+        if ((x + dz) % 3 === 0) setVox(x, top + 2, z + dz, M.BRICK);
+      }
+    }
+    if (Math.abs(x - c) > 22){
+      for (let yy = top - 6; yy < top; yy++) setVox(x, yy, z, M.BRICK);
+    }
+  }
+  lamp(Math.floor(c) - 24, y + 8, z + 4, M.LANTERN);
+  lamp(Math.floor(c) + 24, y + 8, z + 4, M.LANTERN);
+  lamp(Math.floor(c) - 24, y + 8, z - 4, M.LANTERN);
+  lamp(Math.floor(c) + 24, y + 8, z - 4, M.LANTERN);
+}
+
+function buildRoads(){
+  const path = (x0, z0, x1, z1, width) => {
+    const steps = Math.ceil(Math.hypot(x1 - x0, z1 - z0));
+    for (let i = 0; i <= steps; i++){
+      const t = i / steps;
+      const x = Math.round(lerp(x0, x1, t)), z = Math.round(lerp(z0, z1, t));
+      for (let dx = -width; dx <= width; dx++)
+        for (let dz = -width; dz <= width; dz++){
+          const y = Math.floor(terrainH[(z + dz) * W + (x + dx)]);
+          if (y < WATER_Y) continue;
+          setVox(x + dx, y + 1, z + dz, M.PATH);
+          setVox(x + dx, y, z + dz, M.DIRT);
+        }
+    }
+  };
+  path(112, 100, CASTLE.x - 4, CASTLE.z + 30, 2);
+  path(VILLAGE.x + 6, VILLAGE.z - 30, 112, 100, 2);
+  path(VILLAGE.x, VILLAGE.z + 20, VILLAGE.x - 26, VILLAGE.z + 62, 1);
+}
+
+/* =====================================================================
+   VILLAGE
+   ===================================================================== */
+function house(x, z, w, d, wallH, wallT, roofT, rot, opts){
+  opts = opts || {};
+  const y = groundAt(x, z) + 1;
+  const R = (lx, lz) => {
+    if (rot === 0) return [x + lx, z + lz];
+    if (rot === 1) return [x + lz, z - lx];
+    if (rot === 2) return [x - lx, z - lz];
+    return [x - lz, z + lx];
+  };
+  clearAbove(x - w - 3, z - d - 3, x + w + 3, z + d + 3, y - 1);
+
+  for (let lx = -w; lx <= w; lx++)
+    for (let lz = -d; lz <= d; lz++){
+      const [wx, wz] = R(lx, lz);
+      setVox(wx, y - 1, wz, M.COBBLE);
+      for (let ly = 0; ly < wallH; ly++){
+        const shell = (Math.abs(lx) === w || Math.abs(lz) === d);
+        if (!shell) continue;
+        let t = wallT;
+        if (opts.door && lx === 0 && lz === d && ly < 3) t = M.DARK;
+        if (ly === 2 && Math.abs(lx) % 3 === 1 && Math.abs(lz) === d) t = M.WINDOW;
+        if (ly === 2 && Math.abs(lz) % 3 === 1 && Math.abs(lx) === w) t = M.WINDOW;
+        setVox(wx, y + ly, wz, t);
+      }
+    }
+  hipRoof(x - w - 1, y + wallH, z - d - 1, x + w + 1, z + d + 1, roofT, Math.min(w, d) + 2);
+
+  if (opts.chimney){
+    const [cxp, czp] = R(w - 1, -d + 1);
+    for (let i = 0; i < wallH + 3; i++) setVox(cxp, y + i, czp, M.COBBLE);
+    setVox(cxp, y + wallH + 3, czp, M.TORCH);
+  }
+  if (opts.lanterns){
+    const [lx1, lz1] = R(-1, d + 1), [lx2, lz2] = R(1, d + 1);
+    lamp(lx1, y + 3, lz1, M.LANTERN);
+    lamp(lx2, y + 3, lz2, M.LANTERN);
+    post(lx1, y, lz1, 3, M.DARK);
+    post(lx2, y, lz2, 3, M.DARK);
+  }
+  return y;
+}
+
+function buildVillage(){
+  const cx = VILLAGE.x, cz = VILLAGE.z;
+
+  // houses along curved streets
+  const spots = [
+    [-34,-30,0,0],[-22,-38,0,1],[-8,-42,1,1],[6,-40,1,2],[19,-33,2,2],[28,-22,2,3],
+    [31,-8,3,3],[29,7,3,0],[23,20,0,0],[12,28,0,1],[-2,32,1,1],[-17,31,1,2],
+    [-29,24,2,2],[-36,12,2,3],[-38,-3,3,3],[-37,-17,3,0],[-12,-14,0,1],[2,-18,1,2],
+    [14,-9,1,3],[-25,7,2,0],[17,7,2,1],[-8,10,3,2],[6,16,0,3],[-18,-28,1,0],
+    [24,-30,2,1],[-30,-12,3,2],[8,-28,0,3],[-6,-24,1,0]
+  ];
+  const roofChoices = [M.ROOF_R, M.ROOF_B, M.THATCH, M.ROOF_R, M.THATCH];
+  spots.forEach((s, i) => {
+    const x = cx + s[0], z = cz + s[1];
+    const h = terrainH[z * W + x];
+    if (h < WATER_Y + 2) return;
+    const w = 4 + (i % 3), d = 4 + ((i + 1) % 3), wh = 5 + (i % 3);
+    const wall = (i % 4 === 0) ? M.COBBLE : (i % 4 === 1 ? M.PLANK : (i % 4 === 2 ? M.BRICK : M.DARK));
+    house(x, z, w, d, wh, wall, roofChoices[i % roofChoices.length], s[2] % 4,
+      { door: true, chimney: i % 2 === 0, lanterns: i % 3 === 0 });
+  });
+
+  // marketplace
+  const mx = cx + 2, mz = cz - 6;
+  const my = groundAt(mx, mz) + 1;
+  for (let i = 0; i < 5; i++){
+    const sx = mx - 12 + i * 6, sz = mz + (i % 2) * 6 - 3;
+    const sy = groundAt(sx, sz) + 1;
+    post(sx - 2, sy, sz - 2, 4, M.DARK); post(sx + 2, sy, sz - 2, 4, M.DARK);
+    post(sx - 2, sy, sz + 2, 4, M.DARK); post(sx + 2, sy, sz + 2, 4, M.DARK);
+    for (let x = sx - 3; x <= sx + 3; x++)
+      for (let z = sz - 3; z <= sz + 3; z++) setVox(x, sy + 4, z, i % 2 ? M.ROOF_R : M.THATCH);
+    for (let x = sx - 2; x <= sx + 2; x++) setVox(x, sy + 1, sz, M.PLANK);
+    lamp(sx, sy + 3, sz - 2, M.LANTERN);
+    // barrels + crates
+    setVox(sx + 3, sy, sz + 3, M.DARK); setVox(sx + 3, sy + 1, sz + 3, M.DARK);
+    setVox(sx - 3, sy, sz + 3, M.PLANK);
+  }
+
+  // blacksmith with forge
+  const bx = cx - 26, bz = cz - 20;
+  const by = house(bx, bz, 5, 4, 6, M.COBBLE, M.ROOF_B, 0, { door: true, chimney: true });
+  fillBox(bx + 2, by, bz - 2, bx + 4, by + 1, bz, M.COBBLE);
+  setVox(bx + 3, by + 1, bz - 1, M.LAVA);
+  lamp(bx + 3, by + 3, bz - 1, M.TORCH);
+  for (let i = 0; i < 3; i++) setVox(bx - 6 + i, by, bz + 3, M.DARK);
+
+  // tavern
+  const tx = cx + 20, tz = cz + 18;
+  const ty = house(tx, tz, 7, 5, 8, M.PLANK, M.ROOF_R, 2, { door: true, chimney: true, lanterns: true });
+  post(tx - 8, ty, tz + 2, 5, M.DARK);
+  setVox(tx - 8, ty + 4, tz + 2, M.GOLD);
+  setVox(tx - 8, ty + 5, tz + 2, M.LANTERN);
+  for (let i = 0; i < 4; i++){ setVox(tx + 9, ty, tz - 2 + i, M.DARK); setVox(tx + 9, ty + 1, tz - 2 + i, M.DARK); }
+
+  // village chapel
+  const hx = cx - 12, hz = cz + 22;
+  const hy = house(hx, hz, 5, 4, 7, M.MARBLE, M.ROOF_B, 1, { door: true });
+  for (let i = 0; i < 12; i++)
+    for (let dx = -2; dx <= 2; dx++)
+      for (let dz = -2; dz <= 2; dz++)
+        if (Math.abs(dx) === 2 || Math.abs(dz) === 2) setVox(hx + dx, hy + i, hz - 6 + dz, M.MARBLE);
+  for (let i = 0; i < 7; i++)
+    for (let dx = -2 + Math.floor(i / 2); dx <= 2 - Math.floor(i / 2); dx++)
+      for (let dz = -2 + Math.floor(i / 2); dz <= 2 - Math.floor(i / 2); dz++) setVox(hx + dx, hy + 12 + i, hz - 6 + dz, M.ROOF_B);
+  setVox(hx, hy + 19, hz - 6, M.GOLD);
+  lamp(hx, hy + 8, hz + 5, M.TORCH);
+
+  // farms
+  for (let f = 0; f < 3; f++){
+    const fx = cx - 44 + f * 6, fz = cz + 34 + f * 22;
+    for (let x = fx; x < fx + 16; x++)
+      for (let z = fz; z < fz + 12; z++){
+        const y = Math.floor(terrainH[z * W + x]);
+        if (y < WATER_Y) continue;
+        setVox(x, y + 1, z, (x + z) % 2 ? M.CROP : M.DIRT);
+        if ((x - fx) % 5 === 0 && z === fz) setVox(x, y + 1, z, M.DIRT);
+      }
+    fence(fx - 1, fz - 1, fx + 16, fz + 12, Math.floor(terrainH[fz * W + fx]) + 1);
+  }
+
+  // docks + boats
+  const dx0 = Math.floor(riverCenter(cz + 26)) - 20;
+  for (let i = 0; i < 12; i++)
+    for (let dz = -2; dz <= 2; dz++){
+      setVox(dx0 + i, WATER_Y + 1, cz + 26 + dz, M.PLANK);
+      if (i % 3 === 0){ setVox(dx0 + i, WATER_Y, cz + 26 + dz, M.DARK); setVox(dx0 + i, WATER_Y - 1, cz + 26 + dz, M.DARK); }
+    }
+  lamp(dx0, WATER_Y + 3, cz + 28, M.LANTERN);
+  lamp(dx0 + 11, WATER_Y + 3, cz + 28, M.LANTERN);
+  for (const [bxo, bzo] of [[4, 8], [7, -7], [2, -12]]){
+    const sx = dx0 + bxo, sz = cz + 26 + bzo;
+    for (let i = -3; i <= 3; i++)
+      for (let j = -1; j <= 1; j++){
+        if (Math.abs(j) === 1 && Math.abs(i) === 3) continue;
+        setVox(sx + i, WATER_Y + 1, sz + j, M.DARK);
+        if (Math.abs(i) < 3) setVox(sx + i, WATER_Y + 2, sz + j, j === 0 ? M.PLANK : M.DARK);
+      }
+    post(sx, WATER_Y + 2, sz, 4, M.DARK);
+  }
+
+  // watermill
+  const wzm = cz + 52, wxm = Math.floor(riverCenter(wzm)) + 15;
+  const wy = house(wxm, wzm, 5, 4, 6, M.COBBLE, M.THATCH, 3, { door: true, chimney: true });
+  const wyw = WATER_Y + 2;
+  for (let a = 0; a < 360; a += 15){
+    const rad = a * Math.PI / 180;
+    const x = Math.round(wxm - 8 + Math.cos(rad) * 6);
+    const y = Math.round(wyw + 2 + Math.sin(rad) * 6);
+    setVox(x, y, wzm, M.DARK);
+  }
+  for (let i = -5; i <= 5; i++) setVox(wxm - 8 + i, wyw + 2, wzm, M.DARK);
+  for (let i = -3; i <= 3; i++){ setVox(wxm - 8, wyw + 2 + i, wzm, M.PLANK); }
+
+  // wells, carts, barrels, lanterns
+  for (let i = 0; i < 4; i++){
+    const px = cx - 30 + i * 19, pz = cz - 24 + (i % 2) * 42;
+    const py = groundAt(px, pz) + 1;
+    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++)
+      if (Math.max(Math.abs(dx), Math.abs(dz)) === 1) setVox(px + dx, py, pz + dz, M.COBBLE);
+    setVox(px, py, pz, M.WATER);
+    post(px - 1, py, pz - 1, 4, M.DARK); post(px + 1, py, pz + 1, 4, M.DARK);
+    for (let x = px - 2; x <= px + 2; x++) for (let z = pz - 2; z <= pz + 2; z++) setVox(x, py + 4, z, M.ROOF_R);
+    lamp(px + 2, py + 3, pz - 1, M.LANTERN);
+  }
+  for (let i = 0; i < 6; i++){
+    const px = cx - 36 + i * 14, pz = cz + 4 + (i % 3) * 12;
+    const py = groundAt(px, pz) + 1;
+    for (let s = -3; s <= 3; s++){
+      setVox(px + s, py, pz - 1, M.DARK); setVox(px + s, py, pz + 1, M.DARK);
+      setVox(px + s, py + 1, pz - 1, M.PLANK); setVox(px + s, py + 1, pz + 1, M.PLANK);
+      if (s % 2 === 0){ setVox(px + s, py, pz, M.PLANK); }
+    }
+    setVox(px - 3, py, pz - 1, M.DARK); setVox(px - 3, py, pz + 1, M.DARK);
+    setVox(px + 3, py + 1, pz - 1, M.DARK); setVox(px + 3, py + 1, pz + 1, M.DARK);
+    for (let j = 0; j < 2; j++){
+      setVox(px + 5 + j, py, pz + 2, M.DARK);
+      setVox(px + 5 + j, py + 1, pz + 2, M.DARK);
+    }
+  }
+  for (let i = 0; i < 26; i++){
+    const px = cx - 44 + Math.floor(hash2(i * 3, 7) * 88);
+    const pz = cz - 40 + Math.floor(hash2(i * 5, 11) * 86);
+    const h = terrainH[pz * W + px];
+    if (h < WATER_Y + 1) continue;
+    const py = Math.floor(h) + 1;
+    setVox(px, py, pz, M.DARK);
+    if (hash2(i, 3) > 0.6) setVox(px, py + 1, pz, M.DARK);
+    if (hash2(i, 9) > 0.7) lamp(px + 1, py + 1, pz, M.LANTERN);
+  }
+}
+
+/* =====================================================================
+   VOLCANO + RUINS + WATCHTOWERS
+   ===================================================================== */
+function buildVolcano(){
+  const cx = VOLC.x, cz = VOLC.z;
+  for (let x = cx - VOLC.r - 6; x <= cx + VOLC.r + 6; x++)
+    for (let z = cz - VOLC.r - 6; z <= cz + VOLC.r + 6; z++){
+      const d = Math.hypot(x - cx, z - cz);
+      const y = Math.floor(terrainH[z * W + x]);
+      if (d < VOLC.r + 2 && y > 20){
+        if (hash2(x * 3, z * 5) > 0.82) setVox(x, y + 1, z, M.BASALT);
+        if (hash2(x * 7, z * 2) > 0.95) setVox(x, y + 1, z, M.LAVA);
+      }
+    }
+  // lava rivulets
+  for (let i = 0; i < 7; i++){
+    const a = hash2(i, 1) * Math.PI * 2;
+    let x = cx + Math.cos(a) * 8, z = cz + Math.sin(a) * 8;
+    for (let s = 0; s < 26; s++){
+      x += Math.cos(a) * 1.6 + (hash2(i, s) - 0.5) * 1.4;
+      z += Math.sin(a) * 1.6 + (hash2(s, i) - 0.5) * 1.4;
+      const ix = Math.round(x), iz = Math.round(z);
+      if (ix < 2 || iz < 2 || ix > W - 3 || iz > D - 3) break;
+      const y = Math.floor(terrainH[iz * W + ix]);
+      if (y < 22) break;
+      for (let k = 0; k < 3; k++){
+        setVox(Math.round(x), y + 1, Math.round(z), M.LAVA);
+        setVox(Math.round(x) + 1, y + 1, Math.round(z), M.LAVA);
+      }
+    }
+  }
+  // dead trees
+  for (let i = 0; i < 26; i++){
+    const a = hash2(i, 21) * Math.PI * 2;
+    const r = 16 + hash2(i, 31) * 34;
+    const x = Math.round(cx + Math.cos(a) * r), z = Math.round(cz + Math.sin(a) * r);
+    const y = Math.floor(terrainH[z * W + x]);
+    if (y < 16) continue;
+    const h = 5 + Math.floor(hash2(i, 41) * 5);
+    for (let k = 0; k < h; k++) setVox(x, y + 1 + k, z, M.BASALT);
+    setVox(x + 1, y + h, z, M.BASALT); setVox(x - 1, y + h - 1, z, M.BASALT);
+    setVox(x, y + h, z + 1, M.BASALT);
+  }
+  // ancient ruins beneath the slopes
+  const rx = cx + 52, rz = cz + 34;
+  const ry = Math.floor(terrainH[rz * W + rx]) + 1;
+  for (let i = 0; i < 6; i++){
+    const px = rx - 10 + i * 5, pz = rz - 8 + (i % 2) * 14;
+    const py = Math.floor(terrainH[pz * W + px]) + 1;
+    const h = 5 + Math.floor(hash2(i, 5) * 8);
+    for (let k = 0; k < h; k++) setVox(px, py + k, pz, M.STONE);
+    setVox(px + 1, py + h - 1, pz, M.STONE);
+    if (i % 2 === 0) for (let k = 0; k < 3; k++) setVox(px, py + h + k, pz, M.STONE);
+  }
+  for (let x = rx - 12; x <= rx + 12; x++) for (let z = rz - 10; z <= rz + 10; z++){
+    const y = Math.floor(terrainH[z * W + x]);
+    if (y > 26 && hash2(x, z) > 0.7) setVox(x, y + 1, z, M.STONE);
+  }
+  for (let k = 0; k < 6; k++) setVox(rx, ry + k, rz, M.TORCH);
+}
+
+function buildWatchtowers(){
+  const spots = [[36, 128], [128, 206], [196, 122], [70, 20], [176, 190], [24, 96]];
+  for (let i = 0; i < spots.length; i++){
+    const [x, z] = spots[i];
+    const y = groundAt(x, z) + 1;
+    if (y < WATER_Y + 1) continue;
+    for (let k = 0; k < 12; k++)
+      for (let dx = -2; dx <= 2; dx++)
+        for (let dz = -2; dz <= 2; dz++){
+          const shell = (Math.abs(dx) === 2 || Math.abs(dz) === 2);
+          if (!shell && k < 11) continue;
+          setVox(x + dx, y + k, z + dz, k < 4 ? M.COBBLE : M.DARK);
+        }
+    for (let dx = -3; dx <= 3; dx++) for (let dz = -3; dz <= 3; dz++)
+      if (Math.max(Math.abs(dx), Math.abs(dz)) === 3) setVox(x + dx, y + 12, z + dz, M.DARK);
+    lamp(x + 2, y + 8, z, M.TORCH);
+    lamp(x - 2, y + 8, z, M.TORCH);
+    post(x, y + 13, z, 6, M.DARK);
+    for (let k = 0; k < 4; k++){
+      setVox(x + 1, y + 17 + k, z, M.FLAG_B);
+      setVox(x + 2, y + 18, z, M.FLAG_B);
+    }
+  }
+}
+
+function buildCliffCaves(){
+  // cave mouths carved into hillsides
+  const spots = [[22, 74], [96, 40], [188, 152], [142, 176]];
+  for (const [x, z] of spots){
+    const y = groundAt(x, z);
+    if (y < WATER_Y + 4) continue;
+    for (let dx = -4; dx <= 4; dx++)
+      for (let dy = -1; dy <= 6; dy++)
+        for (let dz = -3; dz <= 3; dz++){
+          const d = Math.hypot(dx, dz * 1.2) ;
+          if (d < 3.4 && dy < 5.5) setVox(x + dx, y + dy, z + dz, M.AIR);
+        }
+    setVox(x, y + 1, z + 3, M.TORCH);
+  }
+  // hidden cliff paths
+  for (let i = 0; i < 3; i++){
+    let x = 60 + i * 62, z = 168 - i * 54;
+    for (let s = 0; s < 42; s++){
+      x += Math.cos(i * 1.7 + s * 0.12) * 1.7;
+      z += Math.sin(i * 1.7 + s * 0.12) * 1.7;
+      const ix = Math.round(x), iz = Math.round(z);
+      if (ix < 2 || iz < 2 || ix > W - 3 || iz > D - 3) break;
+      const y = Math.floor(terrainH[iz * W + ix]);
+      if (y < WATER_Y) continue;
+      setVox(ix, y + 1, iz, M.PATH);
+    }
+  }
+}
+
+/* =====================================================================
+   MESHING — hidden face removal + per-vertex AO
+   ===================================================================== */
+const FACES = [
+  { n: [ 1, 0, 0], a: [0, 1, 0], b: [0, 0, 1], shade: 0.80 },
+  { n: [-1, 0, 0], a: [0, 1, 0], b: [0, 0, 1], shade: 0.80 },
+  { n: [ 0, 1, 0], a: [1, 0, 0], b: [0, 0, 1], shade: 1.00 },
+  { n: [ 0,-1, 0], a: [1, 0, 0], b: [0, 0, 1], shade: 0.52 },
+  { n: [ 0, 0, 1], a: [1, 0, 0], b: [0, 1, 0], shade: 0.90 },
+  { n: [ 0, 0,-1], a: [1, 0, 0], b: [0, 1, 0], shade: 0.90 }
+];
+const CORNERS = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+
+function pushVertex(arr, x, y, z, n, a, b, sa, sb, col, shade, emit, flag){
+  arr.push(
+    x + 0.5 + n[0] * 0.5 + a[0] * 0.5 * sa + b[0] * 0.5 * sb,
+    y + 0.5 + n[1] * 0.5 + a[1] * 0.5 * sa + b[1] * 0.5 * sb,
+    z + 0.5 + n[2] * 0.5 + a[2] * 0.5 * sa + b[2] * 0.5 * sb,
+    n[0], n[1], n[2],
+    col[0] * shade, col[1] * shade, col[2] * shade,
+    emit, flag
+  );
+}
+
+function meshChunk(cx, cz){
+  const solidArr = [], waterArr = [];
+  const x0 = cx * CHUNK, z0 = cz * CHUNK;
+
+  for (let z = z0; z < z0 + CHUNK; z++){
+    for (let x = x0; x < x0 + CHUNK; x++){
+      for (let y = 0; y < H; y++){
+        const t = voxels[vidx(x, y, z)];
+        if (t === 0) continue;
+        const water = (t === M.WATER);
+        const arr = water ? waterArr : solidArr;
+        const col = MAT_COL[t];
+        const emit = MAT_EMIT[t] || 0;
+        const flag = MAT_FLAG[t] || 0;
+        const tint = 0.90 + hash3(x, y, z) * 0.20;
+
+        for (let f = 0; f < 6; f++){
+          const face = FACES[f];
+          const nx = x + face.n[0], ny = y + face.n[1], nz = z + face.n[2];
+          const nb = getVox(nx, ny, nz);
+
+          if (water){
+            if (f !== 2) continue;                       // only the surface of water
+            if (nb === M.WATER || isSolid(nb)) continue;
+          } else {
+            if (isSolid(nb)) continue;
+          }
+
+          for (let ci = 0; ci < 4; ci++){
+            const sa = CORNERS[ci][0], sb = CORNERS[ci][1];
+            const o1 = isSolid(getVox(nx + face.a[0] * sa, ny + face.a[1] * sa, nz + face.a[2] * sa)) ? 1 : 0;
+            const o2 = isSolid(getVox(nx + face.b[0] * sb, ny + face.b[1] * sb, nz + face.b[2] * sb)) ? 1 : 0;
+            const o3 = isSolid(getVox(nx + face.a[0] * sa + face.b[0] * sb,
+                                      ny + face.a[1] * sa + face.b[1] * sb,
+                                      nz + face.a[2] * sa + face.b[2] * sb)) ? 1 : 0;
+            const ao = (o1 && o2) ? 0 : 3 - (o1 + o2 + o3);
+            const aoShade = water ? 1 : (0.62 + 0.127 * ao);
+            pushVertex(arr, x, y, z, face.n, face.a, face.b, sa, sb, col,
+              face.shade * aoShade * tint, emit, flag);
+          }
+          const base = (arr.length / 11) - 4;
+          // re-order the four corners into two triangles
+          const idx = [0, 1, 2, 0, 2, 3];
+          const tmp = [];
+          for (const i of idx){
+            for (let k = 0; k < 11; k++) tmp.push(arr[(base + i) * 11 + k]);
+          }
+          arr.length = base * 11;
+          for (const v of tmp) arr.push(v);
+        }
+      }
+    }
+  }
+  return { solid: solidArr, water: waterArr };
+}
+
+function computeHeightMap(){
+  for (let z = 0; z < D; z++)
+    for (let x = 0; x < W; x++){
+      let top = -50;
+      for (let y = H - 1; y >= 0; y--){
+        const t = voxels[vidx(x, y, z)];
+        if (t !== 0 && t !== M.WATER){ top = y; break; }
+      }
+      heightMap[z * W + x] = top;
+    }
+}
+
+/* =====================================================================
+   BUILD
+   ===================================================================== */
+async function buildWorld(){
+  voxels = new Uint8Array(W * D * H);
+  heightMap = new Float32Array(W * D);
+
+  progress(0.26, 'Raising mountains');
+  await frame();
+  generateTerrain();
+
+  progress(0.36, 'Planting forests');
+  await frame();
+  scatter();
+
+  progress(0.44, 'Building the castle');
+  await frame();
+  buildCastle();
+
+  progress(0.52, 'Raising the village');
+  await frame();
+  buildBridge();
+  buildRoads();
+  buildVillage();
+
+  progress(0.62, 'Stoking the volcano');
+  await frame();
+  buildVolcano();
+  buildWatchtowers();
+  buildCliffCaves();
+
+  computeHeightMap();
+
+  progress(0.7, 'Carving hidden faces');
+  await frame();
+
+  const solidChunks = [], waterChunks = [];
+  for (let cz = 0; cz < CZ; cz++){
+    for (let cx = 0; cx < CX; cx++){
+      const r = meshChunk(cx, cz);
+      if (r.solid.length) solidChunks.push(r.solid);
+      if (r.water.length) waterChunks.push(r.water);
+    }
+    if (cz % 3 === 0){ progress(0.7 + 0.02 * (cz / CZ), 'Carving hidden faces'); await frame(); }
+  }
+
+  progress(0.9, 'Uploading geometry');
+  await frame();
+
+  const mk = (chunks, list) => {
+    for (const data of chunks){
+      const arr = new Float32Array(data);
+      const buf = device.createBuffer({ size: arr.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+      device.queue.writeBuffer(buf, 0, arr);
+      list.push({ buf, count: arr.length / 11 });
+    }
+  };
+  mk(solidChunks, draws.opaque);
+  mk(waterChunks, draws.water);
+}
+
+
+/* ---------------------------- atmosphere ---------------------------- */
+const TIMES = {
+  dawn: {
+    sunDir: norm3([0.86, 0.24, -0.44]), sunI: 1.25,
+    sun: [1.00, 0.62, 0.36], sky: [0.30, 0.42, 0.68], ground: [0.17, 0.15, 0.16],
+    fog: [0.72, 0.58, 0.52], fogD: 0.0042, exposure: 1.16, stars: 0.28, clouds: 0.85, sunset: 1.0,
+    label: 'Dawn Mist'
+  },
+  day: {
+    sunDir: norm3([0.42, 0.82, -0.38]), sunI: 1.42,
+    sun: [1.00, 0.95, 0.85], sky: [0.36, 0.58, 0.92], ground: [0.21, 0.24, 0.22],
+    fog: [0.68, 0.79, 0.92], fogD: 0.0023, exposure: 1.02, stars: 0.0, clouds: 0.62, sunset: 0.06,
+    label: 'High Sun'
+  },
+  dusk: {
+    sunDir: norm3([-0.82, 0.20, 0.52]), sunI: 1.18,
+    sun: [1.00, 0.48, 0.22], sky: [0.30, 0.26, 0.46], ground: [0.16, 0.12, 0.13],
+    fog: [0.62, 0.38, 0.34], fogD: 0.0044, exposure: 1.2, stars: 0.22, clouds: 0.78, sunset: 1.0,
+    label: 'Ember Dusk'
+  },
+  night: {
+    sunDir: norm3([-0.32, 0.46, -0.82]), sunI: 0.32,
+    sun: [0.42, 0.52, 0.86], sky: [0.035, 0.055, 0.115], ground: [0.045, 0.055, 0.09],
+    fog: [0.06, 0.085, 0.16], fogD: 0.0036, exposure: 1.35, stars: 1.0, clouds: 0.42, sunset: 0.16,
+    label: 'Moonlit Night'
+  }
+};
+let atmo = JSON.parse(JSON.stringify(TIMES.day));
+let atmoTarget = TIMES.day;
+
+/* ---------------------------- camera + input ---------------------------- */
+const cam = {
+  pos: [150, 118, 236], yaw: -2.36, pitch: -0.42, vel: [0, 0, 0],
+  fov: 62 * Math.PI / 180, mode: 'fly', orbit: true
+};
+const keys = Object.create(null);
+let pointerLocked = false;
+let orbitAngle = -1.15, orbitT = 0;
+let followSun = false, cloudsOn = true, bloomOn = true;
+
+function camBasis(){
+  const cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch);
+  const fwd = norm3([Math.sin(cam.yaw) * cp, sp, -Math.cos(cam.yaw) * cp]);
+  const right = norm3(cross3(fwd, [0, 1, 0]));
+  const up = cross3(right, fwd);
+  return { fwd, right, up };
+}
+
+canvas.addEventListener('click', () => {
+  if (document.pointerLockElement !== canvas) canvas.requestPointerLock();
+});
+document.addEventListener('pointerlockchange', () => {
+  pointerLocked = document.pointerLockElement === canvas;
+  canvas.classList.toggle('locked', pointerLocked);
+  if (pointerLocked && cam.orbit){ cam.orbit = false; setOrbitUI(false); }
+});
+document.addEventListener('mousemove', (e) => {
+  if (!pointerLocked) return;
+  cam.yaw += e.movementX * 0.0022;
+  cam.pitch = clamp(cam.pitch - e.movementY * 0.0022, -1.52, 1.52);
+  if (cam.orbit){ cam.orbit = false; setOrbitUI(false); }
+});
+window.addEventListener('keydown', (e) => {
+  const k = e.key.toLowerCase();
+  keys[k] = true;
+  if ([' ', 'w', 'a', 's', 'd', 'q', 'e'].includes(k)) e.preventDefault();
+  if (k === 'f'){ cam.mode = cam.mode === 'fly' ? 'walk' : 'fly'; setModeUI(); toast(cam.mode === 'fly' ? 'Fly mode' : 'Walk mode'); }
+  if (k === 'c'){ cam.orbit = !cam.orbit; orbitT = 0; setOrbitUI(cam.orbit); toast(cam.orbit ? 'Cinematic orbit' : 'Free camera'); }
+  if (k === 'k'){ toggleShot(); }
+  if (k === 'g'){ const h = document.querySelector('.hud'); h.style.display = h.style.display === 'none' ? '' : 'none'; }
+  if (k === 'escape' && document.body.classList.contains('shot')) toggleShot();
+});
+window.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
+
+function toggleShot(){
+  const on = !document.body.classList.contains('shot');
+  document.body.classList.toggle('shot', on);
+  if (on){ toast('Screenshot mode — press K to exit'); }
+  else { toast('Capture saved'); setTimeout(captureFrame, 60); }
+}
+function captureFrame(){
+  try {
+    const url = canvas.toDataURL('image/png');
+    const a = document.createElement('a');
+    a.href = url; a.download = 'emberfall-' + Date.now() + '.png';
+    document.body.appendChild(a); a.click(); a.remove();
+  } catch (err){ /* buffer unavailable */ }
+}
+
+function surfaceY(x, z){
+  const ix = Math.floor(x), iz = Math.floor(z);
+  if (ix < 0 || iz < 0 || ix >= W || iz >= D) return WATER_Y;
+  return heightMap[iz * W + ix];
+}
+
+/* ---------------------------- frame loop ---------------------------- */
+let last = performance.now(), time = 0, fpsSmooth = 60, frameNo = 0;
+
+function updateCamera(dt){
+  const basis = camBasis();
+
+  if (cam.orbit){
+    orbitT += dt;
+    orbitAngle += dt * 0.048;
+    const t = smoothstep(0, 1, Math.min(orbitT / 26, 1));
+    const radius = lerp(178, 112, t);
+    const height = lerp(126, 66, t) + Math.sin(orbitT * 0.16) * 5.5;
+    const cx = 112 + Math.sin(orbitT * 0.055) * 12;
+    const cz = 112 + Math.cos(orbitT * 0.041) * 12;
+    cam.pos[0] = cx + Math.sin(orbitAngle) * radius;
+    cam.pos[1] = height;
+    cam.pos[2] = cz + Math.cos(orbitAngle) * radius;
+    const look = norm3([cx - cam.pos[0], 30 - cam.pos[1], cz - cam.pos[2]]);
+    cam.yaw = Math.atan2(look[0], -look[2]);
+    cam.pitch = Math.asin(clamp(look[1], -1, 1));
+    return;
+  }
+
+  const fast = keys['e'] ? 2.4 : (keys['q'] ? 0.32 : 1);
+  const sprint = keys['shift'] && cam.mode === 'fly' ? 2.2 : 1;
+  const speed = (cam.mode === 'walk' ? 15 : 30) * fast * sprint;
+
+  let mx = 0, mz = 0, my = 0;
+  if (keys['w']) mz += 1;
+  if (keys['s']) mz -= 1;
+  if (keys['a']) mx -= 1;
+  if (keys['d']) mx += 1;
+  if (cam.mode === 'fly'){
+    if (keys[' ']) my += 1;
+    if (keys['shift']) my -= 1;
+  }
+
+  const len = Math.hypot(mx, mz) || 1;
+  const wishX = (basis.fwd[0] * mz + basis.right[0] * mx) / len;
+  const wishZ = (basis.fwd[2] * mz + basis.right[2] * mx) / len;
+  const wishY = cam.mode === 'fly' ? my : 0;
+
+  const accel = cam.mode === 'fly' ? 9 : 16;
+  cam.vel[0] += (wishX * speed - cam.vel[0]) * Math.min(1, accel * dt);
+  cam.vel[2] += (wishZ * speed - cam.vel[2]) * Math.min(1, accel * dt);
+  cam.vel[1] += (wishY * speed - cam.vel[1]) * Math.min(1, accel * dt);
+
+  const nx = cam.pos[0] + cam.vel[0] * dt;
+  const nz = cam.pos[2] + cam.vel[2] * dt;
+
+  if (cam.mode === 'walk'){
+    const target = surfaceY(nx, nz) + 2.6;
+    const current = surfaceY(cam.pos[0], cam.pos[2]) + 2.6;
+    if (Math.abs(target - current) < 2.2 || target < current){
+      cam.pos[0] = clamp(nx, 2, W - 2);
+      cam.pos[2] = clamp(nz, 2, D - 2);
+    }
+    cam.vel[1] -= 34 * dt;
+    cam.pos[1] += cam.vel[1] * dt;
+    const floorY = surfaceY(cam.pos[0], cam.pos[2]) + 2.6;
+    if (cam.pos[1] < floorY){ cam.pos[1] = floorY; cam.vel[1] = 0; }
+    if (keys[' '] && cam.pos[1] <= floorY + 0.08) cam.vel[1] = 13.5;
+    cam.pos[1] = Math.min(cam.pos[1], H - 4);
+  } else {
+    cam.pos[0] = clamp(nx, -60, W + 60);
+    cam.pos[2] = clamp(nz, -60, D + 60);
+    cam.pos[1] = clamp(cam.pos[1] + cam.vel[1] * dt, 2.4, H + 70);
+    if (mx === 0 && mz === 0){ cam.vel[0] *= Math.pow(0.015, dt); cam.vel[2] *= Math.pow(0.015, dt); }
+    if (my === 0) cam.vel[1] *= Math.pow(0.015, dt);
+  }
+}
+
+function updateAtmo(dt){
+  const k = Math.min(1, dt * 1.8);
+  atmo.sunDir = lerp3(atmo.sunDir, atmoTarget.sunDir, k);
+  atmo.sun = lerp3(atmo.sun, atmoTarget.sun, k);
+  atmo.sky = lerp3(atmo.sky, atmoTarget.sky, k);
+  atmo.ground = lerp3(atmo.ground, atmoTarget.ground, k);
+  atmo.fog = lerp3(atmo.fog, atmoTarget.fog, k);
+  for (const key of ['sunI','fogD','exposure','stars','clouds','sunset'])
+    atmo[key] = lerp(atmo[key], atmoTarget[key], k);
+}
+
+function regionName(){
+  const x = cam.pos[0], z = cam.pos[2], y = cam.pos[1];
+  if (x > 116 && z < 108) return 'Castle Reach';
+  if (x < 118 && z > 92) return 'Riverside Village';
+  if (x < 104 && z < 104) return 'Ashen Peaks';
+  if (y > 62) return 'High Air';
+  if (y < 26) return 'The Lower Water';
+  return 'Greenfold Wilds';
+}
+
+function updateHUD(){
+  if ((frameNo & 7) !== 0) return;
+  const deg = ((-cam.yaw * 180 / Math.PI) % 360 + 360) % 360;
+  const dirs = ['N','NE','E','SE','S','SW','W','NW'];
+  const $ = (id) => document.getElementById(id);
+  $('lgAlt').textContent = cam.pos[1].toFixed(1) + ' m';
+  $('lgHead').textContent = dirs[Math.round(deg / 45) % 8] + '  ' + deg.toFixed(0) + '°';
+  $('lgRegion').textContent = regionName();
+  $('lgFps').textContent = fpsSmooth.toFixed(0) + ' fps';
+  $('lgBar').style.width = clamp(fpsSmooth / 60 * 100, 6, 100).toFixed(0) + '%';
+}
+
+function render(){
+  const basis = camBasis();
+  const proj = mat4Perspective(cam.fov, curW / Math.max(1, curH), 0.35, 520);
+  const view = mat4LookAt(cam.pos,
+    [cam.pos[0] + basis.fwd[0], cam.pos[1] + basis.fwd[1], cam.pos[2] + basis.fwd[2]], basis.up);
+  const vp = mat4Mul(proj, view);
+
+  U.set(vp, 0);
+  U[16] = cam.pos[0]; U[17] = cam.pos[1]; U[18] = cam.pos[2]; U[19] = time;
+  U[20] = atmo.sunDir[0]; U[21] = atmo.sunDir[1]; U[22] = atmo.sunDir[2]; U[23] = atmo.sunI;
+  U[24] = atmo.sun[0]; U[25] = atmo.sun[1]; U[26] = atmo.sun[2]; U[27] = 0;
+  U[28] = atmo.sky[0]; U[29] = atmo.sky[1]; U[30] = atmo.sky[2]; U[31] = 0;
+  U[32] = atmo.ground[0]; U[33] = atmo.ground[1]; U[34] = atmo.ground[2]; U[35] = atmo.fogD;
+  U[36] = atmo.fog[0]; U[37] = atmo.fog[1]; U[38] = atmo.fog[2]; U[39] = 0;
+  U[40] = atmo.exposure; U[41] = bloomOn ? 0.9 : 0.0; U[42] = 1.0; U[43] = curW / Math.max(1, curH);
+  U[44] = basis.right[0]; U[45] = basis.right[1]; U[46] = basis.right[2]; U[47] = Math.tan(cam.fov / 2);
+  U[48] = basis.up[0]; U[49] = basis.up[1]; U[50] = basis.up[2]; U[51] = 1.0;
+  U[52] = basis.fwd[0]; U[53] = basis.fwd[1]; U[54] = basis.fwd[2]; U[55] = WATER_Y;
+  U[56] = atmo.stars; U[57] = cloudsOn ? atmo.clouds : 0.0; U[58] = atmo.sunset; U[59] = time;
+  U[60] = curW; U[61] = curH; U[62] = 1 / Math.max(1, curW); U[63] = 1 / Math.max(1, curH);
+  device.queue.writeBuffer(uniformBuf, 0, U);
+
+  const enc = device.createCommandEncoder();
+
+  const pass = enc.beginRenderPass({
+    colorAttachments: [{
+      view: sceneView,
+      clearValue: { r: atmo.fog[0], g: atmo.fog[1], b: atmo.fog[2], a: 1 },
+      loadOp: 'clear', storeOp: 'store'
+    }],
+    depthStencilAttachment: {
+      view: depthTex.createView(),
+      depthClearValue: 1.0, depthLoadOp: 'clear', depthStoreOp: 'store'
+    }
+  });
+  pass.setPipeline(pipeSky);
+  pass.setBindGroup(0, bindSky);
+  pass.draw(3);
+
+  pass.setPipeline(pipeOpaque);
+  pass.setBindGroup(0, bindScene);
+  for (const d of draws.opaque){ pass.setVertexBuffer(0, d.buf); pass.draw(d.count); }
+  if (birdBuf && birdVerts > 0){ pass.setVertexBuffer(0, birdBuf); pass.draw(birdVerts); }
+
+  pass.setPipeline(pipeWater);
+  for (const d of draws.water){ pass.setVertexBuffer(0, d.buf); pass.draw(d.count); }
+  pass.end();
+
+  if (bloomOn){
+    const p1 = enc.beginRenderPass({ colorAttachments: [{ view: bloomAView, loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] });
+    p1.setPipeline(pipeBright); p1.setBindGroup(0, bindBright); p1.draw(3); p1.end();
+
+    const p2 = enc.beginRenderPass({ colorAttachments: [{ view: bloomBView, loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] });
+    p2.setPipeline(pipeBlurH); p2.setBindGroup(0, bindBlur); p2.draw(3); p2.end();
+
+    const p3 = enc.beginRenderPass({ colorAttachments: [{ view: bloomAView, loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] });
+    p3.setPipeline(pipeBlurV); p3.setBindGroup(0, bindBlur); p3.draw(3); p3.end();
+  }
+
+  const p4 = enc.beginRenderPass({
+    colorAttachments: [{ view: context.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }]
+  });
+  p4.setPipeline(pipeComposite);
+  p4.setBindGroup(0, bindComposite0);
+  p4.setBindGroup(1, bindComposite);
+  p4.draw(3);
+  p4.end();
+
+  device.queue.submit([enc.finish()]);
+}
+
+function tick(){
+  const now = performance.now();
+  let dt = (now - last) / 1000;
+  last = now;
+  if (dt > 0.1) dt = 0.1;
+  time += dt;
+  frameNo++;
+
+  if (followSun){
+    const a = time * 0.045;
+    atmoTarget.sunDir = norm3([Math.cos(a), 0.55 + 0.42 * Math.sin(a * 0.7), Math.sin(a) * 0.85]);
+    atmoTarget = Object.assign({}, TIMES.day, { sunDir: atmoTarget.sunDir });
+  }
+
+  fpsSmooth = fpsSmooth * 0.93 + (1 / Math.max(dt, 0.0005)) * 0.07;
+  updateCamera(dt);
+  updateAtmo(dt);
+  updateBirds();
+  render();
+  updateHUD();
+  requestAnimationFrame(tick);
+}
+
+/* ---------------------------- birds ---------------------------- */
+const BIRDS = 26;
+function initBirds(){
+  birdVerts = BIRDS * 6;
+  birdBuf = device.createBuffer({ size: birdVerts * 44, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+}
+function updateBirds(){
+  if (!birdBuf) return;
+  const arr = new Float32Array(birdVerts * 11);
+  let o = 0;
+  for (let i = 0; i < BIRDS; i++){
+    const seed = i * 1.37;
+    const cx = 112 + Math.sin(seed * 2.1) * 92;
+    const cz = 112 + Math.cos(seed * 1.7) * 92;
+    const r = 24 + (i % 5) * 9;
+    const sp = 0.13 + (i % 7) * 0.012;
+    const a = time * sp + seed * 6.2;
+    const bx = cx + Math.sin(a) * r;
+    const bz = cz + Math.cos(a * 0.86) * r;
+    const by = 50 + Math.sin(time * 0.5 + seed) * 9 + (i % 3) * 5;
+    const flap = Math.sin(time * 5.2 + seed * 2.2) * 0.8;
+    const fx = Math.cos(a), fz = -Math.sin(a * 0.86) * 0.86;
+    const fl = Math.hypot(fx, fz) || 1;
+    const dx = fx / fl, dz = fz / fl;
+    const px = -dz, pz = dx;
+    const s = 1.6;
+    const col = [0.13, 0.12, 0.13];
+    const pts = [
+      [bx - px*s, by, bz - pz*s], [bx + px*s, by, bz + pz*s], [bx + dx*s*1.5, by + flap*0.35, bz + dz*s*1.5],
+      [bx - px*s, by + flap, bz - pz*s], [bx + px*s, by + flap, bz + pz*s], [bx - dx*s*1.1, by, bz - dz*s*1.1]
+    ];
+    for (const p of pts){
+      arr[o++] = p[0]; arr[o++] = p[1]; arr[o++] = p[2];
+      arr[o++] = 0; arr[o++] = 1; arr[o++] = 0;
+      arr[o++] = col[0]; arr[o++] = col[1]; arr[o++] = col[2];
+      arr[o++] = 0; arr[o++] = 3;
+    }
+  }
+  device.queue.writeBuffer(birdBuf, 0, arr);
+}
+
+/* ---------------------------- targets + pipelines ---------------------------- */
+function makeTargets(){
+  if (depthTex) depthTex.destroy();
+  if (sceneTex) sceneTex.destroy();
+  if (bloomA){ bloomA.destroy(); bloomB.destroy(); }
+
+  const scale = Math.min(window.devicePixelRatio || 1, 1.6);
+  curW = Math.max(2, Math.floor(canvas.clientWidth * scale));
+  curH = Math.max(2, Math.floor(canvas.clientHeight * scale));
+  canvas.width = curW; canvas.height = curH;
+
+  depthTex = device.createTexture({ size: [curW, curH], format: 'depth24plus', usage: GPUTextureUsage.RENDER_ATTACHMENT });
+  sceneTex = device.createTexture({
+    size: [curW, curH], format: 'rgba16float',
+    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+  });
+  sceneView = sceneTex.createView();
+
+  const bw = Math.max(2, Math.floor(curW / 2)), bh = Math.max(2, Math.floor(curH / 2));
+  bloomA = device.createTexture({ size: [bw, bh], format: 'rgba16float', usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
+  bloomB = device.createTexture({ size: [bw, bh], format: 'rgba16float', usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
+  bloomAView = bloomA.createView();
+  bloomBView = bloomB.createView();
+
+  bindBright = device.createBindGroup({
+    layout: pipeBright.getBindGroupLayout(0),
+    entries: [{ binding: 0, resource: sceneView }, { binding: 1, resource: sampler }]
+  });
+  bindBlur = device.createBindGroup({
+    layout: pipeBlurH.getBindGroupLayout(0),
+    entries: [{ binding: 0, resource: bloomAView }, { binding: 1, resource: sampler }]
+  });
+  bindComposite0 = device.createBindGroup({
+    layout: pipeComposite.getBindGroupLayout(0),
+    entries: [{ binding: 0, resource: sceneView }, { binding: 1, resource: sampler }]
+  });
+  bindComposite = device.createBindGroup({
+    layout: pipeComposite.getBindGroupLayout(1),
+    entries: [{ binding: 0, resource: bloomAView }, { binding: 1, resource: { buffer: uniformBuf } }]
+  });
+}
+
+function createPipelines(){
+  const sceneModule = device.createShaderModule({ code: WGSL_MAIN });
+  const skyModule = device.createShaderModule({ code: WGSL_SKY });
+  const postModule = device.createShaderModule({ code: WGSL_POST });
+
+  const vb = {
+    arrayStride: 44,
+    attributes: [
+      { shaderLocation: 0, offset: 0,  format: 'float32x3' },
+      { shaderLocation: 1, offset: 12, format: 'float32x3' },
+      { shaderLocation: 2, offset: 24, format: 'float32x3' },
+      { shaderLocation: 3, offset: 36, format: 'float32x2' }
+    ]
+  };
+
+  pipeOpaque = device.createRenderPipeline({
+    layout: 'auto',
+    vertex: { module: sceneModule, entryPoint: 'vsMain', buffers: [vb] },
+    fragment: { module: sceneModule, entryPoint: 'fsMain', targets: [{ format: 'rgba16float' }] },
+    primitive: { topology: 'triangle-list', cullMode: 'none' },
+    depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' }
+  });
+  pipeWater = device.createRenderPipeline({
+    layout: 'auto',
+    vertex: { module: sceneModule, entryPoint: 'vsWater', buffers: [vb] },
+    fragment: {
+      module: sceneModule, entryPoint: 'fsWater',
+      targets: [{
+        format: 'rgba16float',
+        blend: {
+          color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+          alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' }
+        }
+      }]
+    },
+    primitive: { topology: 'triangle-list', cullMode: 'none' },
+    depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less' }
+  });
+  pipeSky = device.createRenderPipeline({
+    layout: 'auto',
+    vertex: { module: skyModule, entryPoint: 'vsSky' },
+    fragment: { module: skyModule, entryPoint: 'fsSky', targets: [{ format: 'rgba16float' }] },
+    primitive: { topology: 'triangle-list', cullMode: 'none' },
+    depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'always' }
+  });
+
+  const postPipe = (entry, targetFormat) => device.createRenderPipeline({
+    layout: 'auto',
+    vertex: { module: postModule, entryPoint: 'vsFull' },
+    fragment: { module: postModule, entryPoint: entry, targets: [{ format: targetFormat }] },
+    primitive: { topology: 'triangle-list', cullMode: 'none' }
+  });
+  pipeBright = postPipe('fsBright', 'rgba16float');
+  pipeBlurH = postPipe('fsBlurH', 'rgba16float');
+  pipeBlurV = postPipe('fsBlurV', 'rgba16float');
+  pipeComposite = postPipe('fsComposite', format);
+}
+
+/* ---------------------------- UI ---------------------------- */
+let toastTimer = null;
+function toast(msg){
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
+}
+function setModeUI(){
+  document.getElementById('btnFly').classList.toggle('on', cam.mode === 'fly');
+  document.getElementById('btnWalk').classList.toggle('on', cam.mode === 'walk');
+}
+function setOrbitUI(on){
+  document.getElementById('btnOrbit').classList.toggle('on', on);
+}
+document.getElementById('btnFly').addEventListener('click', () => { cam.mode = 'fly'; setModeUI(); toast('Fly mode'); });
+document.getElementById('btnWalk').addEventListener('click', () => { cam.mode = 'walk'; setModeUI(); toast('Walk mode'); });
+document.getElementById('btnOrbit').addEventListener('click', () => {
+  cam.orbit = !cam.orbit; orbitT = 0; setOrbitUI(cam.orbit);
+  toast(cam.orbit ? 'Cinematic orbit' : 'Free camera');
+});
+document.getElementById('btnShot').addEventListener('click', toggleShot);
+document.getElementById('btnHome').addEventListener('click', () => {
+  cam.pos = [150, 118, 236]; cam.yaw = -2.36; cam.pitch = -0.42;
+  cam.vel = [0, 0, 0]; cam.orbit = true; orbitT = 0; setOrbitUI(true);
+  toast('Hero vantage restored');
+});
+document.getElementById('btnSun').addEventListener('click', (e) => {
+  followSun = !followSun;
+  e.currentTarget.classList.toggle('on', followSun);
+  toast(followSun ? 'Sun tracking' : 'Sun held');
+});
+document.getElementById('btnBloom').addEventListener('click', (e) => {
+  bloomOn = !bloomOn;
+  e.currentTarget.classList.toggle('on', bloomOn);
+  toast(bloomOn ? 'Bloom on' : 'Bloom off');
+});
+document.getElementById('btnClouds').addEventListener('click', (e) => {
+  cloudsOn = !cloudsOn;
+  e.currentTarget.classList.toggle('on', cloudsOn);
+});
+document.querySelectorAll('#times .tbtn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#times .tbtn').forEach(b => b.classList.remove('on'));
+    btn.classList.add('on');
+    atmoTarget = TIMES[btn.dataset.time];
+    document.getElementById('subTime').textContent = atmoTarget.label;
+    toast(atmoTarget.label);
+  });
+});
+
+/* ---------------------------- boot ---------------------------- */
+async function boot(){
+  if (!navigator.gpu){
+    document.getElementById('fallback').classList.add('show');
+    loadEl.classList.add('done');
+    return;
+  }
+  progress(0.04, 'Requesting the graphics device');
+  const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+  if (!adapter){
+    document.getElementById('fallback').classList.add('show');
+    loadEl.classList.add('done');
+    return;
+  }
+  device = await adapter.requestDevice();
+  context = canvas.getContext('webgpu');
+  format = navigator.gpu.getPreferredCanvasFormat();
+  context.configure({ device, format, alphaMode: 'opaque' });
+
+  device.lost.then(() => {
+    document.getElementById('fallback').classList.add('show');
+    document.querySelector('#fallback p').textContent =
+      'The graphics device was lost. Please reload the page to re-enter the realm.';
+  });
+
+  progress(0.12, 'Compiling shaders');
+  await frame();
+  createPipelines();
+
+  sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge' });
+  uniformBuf = device.createBuffer({ size: U.byteLength, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+
+  progress(0.2, 'Raising terrain');
+  await frame();
+  await buildWorld();
+
+  progress(0.88, 'Kindling torches');
+  await frame();
+
+  heightBuf = device.createBuffer({ size: heightMap.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  device.queue.writeBuffer(heightBuf, 0, heightMap);
+
+  bindScene = device.createBindGroup({
+    layout: pipeOpaque.getBindGroupLayout(0),
+    entries: [{ binding: 0, resource: { buffer: uniformBuf } }, { binding: 1, resource: { buffer: heightBuf } }]
+  });
+  bindSky = device.createBindGroup({
+    layout: pipeSky.getBindGroupLayout(0),
+    entries: [{ binding: 0, resource: { buffer: uniformBuf } }]
+  });
+
+  initBirds();
+  makeTargets();
+  window.addEventListener('resize', makeTargets);
+
+  progress(1, 'Entering the realm');
+  await frame(); await frame();
+  loadEl.classList.add('done');
+  document.getElementById('subTime').textContent = atmo.label;
+  last = performance.now();
+  requestAnimationFrame(tick);
+}
+
+boot().catch(err => {
+  console.error(err);
+  document.getElementById('fallback').classList.add('show');
+  document.querySelector('#fallback p').textContent =
+    'Something went wrong while building the realm: ' + (err && err.message ? err.message : err);
+  loadEl.classList.add('done');
+});
+</script>
+</body>
+</html>

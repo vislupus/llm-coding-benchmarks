@@ -1,0 +1,2397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>XENO-AETHER // WebXR Alien Planet Exploration</title>
+<style>
+  :root {
+    --bg: #05070e;
+    --accent: #00f2fe;
+    --accent2: #b224ef;
+    --text: #e0f4ff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+  body {
+    background: radial-gradient(circle at 50% 30%, #101b38 0%, #04060c 75%);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+  .panel {
+    max-width: 720px;
+    width: 92%;
+    background: rgba(8, 14, 28, 0.85);
+    border: 1px solid rgba(0, 242, 254, 0.3);
+    border-radius: 16px;
+    padding: 36px;
+    box-shadow: 0 0 60px rgba(0, 242, 254, 0.12), inset 0 0 30px rgba(178, 36, 239, 0.1);
+    backdrop-filter: blur(12px);
+    text-align: center;
+  }
+  .badge {
+    display: inline-block;
+    padding: 5px 14px;
+    font-size: 11px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 20px;
+    margin-bottom: 14px;
+  }
+  h1 {
+    font-size: 38px;
+    font-weight: 800;
+    letter-spacing: 4px;
+    margin-bottom: 10px;
+    background: linear-gradient(90deg, #00f2fe, #7a6cff, #ff41c1);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  p.subtitle {
+    color: #9bb8d3;
+    font-size: 15px;
+    line-height: 1.6;
+    margin-bottom: 24px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    text-align: left;
+    margin-bottom: 28px;
+  }
+  .card {
+    background: rgba(15, 25, 48, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .card h3 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--accent);
+    margin-bottom: 6px;
+  }
+  .card p {
+    font-size: 13px;
+    color: #b7cde0;
+    line-height: 1.45;
+  }
+  #vr-btn {
+    appearance: none;
+    border: none;
+    outline: none;
+    cursor: pointer;
+    padding: 18px 46px;
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: 2.5px;
+    text-transform: uppercase;
+    color: #030710;
+    background: linear-gradient(135deg, #00f2fe 0%, #4facfe 50%, #d54aff 100%);
+    border-radius: 40px;
+    box-shadow: 0 0 30px rgba(0, 242, 254, 0.45);
+    transition: transform 0.2s, box-shadow 0.2s, opacity 0.2s;
+  }
+  #vr-btn:hover:not(:disabled) {
+    transform: translateY(-2px) scale(1.02);
+    box-shadow: 0 0 45px rgba(0, 242, 254, 0.75);
+  }
+  #vr-btn:disabled {
+    background: #1d273b;
+    color: #5c7191;
+    box-shadow: none;
+    cursor: not-allowed;
+  }
+  #status {
+    margin-top: 16px;
+    font-size: 13px;
+    color: #ff7b9c;
+    min-height: 20px;
+  }
+  canvas { display: none; }
+</style>
+</head>
+<body>
+
+<div class="panel">
+  <div class="badge">Pure WebXR // Immersive VR</div>
+  <h1>XENO-AETHER</h1>
+  <p class="subtitle">
+    Step onto an uncharted bioluminescent exoplanet. Explore crystalline caverns, glowing fungal valleys, obsidian monolith ruins, reactive alien flora, and ancient harmonic artifacts.
+  </p>
+  <div class="grid">
+    <div class="card">
+      <h3>Locomotion &amp; Flight</h3>
+      <p><b>Left Stick:</b> Walk / Strafe across terrain.<br><b>Right Stick L/R:</b> Snap Turn.<br><b>Right Stick Up / A-X Button:</b> Low-G Jetpack Thrust.</p>
+    </div>
+    <div class="card">
+      <h3>Scanner &amp; Wrist Radar</h3>
+      <p><b>Trigger:</b> Emit topographic sonic scan wave &amp; reveal artifact beacons.<br><b>Left Wrist Holo:</b> 3D directional needles pointing to all 5 Artifacts.</p>
+    </div>
+    <div class="card">
+      <h3>Physical Interactions</h3>
+      <p><b>Grip / Squeeze:</b> Grab &amp; carry glowing Artifacts (or tele-pull from 2.5m). Place all 5 cores into the Central Ruin Pedestals.</p>
+    </div>
+    <div class="card">
+      <h3>Living Ecosystem</h3>
+      <p><b>Touch Flora:</b> Brush glowing mushrooms &amp; crystals to make them bloom and chime.<br><b>B-Y Button:</b> Cycle planetary weather anomalies.</p>
+    </div>
+  </div>
+  <button id="vr-btn" disabled>Checking WebXR...</button>
+  <div id="status"></div>
+</div>
+
+<canvas id="xr-canvas"></canvas>
+
+<script>
+"use strict";
+
+/* ============================================================================
+   1. MATHEMATICAL & PROCEDURAL NOISE UTILITIES
+   ============================================================================ */
+const TAU = Math.PI * 2;
+const clamp = (v, lo, hi) => v < lo ? lo : (v > hi ? hi : v);
+const lerp = (a, b, t) => a + (b - a) * t;
+const smoothstep = (e0, e1, x) => {
+  const t = clamp((x - e0) / (e1 - e0), 0, 1);
+  return t * t * (3 - 2 * t);
+};
+
+const Mat4 = {
+  create() {
+    const m = new Float32Array(16);
+    m[0] = m[5] = m[10] = m[15] = 1;
+    return m;
+  },
+  identity(out) {
+    out.fill(0);
+    out[0] = out[5] = out[10] = out[15] = 1;
+    return out;
+  },
+  copy(out, a) {
+    out.set(a);
+    return out;
+  },
+  multiply(out, a, b) {
+    const a00 = a[0], a01 = a[1], a02 = a[2], a03 = a[3];
+    const a10 = a[4], a11 = a[5], a12 = a[6], a13 = a[7];
+    const a20 = a[8], a21 = a[9], a22 = a[10], a23 = a[11];
+    const a30 = a[12], a31 = a[13], a32 = a[14], a33 = a[15];
+    let b0 = b[0], b1 = b[1], b2 = b[2], b3 = b[3];
+    out[0] = b0*a00 + b1*a10 + b2*a20 + b3*a30;
+    out[1] = b0*a01 + b1*a11 + b2*a21 + b3*a31;
+    out[2] = b0*a02 + b1*a12 + b2*a22 + b3*a32;
+    out[3] = b0*a03 + b1*a13 + b2*a23 + b3*a33;
+    b0 = b[4]; b1 = b[5]; b2 = b[6]; b3 = b[7];
+    out[4] = b0*a00 + b1*a10 + b2*a20 + b3*a30;
+    out[5] = b0*a01 + b1*a11 + b2*a21 + b3*a31;
+    out[6] = b0*a02 + b1*a12 + b2*a22 + b3*a32;
+    out[7] = b0*a03 + b1*a13 + b2*a23 + b3*a33;
+    b0 = b[8]; b1 = b[9]; b2 = b[10]; b3 = b[11];
+    out[8] = b0*a00 + b1*a10 + b2*a20 + b3*a30;
+    out[9] = b0*a01 + b1*a11 + b2*a21 + b3*a31;
+    out[10] = b0*a02 + b1*a12 + b2*a22 + b3*a32;
+    out[11] = b0*a03 + b1*a13 + b2*a23 + b3*a33;
+    b0 = b[12]; b1 = b[13]; b2 = b[14]; b3 = b[15];
+    out[12] = b0*a00 + b1*a10 + b2*a20 + b3*a30;
+    out[13] = b0*a01 + b1*a11 + b2*a21 + b3*a31;
+    out[14] = b0*a02 + b1*a12 + b2*a22 + b3*a32;
+    out[15] = b0*a03 + b1*a13 + b2*a23 + b3*a33;
+    return out;
+  },
+  fromTranslationRotationScale(out, tx, ty, tz, rx, ry, rz, sx, sy, sz) {
+    const cx = Math.cos(rx), sx_ = Math.sin(rx);
+    const cy = Math.cos(ry), sy_ = Math.sin(ry);
+    const cz = Math.cos(rz), sz_ = Math.sin(rz);
+    out[0] = (cy * cz) * sx;
+    out[1] = (cy * sz_) * sx;
+    out[2] = (-sy_) * sx;
+    out[3] = 0;
+    out[4] = (sx_ * sy_ * cz - cx * sz_) * sy;
+    out[5] = (sx_ * sy_ * sz_ + cx * cz) * sy;
+    out[6] = (sx_ * cy) * sy;
+    out[7] = 0;
+    out[8] = (cx * sy_ * cz + sx_ * sz_) * sz;
+    out[9] = (cx * sy_ * sz_ - sx_ * cz) * sz;
+    out[10] = (cx * cy) * sz;
+    out[11] = 0;
+    out[12] = tx;
+    out[13] = ty;
+    out[14] = tz;
+    out[15] = 1;
+    return out;
+  },
+  transformPoint(out, m, x, y, z) {
+    out[0] = m[0]*x + m[4]*y + m[8]*z + m[12];
+    out[1] = m[1]*x + m[5]*y + m[9]*z + m[13];
+    out[2] = m[2]*x + m[6]*y + m[10]*z + m[14];
+    return out;
+  }
+};
+
+// Fast deterministic 2D/3D procedural value noise
+const Noise = (() => {
+  const p = new Uint8Array(512);
+  let seed = 1337;
+  for (let i = 0; i < 256; i++) p[i] = i;
+  for (let i = 255; i > 0; i--) {
+    seed = (seed * 16807) % 2147483647;
+    const j = seed % (i + 1);
+    const t = p[i]; p[i] = p[j]; p[j] = t;
+  }
+  for (let i = 0; i < 256; i++) p[i + 256] = p[i];
+
+  function fade(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
+  function grad(hash, x, y) {
+    const h = hash & 7;
+    const u = h < 4 ? x : y;
+    const v = h < 4 ? y : x;
+    return ((h & 1) ? -u : u) + ((h & 2) ? -2.0 * v : 2.0 * v);
+  }
+  function n2d(x, y) {
+    const X = Math.floor(x) & 255;
+    const Y = Math.floor(y) & 255;
+    x -= Math.floor(x);
+    y -= Math.floor(y);
+    const u = fade(x), v = fade(y);
+    const A = p[X] + Y, B = p[X + 1] + Y;
+    return lerp(
+      lerp(grad(p[A], x, y), grad(p[B], x - 1, y), u),
+      lerp(grad(p[A + 1], x, y - 1), grad(p[B + 1], x - 1, y - 1), u),
+      v
+    ) * 0.5;
+  }
+  function fbm(x, y, octaves = 4) {
+    let val = 0, amp = 0.5, freq = 1;
+    for (let i = 0; i < octaves; i++) {
+      val += amp * n2d(x * freq, y * freq);
+      freq *= 2.03;
+      amp *= 0.5;
+    }
+    return val;
+  }
+  return { n2d, fbm };
+})();
+
+/* ============================================================================
+   2. PROCEDURAL WEB AUDIO SYNTHESIZER (NO EXTERNAL ASSETS)
+   ============================================================================ */
+class AlienAudio {
+  constructor() {
+    this.ctx = null;
+    this.windGain = null;
+    this.windFilter = null;
+    this.jetpackGain = null;
+    this.chordOscs = [];
+    this.chordGain = null;
+    this.lastChimeTime = 0;
+  }
+
+  init() {
+    if (this.ctx) return;
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    this.ctx = new AudioCtx();
+
+    // 1. Alien Wind & Atmospheric Drone
+    const bufSize = this.ctx.sampleRate * 3;
+    const noiseBuf = this.ctx.createBuffer(1, bufSize, this.ctx.sampleRate);
+    const data = noiseBuf.getChannelData(0);
+    let lastOut = 0;
+    for (let i = 0; i < bufSize; i++) {
+      const white = Math.random() * 2 - 1;
+      data[i] = (lastOut + 0.02 * white) / 1.02;
+      lastOut = data[i];
+      data[i] *= 2.5;
+    }
+    const windSrc = this.ctx.createBufferSource();
+    windSrc.buffer = noiseBuf;
+    windSrc.loop = true;
+
+    this.windFilter = this.ctx.createBiquadFilter();
+    this.windFilter.type = 'bandpass';
+    this.windFilter.frequency.value = 260;
+    this.windFilter.Q.value = 3.5;
+
+    this.windGain = this.ctx.createGain();
+    this.windGain.gain.value = 0.16;
+
+    windSrc.connect(this.windFilter);
+    this.windFilter.connect(this.windGain);
+    this.windGain.connect(this.ctx.destination);
+    windSrc.start();
+
+    // 2. Jetpack Thruster Node
+    const jetSrc = this.ctx.createBufferSource();
+    jetSrc.buffer = noiseBuf;
+    jetSrc.loop = true;
+    const jetFilter = this.ctx.createBiquadFilter();
+    jetFilter.type = 'lowpass';
+    jetFilter.frequency.value = 420;
+    this.jetpackGain = this.ctx.createGain();
+    this.jetpackGain.gain.value = 0.0;
+    jetSrc.connect(jetFilter);
+    jetFilter.connect(this.jetpackGain);
+    this.jetpackGain.connect(this.ctx.destination);
+    jetSrc.start();
+
+    // 3. Harmonic Planetary Drone (grows as artifacts are socketed)
+    this.chordGain = this.ctx.createGain();
+    this.chordGain.gain.value = 0.03;
+    this.chordGain.connect(this.ctx.destination);
+    const baseFreqs = [55.0, 82.41, 110.0, 146.83, 164.81, 220.0];
+    baseFreqs.forEach((f, idx) => {
+      const osc = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      osc.type = idx % 2 === 0 ? 'sine' : 'triangle';
+      osc.frequency.value = f;
+      g.gain.value = idx < 2 ? 0.4 : 0.0;
+      osc.connect(g);
+      g.connect(this.chordGain);
+      osc.start();
+      this.chordOscs.push(g);
+    });
+  }
+
+  update(time, isCave, weatherState, jetpackActive, socketedCount) {
+    if (!this.ctx) return;
+    const targetFreq = isCave ? 120 : (weatherState === 2 ? 520 : 260 + Math.sin(time * 0.4) * 90);
+    this.windFilter.frequency.setTargetAtTime(targetFreq, this.ctx.currentTime, 0.2);
+    this.jetpackGain.gain.setTargetAtTime(jetpackActive ? 0.22 : 0.0, this.ctx.currentTime, 0.08);
+    for (let i = 0; i < this.chordOscs.length; i++) {
+      const active = i <= socketedCount;
+      this.chordOscs[i].gain.setTargetAtTime(active ? 0.25 : 0.0, this.ctx.currentTime, 0.5);
+    }
+  }
+
+  playFloraChime(seed = 0) {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    if (now - this.lastChimeTime < 0.09) return;
+    this.lastChimeTime = now;
+
+    // Lydian alien scale
+    const scale = [293.66, 329.63, 369.99, 440.0, 493.88, 587.33, 659.25, 739.99, 880.0];
+    const freq = scale[Math.abs(Math.floor(seed)) % scale.length];
+
+    const osc = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, now);
+    osc.frequency.exponentialRampToValueAtTime(freq * 1.008, now + 0.8);
+
+    g.gain.setValueAtTime(0.001, now);
+    g.gain.linearRampToValueAtTime(0.11, now + 0.03);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + 1.1);
+
+    osc.connect(g);
+    g.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 1.15);
+  }
+
+  playScannerPulse() {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(520, now);
+    osc.frequency.exponentialRampToValueAtTime(65, now + 1.2);
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(800, now);
+    filter.frequency.exponentialRampToValueAtTime(140, now + 1.2);
+
+    g.gain.setValueAtTime(0.001, now);
+    g.gain.linearRampToValueAtTime(0.22, now + 0.04);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + 1.25);
+
+    osc.connect(filter);
+    filter.connect(g);
+    g.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 1.3);
+  }
+
+  playArtifactEvent(isSocket = false) {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    const freqs = isSocket ? [220, 329.63, 440, 659.25] : [440, 554.37];
+    freqs.forEach((f, idx) => {
+      const osc = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(f, now + idx * 0.06);
+      osc.frequency.exponentialRampToValueAtTime(f * (isSocket ? 1.5 : 1.15), now + idx * 0.06 + (isSocket ? 1.8 : 0.4));
+      g.gain.setValueAtTime(0.001, now + idx * 0.06);
+      g.gain.linearRampToValueAtTime(0.15, now + idx * 0.06 + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + idx * 0.06 + (isSocket ? 2.0 : 0.45));
+      osc.connect(g);
+      g.connect(this.ctx.destination);
+      osc.start(now + idx * 0.06);
+      osc.stop(now + idx * 0.06 + (isSocket ? 2.1 : 0.5));
+    });
+  }
+}
+
+const audio = new AlienAudio();
+
+/* ============================================================================
+   3. ALIEN PLANET TOPOGRAPHY, BIOMES & CAVERN FUNCTIONS
+   ============================================================================ */
+// Landmarks:
+// (0, 0)     : Central Ancient Astral Ruins (Flat Sanctuary Plaza)
+// (-65, -65) : Subterranean Crystal Cavern (Vaulted Underground Cave)
+// (-60, 60)  : Bioluminescent Fungal Basin (Giant Glowing Mushroom Grove)
+// (65, 65)   : Obsidian Monolith Spires (Dark Basalt Pillars & Kinetic Rings)
+// (60, -60)  : Golden Spore Canyon & Great Stone Archway
+
+function getBiomeInfo(x, z) {
+  const dRuins = Math.hypot(x, z);
+  const dCave  = Math.hypot(x + 65, z + 65);
+  const dFungi = Math.hypot(x + 60, z - 60);
+  const dSpire = Math.hypot(x - 65, z - 65);
+  const dArch  = Math.hypot(x - 60, z + 60);
+
+  if (dRuins < 25) return { id: 0, name: 'Ruins', blend: smoothstep(25, 14, dRuins) };
+  if (dCave < 38)  return { id: 1, name: 'CrystalCave', blend: smoothstep(38, 22, dCave) };
+  if (dFungi < 45) return { id: 2, name: 'FungalGrove', blend: smoothstep(45, 20, dFungi) };
+  if (dSpire < 45) return { id: 3, name: 'ObsidianSpires', blend: smoothstep(45, 20, dSpire) };
+  return { id: 4, name: 'SporeCanyon', blend: smoothstep(45, 20, dArch) };
+}
+
+function getTerrainHeight(x, z) {
+  // Base multi-octave alien terrain
+  let h = Noise.fbm(x * 0.012, z * 0.012, 4) * 22.0;
+  // Ridged canyon formations
+  const ridge = 1.0 - Math.abs(Noise.n2d(x * 0.025, z * 0.025));
+  h += (ridge * ridge) * 7.5 - 3.0;
+
+  // 1. Flatten Central Astral Ruins Plaza around (0,0)
+  const dRuins = Math.hypot(x, z);
+  if (dRuins < 28) {
+    const t = smoothstep(28, 15, dRuins);
+    h = lerp(h, 1.5, t);
+  }
+
+  // 2. Carve Subterranean Crystal Cavern Basin around (-65, -65) & entrance trench from (-25, -25)
+  const dCave = Math.hypot(x + 65, z + 65);
+  if (dCave < 42) {
+    const t = smoothstep(42, 24, dCave);
+    const caveFloor = -5.5 + Noise.n2d(x * 0.08, z * 0.08) * 1.2;
+    h = lerp(h, caveFloor, t);
+  }
+  // Entrance path into the cave
+  const proj = clamp(((x + 22) * -43 + (z + 22) * -43) / (43*43*2), 0, 1);
+  const pathX = -22 - proj * 43;
+  const pathZ = -22 - proj * 43;
+  const dPath = Math.hypot(x - pathX, z - pathZ);
+  if (dPath < 12) {
+    const targetH = lerp(1.5, -5.2, proj);
+    h = lerp(h, targetH, smoothstep(12, 4, dPath));
+  }
+
+  // 3. Bioluminescent Fungal Basin (-60, 60) - terraced gentle valley
+  const dFungi = Math.hypot(x + 60, z - 60);
+  if (dFungi < 44) {
+    const t = smoothstep(44, 18, dFungi);
+    const terrace = Math.round(h * 0.35) / 0.35;
+    h = lerp(h, Math.max(-2.0, terrace * 0.5), t);
+  }
+
+  // 4. Obsidian Altar Plateau (65, 65)
+  const dSpire = Math.hypot(x - 65, z - 65);
+  if (dSpire < 32) {
+    const t = smoothstep(32, 12, dSpire);
+    h = lerp(h, 8.5, t);
+  }
+
+  // 5. Golden Spore Canyon floor under Great Arch (60, -60)
+  const dArch = Math.hypot(x - 60, z + 60);
+  if (dArch < 30) {
+    const t = smoothstep(30, 12, dArch);
+    h = lerp(h, -1.5, t);
+  }
+
+  return h;
+}
+
+// Returns cave ceiling height if (x, z) is inside the subterranean Crystal Cavern or under the Great Stone Arch
+function getCaveCeilingHeight(x, z) {
+  const dCave = Math.hypot(x + 65, z + 65);
+  if (dCave < 30) {
+    return 7.5 + Noise.n2d(x * 0.12, z * 0.12) * 2.2;
+  }
+  return 999.0;
+}
+
+function getTerrainColor(x, y, z) {
+  const dRuins = Math.hypot(x, z);
+  const dCave  = Math.hypot(x + 65, z + 65);
+  const dFungi = Math.hypot(x + 60, z - 60);
+  const dSpire = Math.hypot(x - 65, z - 65);
+
+  // Base alien indigo/slate soil
+  let r = 0.12, g = 0.16, b = 0.28;
+
+  // Fungal Grove: vibrant teal/magenta moss
+  if (dFungi < 48) {
+    const t = smoothstep(48, 16, dFungi);
+    r = lerp(r, 0.06, t);
+    g = lerp(g, 0.36, t);
+    b = lerp(b, 0.38, t);
+  }
+  // Crystal Cavern: deep violet-blue crystalline floor
+  if (dCave < 42) {
+    const t = smoothstep(42, 18, dCave);
+    r = lerp(r, 0.18, t);
+    g = lerp(g, 0.08, t);
+    b = lerp(b, 0.34, t);
+  }
+  // Obsidian Spires: dark volcanic crimson-black
+  if (dSpire < 48) {
+    const t = smoothstep(48, 16, dSpire);
+    r = lerp(r, 0.14, t);
+    g = lerp(g, 0.07, t);
+    b = lerp(b, 0.12, t);
+  }
+  // Ruins Plaza: ancient metallic teal-gold stone
+  if (dRuins < 26) {
+    const t = smoothstep(26, 12, dRuins);
+    r = lerp(r, 0.18, t);
+    g = lerp(g, 0.26, t);
+    b = lerp(b, 0.32, t);
+  }
+  // Golden Spore Wastes (South-East)
+  if (x > 15 && z < -15) {
+    const t = smoothstep(15, 45, Math.min(x, -z));
+    r = lerp(r, 0.38, t);
+    g = lerp(g, 0.24, t);
+    b = lerp(b, 0.12, t);
+  }
+  return [r, g, b];
+}
+
+/* ============================================================================
+   4. PROCEDURAL 3D GEOMETRY GENERATORS
+   ============================================================================ */
+function computeNormals(positions, indices) {
+  const normals = new Float32Array(positions.length);
+  for (let i = 0; i < indices.length; i += 3) {
+    const i0 = indices[i] * 3, i1 = indices[i+1] * 3, i2 = indices[i+2] * 3;
+    const ax = positions[i1] - positions[i0], ay = positions[i1+1] - positions[i0+1], az = positions[i1+2] - positions[i0+2];
+    const bx = positions[i2] - positions[i0], by = positions[i2+1] - positions[i0+1], bz = positions[i2+2] - positions[i0+2];
+    const nx = ay * bz - az * by;
+    const ny = az * bx - ax * bz;
+    const nz = ax * by - ay * bx;
+    normals[i0] += nx; normals[i0+1] += ny; normals[i0+2] += nz;
+    normals[i1] += nx; normals[i1+1] += ny; normals[i1+2] += nz;
+    normals[i2] += nx; normals[i2+1] += ny; normals[i2+2] += nz;
+  }
+  for (let i = 0; i < normals.length; i += 3) {
+    const l = Math.hypot(normals[i], normals[i+1], normals[i+2]) || 1;
+    normals[i] /= l; normals[i+1] /= l; normals[i+2] /= l;
+  }
+  return normals;
+}
+
+// Generates the planet terrain + Subterranean Crystal Cavern dome + Great Stone Archway
+function buildPlanetAndCavesGeometry() {
+  const pos = [];
+  const col = [];
+  const idx = [];
+
+  // Part A: Main Terrain Grid (140x140 cells over 260x260m)
+  const N = 140;
+  const SIZE = 260;
+  for (let iz = 0; iz <= N; iz++) {
+    const z = (iz / N - 0.5) * SIZE;
+    for (let ix = 0; ix <= N; ix++) {
+      const x = (ix / N - 0.5) * SIZE;
+      const y = getTerrainHeight(x, z);
+      pos.push(x, y, z);
+      const c = getTerrainColor(x, y, z);
+      col.push(c[0], c[1], c[2]);
+    }
+  }
+  for (let iz = 0; iz < N; iz++) {
+    for (let ix = 0; ix < N; ix++) {
+      const r0 = iz * (N + 1) + ix;
+      const r1 = (iz + 1) * (N + 1) + ix;
+      idx.push(r0, r1, r0 + 1, r0 + 1, r1, r1 + 1);
+    }
+  }
+
+  // Part B: Subterranean Crystal Cavern Overhang Dome around (-65, -65)
+  // Built as a double-sided vaulted rock shell with an open entrance facing North-East
+  const caveCX = -65, caveCZ = -65, caveR = 33;
+  const rings = 22, segs = 36;
+  const baseV = pos.length / 3;
+
+  // Inner ceiling + Outer hill shell
+  for (let shell = 0; shell < 2; shell++) {
+    const shellBase = pos.length / 3;
+    for (let ir = 0; ir <= rings; ir++) {
+      const v = ir / rings; // 0 = center top, 1 = rim on ground
+      const rad = v * caveR;
+      for (let is = 0; is <= segs; is++) {
+        const ang = (is / segs) * TAU;
+        const dx = Math.cos(ang), dz = Math.sin(ang);
+        const wx = caveCX + dx * rad;
+        const wz = caveCZ + dz * rad;
+        const groundY = getTerrainHeight(wx, wz);
+
+        // Entrance arch opening facing North-East (angle ~ PI/4)
+        const dAng = Math.atan2( Math.sin(ang - Math.PI * 0.25), Math.cos(ang - Math.PI * 0.25) );
+        const archFactor = smoothstep(0.55, 0.15, Math.abs(dAng)) * smoothstep(0.45, 0.85, v);
+
+        const domeProfile = Math.cos(v * Math.PI * 0.5);
+        const noiseDisp = Noise.n2d(wx * 0.1, wz * 0.1) * 2.2;
+        let wy;
+        if (shell === 0) {
+          // Inner cavern ceiling with stalactite bumps
+          wy = lerp(groundY - 0.5, 8.2 + noiseDisp, domeProfile);
+          wy += archFactor * 6.5;
+        } else {
+          // Outer mountain shell above the cave
+          wy = lerp(groundY - 0.5, 16.5 + noiseDisp * 1.5, domeProfile);
+          wy += archFactor * 3.5;
+        }
+        pos.push(wx, wy, wz);
+        if (shell === 0) {
+          col.push(0.14, 0.08, 0.28); // Deep crystalline cavern ceiling
+        } else {
+          col.push(0.16, 0.18, 0.30); // Outer mountain rock
+        }
+      }
+    }
+    for (let ir = 0; ir < rings; ir++) {
+      for (let is = 0; is < segs; is++) {
+        const a = shellBase + ir * (segs + 1) + is;
+        const b = shellBase + (ir + 1) * (segs + 1) + is;
+        if (shell === 0) {
+          // Flip winding so normals point inward into the cavern
+          idx.push(a, a + 1, b, a + 1, b + 1, b);
+        } else {
+          idx.push(a, b, a + 1, a + 1, b, b + 1);
+        }
+      }
+    }
+  }
+
+  // Part C: The Great Natural Stone Archway at (60, -60)
+  const archBase = pos.length / 3;
+  const archSteps = 24, archSides = 12;
+  for (let i = 0; i <= archSteps; i++) {
+    const t = (i / archSteps) * Math.PI; // 0 to PI
+    const span = Math.cos(t) * 22.0;
+    const height = Math.sin(t) * 16.0 - 2.0;
+    const thickness = 3.2 + Math.pow(Math.cos(t - Math.PI * 0.5), 2) * 3.5;
+    for (let j = 0; j <= archSides; j++) {
+      const phi = (j / archSides) * TAU;
+      const rx = Math.cos(phi) * thickness;
+      const ry = Math.sin(phi) * (thickness * 0.75);
+      const wx = 60 + span * 0.7 + rx * 0.7;
+      const wz = -60 - span * 0.7 + rx * 0.7;
+      const wy = height + ry + Noise.n2d(wx * 0.15, wz * 0.15) * 1.2;
+      pos.push(wx, wy, wz);
+      col.push(0.42, 0.25, 0.14);
+    }
+  }
+  for (let i = 0; i < archSteps; i++) {
+    for (let j = 0; j < archSides; j++) {
+      const a = archBase + i * (archSides + 1) + j;
+      const b = archBase + (i + 1) * (archSides + 1) + j;
+      idx.push(a, b, a + 1, a + 1, b, b + 1);
+    }
+  }
+
+  const positions = new Float32Array(pos);
+  const colors = new Float32Array(col);
+  const indices = new Uint32Array(idx);
+  const normals = computeNormals(positions, indices);
+  return { positions, normals, colors, indices };
+}
+
+// Pointed Hexagonal Crystal Mesh (Cave crystals, monoliths, radar needles, emitter tips)
+function buildCrystalGeometry() {
+  const pos = [], col = [], idx = [];
+  const segs = 6;
+  // Bottom point (0), lower ring (1..6), upper ring (7..12), top point (13)
+  pos.push(0, 0, 0); col.push(0.4, 0.4, 0.4);
+  for (let ring = 0; ring < 2; ring++) {
+    const y = ring === 0 ? 0.15 : 0.78;
+    const r = ring === 0 ? 0.26 : 0.20;
+    const shade = ring === 0 ? 0.7 : 1.0;
+    for (let i = 0; i < segs; i++) {
+      const a = (i / segs) * TAU;
+      pos.push(Math.cos(a) * r, y, Math.sin(a) * r);
+      col.push(shade, shade, shade);
+    }
+  }
+  pos.push(0, 1.0, 0); col.push(1.2, 1.2, 1.2);
+
+  for (let i = 0; i < segs; i++) {
+    const n = (i + 1) % segs;
+    // Bottom cap
+    idx.push(0, 1 + i, 1 + n);
+    // Sides
+    idx.push(1 + i, 7 + i, 1 + n, 1 + n, 7 + i, 7 + n);
+    // Top tip
+    idx.push(7 + i, 13, 7 + n);
+  }
+
+  // Duplicate vertices per triangle for crisp faceted crystal normals
+  const fPos = [], fCol = [], fIdx = [];
+  for (let i = 0; i < idx.length; i++) {
+    const vi = idx[i] * 3;
+    fPos.push(pos[vi], pos[vi+1], pos[vi+2]);
+    fCol.push(col[vi], col[vi+1], col[vi+2]);
+    fIdx.push(i);
+  }
+  const positions = new Float32Array(fPos);
+  const colors = new Float32Array(fCol);
+  const indices = new Uint32Array(fIdx);
+  const normals = computeNormals(positions, indices);
+  return { positions, normals, colors, indices };
+}
+
+// Bioluminescent Mushroom Cap / Jellyfish Bell / Sky-Leviathan Wing Mesh
+function buildOrganicCapGeometry() {
+  const pos = [], col = [], idx = [];
+  const rings = 10, segs = 20;
+  for (let ir = 0; ir <= rings; ir++) {
+    const v = ir / rings; // 0 = apex, 1 = gill underside
+    let r, y, glow;
+    if (v <= 0.65) {
+      const t = v / 0.65;
+      r = Math.sin(t * Math.PI * 0.5);
+      y = Math.cos(t * Math.PI * 0.5) * 0.55;
+      glow = 0.65 + 0.35 * (1.0 - t);
+    } else {
+      const t = (v - 0.65) / 0.35;
+      r = lerp(1.0, 0.18, t);
+      y = lerp(0.0, -0.12, t);
+      glow = 1.25; // Glowing gill underside
+    }
+    for (let is = 0; is <= segs; is++) {
+      const a = (is / segs) * TAU;
+      const ripple = 1.0 + Math.sin(a * 8.0) * 0.04 * Math.sin(v * Math.PI);
+      pos.push(Math.cos(a) * r * ripple, y, Math.sin(a) * r * ripple);
+      col.push(glow, glow, glow);
+    }
+  }
+  for (let ir = 0; ir < rings; ir++) {
+    for (let is = 0; is < segs; is++) {
+      const a = ir * (segs + 1) + is;
+      const b = (ir + 1) * (segs + 1) + is;
+      idx.push(a, b, a + 1, a + 1, b, b + 1);
+    }
+  }
+  const positions = new Float32Array(pos);
+  const colors = new Float32Array(col);
+  const indices = new Uint32Array(idx);
+  const normals = computeNormals(positions, indices);
+  return { positions, normals, colors, indices };
+}
+
+// Tapered Cylinder Mesh (Fungal stalks, ruin columns, laser beams, tentacles, VR gauntlets)
+function buildCylinderGeometry() {
+  const pos = [], col = [], idx = [];
+  const rings = 8, segs = 14;
+  for (let ir = 0; ir <= rings; ir++) {
+    const v = ir / rings;
+    const r = lerp(0.32, 0.22, v) * (1.0 + Math.sin(v * Math.PI) * 0.08);
+    const shade = 0.55 + 0.45 * v;
+    for (let is = 0; is <= segs; is++) {
+      const a = (is / segs) * TAU;
+      pos.push(Math.cos(a) * r, v, Math.sin(a) * r);
+      col.push(shade, shade, shade);
+    }
+  }
+  for (let ir = 0; ir < rings; ir++) {
+    for (let is = 0; is < segs; is++) {
+      const a = ir * (segs + 1) + is;
+      const b = (ir + 1) * (segs + 1) + is;
+      idx.push(a, b, a + 1, a + 1, b, b + 1);
+    }
+  }
+  const positions = new Float32Array(pos);
+  const colors = new Float32Array(col);
+  const indices = new Uint32Array(idx);
+  const normals = computeNormals(positions, indices);
+  return { positions, normals, colors, indices };
+}
+
+// Torus Ring Mesh (Ancient kinetic ruin rings, pedestal sockets, wrist holo-compass ring)
+function buildTorusGeometry(R = 1.0, r = 0.08, segs = 32, sides = 10) {
+  const pos = [], col = [], idx = [];
+  for (let i = 0; i <= segs; i++) {
+    const u = (i / segs) * TAU;
+    const cu = Math.cos(u), su = Math.sin(u);
+    for (let j = 0; j <= sides; j++) {
+      const v = (j / sides) * TAU;
+      const cv = Math.cos(v), sv = Math.sin(v);
+      pos.push((R + r * cv) * cu, r * sv, (R + r * cv) * su);
+      const glow = 0.8 + 0.3 * sv;
+      col.push(glow, glow, glow);
+    }
+  }
+  for (let i = 0; i < segs; i++) {
+    for (let j = 0; j < sides; j++) {
+      const a = i * (sides + 1) + j;
+      const b = (i + 1) * (sides + 1) + j;
+      idx.push(a, b, a + 1, a + 1, b, b + 1);
+    }
+  }
+  const positions = new Float32Array(pos);
+  const colors = new Float32Array(col);
+  const indices = new Uint32Array(idx);
+  const normals = computeNormals(positions, indices);
+  return { positions, normals, colors, indices };
+}
+
+// Faceted Octahedron-Star Mesh (Collectible Alien Artifacts & Ruin Energy Cores)
+function buildArtifactGeometry() {
+  const baseVerts = [
+    [0, 1, 0], [0, -1, 0],
+    [0.7, 0, 0], [-0.7, 0, 0],
+    [0, 0, 0.7], [0, 0, -0.7]
+  ];
+  const faces = [
+    [0, 4, 2], [0, 2, 5], [0, 5, 3], [0, 3, 4],
+    [1, 2, 4], [1, 5, 2], [1, 3, 5], [1, 4, 3]
+  ];
+  const fPos = [], fCol = [], fIdx = [];
+  let c = 0;
+  for (const f of faces) {
+    const v0 = baseVerts[f[0]], v1 = baseVerts[f[1]], v2 = baseVerts[f[2]];
+    // Extrude face center slightly for an intricate alien relic shape
+    const cx = (v0[0] + v1[0] + v2[0]) * 0.48;
+    const cy = (v0[1] + v1[1] + v2[1]) * 0.48;
+    const cz = (v0[2] + v1[2] + v2[2]) * 0.48;
+    const subTris = [[v0, v1, [cx, cy, cz]], [v1, v2, [cx, cy, cz]], [v2, v0, [cx, cy, cz]]];
+    for (const st of subTris) {
+      for (let k = 0; k < 3; k++) {
+        fPos.push(st[k][0], st[k][1], st[k][2]);
+        const glow = k === 2 ? 1.35 : 0.85;
+        fCol.push(glow, glow, glow);
+        fIdx.push(c++);
+      }
+    }
+  }
+  const positions = new Float32Array(fPos);
+  const colors = new Float32Array(fCol);
+  const indices = new Uint32Array(fIdx);
+  const normals = computeNormals(positions, indices);
+  return { positions, normals, colors, indices };
+}
+
+// Sky Dome Mesh
+function buildSkyDomeGeometry() {
+  const pos = [], idx = [];
+  const lat = 20, lon = 32, R = 220;
+  for (let i = 0; i <= lat; i++) {
+    const theta = (i / lat) * Math.PI;
+    const st = Math.sin(theta), ct = Math.cos(theta);
+    for (let j = 0; j <= lon; j++) {
+      const phi = (j / lon) * TAU;
+      pos.push(R * st * Math.cos(phi), R * ct, R * st * Math.sin(phi));
+    }
+  }
+  for (let i = 0; i < lat; i++) {
+    for (let j = 0; j < lon; j++) {
+      const a = i * (lon + 1) + j;
+      const b = (i + 1) * (lon + 1) + j;
+      idx.push(a, a + 1, b, a + 1, b + 1, b);
+    }
+  }
+  return {
+    positions: new Float32Array(pos),
+    indices: new Uint32Array(idx)
+  };
+}
+
+/* ============================================================================
+   5. WEBGL2 SHADERS (SURFACE UBER-SHADER, ALIEN SKY & WEATHER PARTICLES)
+   ============================================================================ */
+const SURFACE_VS = `#version 300 es
+precision highp float;
+
+layout(location = 0) in vec3 aPos;
+layout(location = 1) in vec3 aNorm;
+layout(location = 2) in vec3 aVertColor;
+layout(location = 3) in vec4 aMat0;
+layout(location = 4) in vec4 aMat1;
+layout(location = 5) in vec4 aMat2;
+layout(location = 6) in vec4 aMat3;
+layout(location = 7) in vec4 aInstColor;  // rgb: base/emissive color, a: emissive strength
+layout(location = 8) in vec4 aInstParams; // x: shaderMode, y: phase, z: reactivity, w: specularity
+
+uniform mat4 uViewProj;
+uniform float uTime;
+
+out vec3 vWorldPos;
+out vec3 vNormal;
+out vec3 vColor;
+out float vEmissive;
+out float vReactivity;
+out float vSpec;
+out float vMode;
+
+void main() {
+  mat4 M = mat4(aMat0, aMat1, aMat2, aMat3);
+  vec3 localPos = aPos;
+  vec3 localNorm = aNorm;
+  float mode = aInstParams.x;
+  float phase = aInstParams.y;
+  float react = aInstParams.z;
+
+  // Mode 1: Bioluminescent Flora Sway & Physical Touch Bloom
+  if (mode > 0.5 && mode < 1.5) {
+    float sway = sin(uTime * 1.8 + phase) * 0.08 * max(0.0, localPos.y + 0.2);
+    localPos.x += sway;
+    localPos.z += cos(uTime * 1.5 + phase) * 0.06 * max(0.0, localPos.y + 0.2);
+    // Physical expansion when touched or scanned
+    localPos *= (1.0 + react * 0.28 * sin(uTime * 10.0 + phase) * 0.2 + react * 0.22);
+  }
+  // Mode 2: Alien Wildlife Undulation (Sky-Leviathans & Spore Jellyfish)
+  else if (mode > 1.5 && mode < 2.5) {
+    float r = length(localPos.xz);
+    float wave = sin(uTime * 3.8 + phase - r * 3.2);
+    localPos.y += wave * 0.16 * r;
+    localPos.xz *= 1.0 + wave * 0.08;
+  }
+
+  vec4 wp = M * vec4(localPos, 1.0);
+  vWorldPos = wp.xyz;
+  vNormal = normalize(mat3(M) * localNorm);
+  vColor = aVertColor * aInstColor.rgb;
+  vEmissive = aInstColor.a + react * 1.8;
+  vReactivity = react;
+  vSpec = aInstParams.w;
+  vMode = mode;
+
+  gl_Position = uViewProj * wp;
+}
+`;
+
+const SURFACE_FS = `#version 300 es
+precision highp float;
+
+in vec3 vWorldPos;
+in vec3 vNormal;
+in vec3 vColor;
+in float vEmissive;
+in float vReactivity;
+in float vSpec;
+in float vMode;
+
+uniform vec3 uCamPos;
+uniform float uTime;
+uniform vec4 uScanWave;       // xyz: scan origin, w: current radius
+uniform vec3 uFogColor;
+uniform float uWeatherFlash;  // Ion storm lightning intensity
+uniform vec4 uPointLights[8]; // xyz: world pos, w: radius
+uniform vec3 uLightColors[8]; // rgb: color
+
+out vec4 fragColor;
+
+// Fast 3D procedural hash noise for micro-surface detail
+float hash3(vec3 p) {
+  p = fract(p * vec3(443.897, 441.423, 437.195));
+  p += dot(p, p.yzx + 19.19);
+  return fract((p.x + p.y) * p.z);
+}
+
+float noise3(vec3 p) {
+  vec3 i = floor(p);
+  vec3 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(
+    mix(mix(hash3(i), hash3(i + vec3(1,0,0)), f.x),
+        mix(hash3(i + vec3(0,1,0)), hash3(i + vec3(1,1,0)), f.x), f.y),
+    mix(mix(hash3(i + vec3(0,0,1)), hash3(i + vec3(1,0,1)), f.x),
+        mix(hash3(i + vec3(0,1,1)), hash3(i + vec3(1,1,1)), f.x), f.y),
+    f.z
+  );
+}
+
+void main() {
+  vec3 N = normalize(vNormal);
+  vec3 V = normalize(uCamPos - vWorldPos);
+
+  // Procedural alien rock strata & bioluminescent surface veins
+  float nMacro = noise3(vWorldPos * 0.25);
+  float nMicro = noise3(vWorldPos * 2.2);
+  float strata = sin(vWorldPos.y * 2.6 + nMacro * 4.0) * 0.5 + 0.5;
+
+  vec3 baseCol = vColor * (0.78 + 0.35 * nMicro + 0.15 * strata);
+
+  // Terrain-specific glowing alien veins & biome accents (vMode == 0.0 is terrain)
+  float terrainGlow = 0.0;
+  vec3 veinCol = vec3(0.0, 0.9, 1.0);
+  if (vMode < 0.2) {
+    float veinPattern = abs( fract(vWorldPos.x * 0.12 + vWorldPos.z * 0.12 + nMacro * 1.4) - 0.5 );
+    float pulse = 0.5 + 0.5 * sin(uTime * 2.0 - length(vWorldPos.xz) * 0.15);
+    terrainGlow = smoothstep(0.045, 0.008, veinPattern) * pulse * 0.75;
+    if (vWorldPos.x < -20.0 && vWorldPos.z < -20.0) {
+      veinCol = vec3(0.75, 0.2, 1.0); // Crystal cave violet veins
+    } else if (vWorldPos.x > 20.0 && vWorldPos.z > 20.0) {
+      veinCol = vec3(1.0, 0.35, 0.15); // Obsidian spire magma veins
+    }
+  }
+
+  // Directional Twin-Moon & Sky Hemisphere Lighting
+  vec3 L_dir = normalize(vec3(0.45, 0.78, -0.35));
+  float ndl = max(dot(N, L_dir), 0.0);
+  vec3 skyAmb = mix(vec3(0.06, 0.09, 0.18), vec3(0.16, 0.28, 0.42), N.y * 0.5 + 0.5);
+  skyAmb += vec3(0.25, 0.18, 0.45) * uWeatherFlash;
+
+  vec3 H = normalize(L_dir + V);
+  float spec = pow(max(dot(N, H), 0.0), 28.0) * vSpec;
+
+  vec3 litColor = baseCol * (skyAmb + vec3(0.65, 0.78, 0.95) * ndl * 0.65) + spec * 0.35;
+
+  // Dynamic Real-Time Point Lights (Player VR Hands + 5 Alien Artifacts + Central Ruin Core)
+  for (int i = 0; i < 8; i++) {
+    vec3 lPos = uPointLights[i].xyz;
+    float lRad = uPointLights[i].w;
+    if (lRad > 0.01) {
+      vec3 dVec = lPos - vWorldPos;
+      float dist = length(dVec);
+      if (dist < lRad) {
+        vec3 L = dVec / max(dist, 0.001);
+        float atten = 1.0 - (dist / lRad);
+        atten = atten * atten;
+        float diff = max(dot(N, L), 0.0) * 0.75 + 0.25;
+        vec3 Hp = normalize(L + V);
+        float pSpec = pow(max(dot(N, Hp), 0.0), 20.0) * vSpec;
+        litColor += (baseCol * diff + pSpec * 0.5) * uLightColors[i] * atten * 1.45;
+      }
+    }
+  }
+
+  // Alien Fresnel Rim Glow & Bioluminescence
+  float fresnel = pow(1.0 - max(dot(N, V), 0.0), 3.0);
+  litColor += baseCol * vEmissive * (0.75 + 0.5 * fresnel);
+  litColor += veinCol * terrainGlow;
+
+  // Interactive Topographic Scanner Wave Overlay
+  if (uScanWave.w > 0.1 && uScanWave.w < 135.0) {
+    float dScan = length(vWorldPos - uScanWave.xyz);
+    float band = abs(dScan - uScanWave.w);
+    if (band < 3.2) {
+      float waveMask = smoothstep(3.2, 0.0, band);
+      float grid = max(
+        smoothstep(0.92, 0.98, abs(sin(vWorldPos.x * 3.14159))),
+        smoothstep(0.92, 0.98, abs(sin(vWorldPos.z * 3.14159)))
+      );
+      float contour = smoothstep(0.85, 0.98, abs(sin(vWorldPos.y * 6.283)));
+      vec3 scanCol = mix(vec3(0.0, 0.95, 1.0), vec3(0.9, 0.2, 1.0), contour);
+      litColor += scanCol * waveMask * (0.45 + 0.85 * max(grid, contour));
+    }
+  }
+
+  // Atmospheric Distance Fog
+  float camDist = length(vWorldPos - uCamPos);
+  float fogFactor = clamp(1.0 - exp(-camDist * 0.0085), 0.0, 1.0);
+  vec3 finalCol = mix(litColor, uFogColor, fogFactor);
+
+  // Tone mapping
+  finalCol = finalCol / (finalCol + vec3(0.85));
+  finalCol = pow(finalCol, vec3(0.9));
+
+  fragColor = vec4(finalCol, 1.0);
+}
+`;
+
+const SKY_VS = `#version 300 es
+precision highp float;
+layout(location = 0) in vec3 aPos;
+uniform mat4 uViewProj;
+uniform vec3 uCamPos;
+out vec3 vDir;
+void main() {
+  vDir = aPos;
+  gl_Position = uViewProj * vec4(aPos + uCamPos, 1.0);
+}
+`;
+
+const SKY_FS = `#version 300 es
+precision highp float;
+in vec3 vDir;
+uniform float uTime;
+uniform vec3 uFogColor;
+uniform float uAuroraStrength;
+uniform float uWeatherFlash;
+out vec4 fragColor;
+
+float hash(vec3 p) {
+  p = fract(p * vec3(443.897, 441.423, 437.195));
+  p += dot(p, p.yzx + 19.19);
+  return fract((p.x + p.y) * p.z);
+}
+
+void main() {
+  vec3 d = normalize(vDir);
+  float elev = clamp(d.y, -0.2, 1.0);
+
+  // Deep alien cosmos gradient
+  vec3 zenith = vec3(0.02, 0.04, 0.11);
+  vec3 midSky = vec3(0.07, 0.14, 0.28);
+  vec3 col = mix(uFogColor, midSky, smoothstep(-0.05, 0.25, elev));
+  col = mix(col, zenith, smoothstep(0.25, 0.85, elev));
+
+  // Starfield
+  if (d.y > 0.0) {
+    float s = hash(floor(d * 260.0));
+    if (s > 0.992) {
+      float twinkle = 0.5 + 0.5 * sin(uTime * 4.0 + s * 100.0);
+      col += vec3(0.7, 0.9, 1.0) * (s - 0.992) * 120.0 * twinkle * smoothstep(0.0, 0.2, d.y);
+    }
+  }
+
+  // Ringed Gas Giant on the Horizon
+  vec3 planetDir = normalize(vec3(0.55, 0.42, -0.72));
+  float pAng = acos(clamp(dot(d, planetDir), -1.0, 1.0));
+  if (pAng < 0.22) {
+    vec3 pNorm = normalize(d - planetDir * 0.82);
+    float band = sin(pNorm.y * 42.0 + sin(pNorm.x * 15.0)) * 0.5 + 0.5;
+    vec3 pCol = mix(vec3(0.18, 0.45, 0.65), vec3(0.65, 0.28, 0.58), band);
+    float sunLit = smoothstep(-0.2, 0.7, dot(pNorm, normalize(vec3(-0.6, 0.5, 0.3))));
+    float edge = smoothstep(0.22, 0.212, pAng);
+    col = mix(col, pCol * sunLit, edge);
+  } else if (pAng < 0.42) {
+    // Planetary Rings
+    float ringPlane = abs(d.y - planetDir.y + (d.x - planetDir.x) * 0.45);
+    if (ringPlane < 0.035) {
+      float ringBands = sin(pAng * 140.0) * 0.5 + 0.5;
+      float ringMask = (1.0 - ringPlane / 0.035) * smoothstep(0.42, 0.25, pAng);
+      col += vec3(0.25, 0.75, 0.85) * ringMask * ringBands * 0.45;
+    }
+  }
+
+  // Binary Companion Moon
+  vec3 moonDir = normalize(vec3(-0.65, 0.58, 0.48));
+  float mDot = dot(d, moonDir);
+  if (mDot > 0.996) {
+    col += vec3(1.0, 0.85, 0.65) * smoothstep(0.996, 0.9985, mDot) * 1.4;
+  }
+
+  // Dynamic Planetary Aurora Borealis (intensifies as Artifacts are socketed!)
+  if (d.y > 0.05) {
+    float u = d.x / (d.y + 0.35);
+    float v = d.z / (d.y + 0.35);
+    float wave1 = sin(u * 2.5 + uTime * 0.35 + sin(v * 2.0 - uTime * 0.2));
+    float wave2 = cos(v * 3.2 - uTime * 0.28 + sin(u * 3.0));
+    float ribbon = smoothstep(0.45, 0.0, abs(wave1 + wave2 * 0.5));
+    vec3 auroraCol = mix(vec3(0.0, 0.95, 0.65), vec3(0.75, 0.15, 1.0), sin(u * 1.5 + uTime) * 0.5 + 0.5);
+    col += auroraCol * ribbon * smoothstep(0.05, 0.45, d.y) * smoothstep(0.98, 0.5, d.y) * uAuroraStrength;
+  }
+
+  // Ion Storm Lightning Flash
+  col += vec3(0.45, 0.3, 0.8) * uWeatherFlash;
+
+  fragColor = vec4(col, 1.0);
+}
+`;
+
+// Volumetric-feeling GPU Weather Particle Shader (Spore Rain / Ion Embers)
+const WEATHER_VS = `#version 300 es
+precision highp float;
+layout(location = 0) in vec3 aSeed; // x,y,z in [0,1], w = phase
+uniform mat4 uViewProj;
+uniform vec3 uPlayerPos;
+uniform float uTime;
+uniform float uWeatherMode; // 0: Gentle Floating Biolume Spores, 1: Spore Rain, 2: Ion Storm
+out vec3 vColor;
+out float vAlpha;
+
+void main() {
+  float box = 32.0;
+  vec3 offset = aSeed * box;
+
+  // Drift velocity depends on weather state
+  vec3 vel = vec3(0.6, 0.35, 0.4); // Mode 0: rising glowing spores
+  if (uWeatherMode > 0.5 && uWeatherMode < 1.5) {
+    vel = vec3(1.2, -4.5, 0.8);    // Mode 1: dense bioluminescent spore rain
+  } else if (uWeatherMode >= 1.5) {
+    vel = vec3(5.5, -2.8, 3.2);    // Mode 2: high-wind ion storm
+  }
+
+  vec3 local = mod(offset + vel * uTime - uPlayerPos, box) - box * 0.5;
+  // Gentle sinusoidal swirl
+  local.x += sin(uTime * 2.0 + aSeed.y * 25.0) * 0.45;
+  local.z += cos(uTime * 1.8 + aSeed.x * 25.0) * 0.45;
+
+  vec3 worldPos = uPlayerPos + local;
+  float dist = length(local);
+  vAlpha = smoothstep(box * 0.5, 4.0, dist);
+
+  if (uWeatherMode < 0.5) {
+    vColor = mix(vec3(0.1, 0.95, 0.85), vec3(0.5, 1.0, 0.4), aSeed.z);
+  } else if (uWeatherMode < 1.5) {
+    vColor = mix(vec3(0.0, 0.85, 1.0), vec3(0.95, 0.25, 1.0), aSeed.x);
+  } else {
+    vColor = mix(vec3(1.0, 0.55, 0.15), vec3(0.75, 0.35, 1.0), aSeed.y);
+  }
+
+  gl_Position = uViewProj * vec4(worldPos, 1.0);
+  gl_PointSize = clamp(110.0 / max(dist, 1.5), 2.5, 18.0);
+}
+`;
+
+const WEATHER_FS = `#version 300 es
+precision highp float;
+in vec3 vColor;
+in float vAlpha;
+out vec4 fragColor;
+void main() {
+  vec2 uv = gl_PointCoord * 2.0 - 1.0;
+  float r2 = dot(uv, uv);
+  if (r2 > 1.0) discard;
+  float glow = exp(-r2 * 3.0);
+  fragColor = vec4(vColor * glow * 1.5, glow * vAlpha * 0.85);
+}
+`;
+
+/* ============================================================================
+   6. WEBGL2 ENGINE & INSTANCED BATCH MANAGER
+   ============================================================================ */
+let gl = null;
+let surfProg = null, skyProg = null, weatherProg = null;
+let planetVAO = null, planetIndexCount = 0;
+let skyVAO = null, skyIndexCount = 0;
+let weatherVAO = null, weatherCount = 1600;
+
+function compileShader(type, src) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+    console.error(gl.getShaderInfoLog(s));
+  }
+  return s;
+}
+
+function createProgram(vsSrc, fsSrc) {
+  const p = gl.createProgram();
+  gl.attachShader(p, compileShader(gl.VERTEX_SHADER, vsSrc));
+  gl.attachShader(p, compileShader(gl.FRAGMENT_SHADER, fsSrc));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+    console.error(gl.getProgramInfoLog(p));
+  }
+  return p;
+}
+
+// Each instance packs 24 floats:
+// [0..15]: mat4 model matrix
+// [16..19]: vec4(r, g, b, emissive)
+// [20..23]: vec4(shaderMode, phase, reactivity, specularity)
+const FLOATS_PER_INSTANCE = 24;
+
+class InstancedBatch {
+  constructor(geom, maxInstances) {
+    this.maxInstances = maxInstances;
+    this.count = 0;
+    this.instanceData = new Float32Array(maxInstances * FLOATS_PER_INSTANCE);
+    this.indexCount = geom.indices.length;
+
+    this.vao = gl.createVertexArray();
+    gl.bindVertexArray(this.vao);
+
+    const makeBuf = (loc, data, size) => {
+      const b = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, b);
+      gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(loc);
+      gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 0, 0);
+    };
+    makeBuf(0, geom.positions, 3);
+    makeBuf(1, geom.normals, 3);
+    makeBuf(2, geom.colors, 3);
+
+    const ibo = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, geom.indices, gl.STATIC_DRAW);
+
+    this.instBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.instBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, this.instanceData.byteLength, gl.DYNAMIC_DRAW);
+
+    const stride = FLOATS_PER_INSTANCE * 4;
+    for (let i = 0; i < 6; i++) {
+      const loc = 3 + i;
+      gl.enableVertexAttribArray(loc);
+      gl.vertexAttribPointer(loc, 4, gl.FLOAT, false, stride, i * 16);
+      gl.vertexAttribDivisor(loc, 1);
+    }
+    gl.bindVertexArray(null);
+  }
+
+  reset() {
+    this.count = 0;
+  }
+
+  addInstance(mat, r, g, b, emissive, mode = 0, phase = 0, reactivity = 0, spec = 0.5) {
+    if (this.count >= this.maxInstances) return -1;
+    const idx = this.count++;
+    const off = idx * FLOATS_PER_INSTANCE;
+    const d = this.instanceData;
+    for (let i = 0; i < 16; i++) d[off + i] = mat[i];
+    d[off + 16] = r;
+    d[off + 17] = g;
+    d[off + 18] = b;
+    d[off + 19] = emissive;
+    d[off + 20] = mode;
+    d[off + 21] = phase;
+    d[off + 22] = reactivity;
+    d[off + 23] = spec;
+    return idx;
+  }
+
+  uploadAndDraw() {
+    if (this.count === 0) return;
+    gl.bindVertexArray(this.vao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.instBuf);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, this.instanceData.subarray(0, this.count * FLOATS_PER_INSTANCE));
+    gl.drawElementsInstanced(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_INT, 0, this.count);
+  }
+}
+
+let crystalBatch = null;
+let capBatch = null;
+let cylBatch = null;
+let torusBatch = null;
+let artifactBatch = null;
+
+/* ============================================================================
+   7. ALIEN ECOSYSTEM, RUINS, ARTIFACTS & INTERACTIVE ENTITIES
+   ============================================================================ */
+const floraNodes = [];      // Reactive glowing mushrooms, crystal clusters, bulb trees
+const staticColumns = [];   // Ancient ruin pillars, cave stalactites, obsidian monoliths
+const wildlife = [];        // Sky-Leviathans & Spore Jellyfish
+const pedestals = [];       // 5 Ancient Astral Pedestals at (0, 0)
+const artifacts = [];       // 5 Collectible Physical Alien Cores
+
+// Global Exploration & Interaction State
+const playerRig = {
+  x: 0, y: 1.5, z: 14,
+  vy: 0,
+  yaw: 0,
+  grounded: true,
+  snapCooldown: 0,
+  weatherBtnHeld: false
+};
+
+const scanWave = { x: 0, y: 0, z: 0, radius: 0, active: false };
+let weatherMode = 0; // 0: Clear Nebula & Spores, 1: Bioluminescent Spore Rain, 2: Ion Storm
+let weatherTimer = 0;
+let weatherFlash = 0;
+
+function initAlienWorldEntities() {
+  // 1. Setup 5 Ancient Ruin Pedestals in a pentagon around (0, 0)
+  const artifactThemes = [
+    { name: 'Cyan Astral Core',    col: [0.0, 0.95, 1.0], spawn: [0, 0, 7.5] },      // Courtyard right in front of player!
+    { name: 'Violet Cavern Core',  col: [0.85, 0.2, 1.0], spawn: [-65, 0, -65] },    // Deep inside Subterranean Crystal Cavern
+    { name: 'Emerald Fungal Core', col: [0.1, 1.0, 0.55], spawn: [-60, 0, 60] },     // Heart of Bioluminescent Fungal Grove
+    { name: 'Solar Obsidian Core', col: [1.0, 0.65, 0.1], spawn: [65, 0, 65] },      // Atop Obsidian Monolith Altar
+    { name: 'Crimson Arch Core',   col: [1.0, 0.2, 0.55], spawn: [60, 0, -60] }      // Beneath Great Natural Stone Arch
+  ];
+
+  for (let i = 0; i < 5; i++) {
+    const ang = (i / 5) * TAU - Math.PI * 0.5;
+    const px = Math.cos(ang) * 7.5;
+    const pz = Math.sin(ang) * 7.5;
+    const py = getTerrainHeight(px, pz);
+    const theme = artifactThemes[i];
+
+    pedestals.push({
+      x: px, y: py, z: pz,
+      color: theme.col,
+      socketedArtifactId: -1
+    });
+
+    const sx = theme.spawn[0];
+    const sz = theme.spawn[2];
+    const sy = getTerrainHeight(sx, sz) + 1.25;
+    artifacts.push({
+      id: i,
+      x: sx, y: sy, z: sz,
+      vx: 0, vy: 0, vz: 0,
+      rx: 0, ry: i * 1.2, rz: 0,
+      color: theme.col,
+      heldByHand: -1,     // -1: free, 0: left hand, 1: right hand
+      socketedIn: -1      // -1: unsocketed, 0..4: pedestal index
+    });
+  }
+
+  // 2. Central Ruin Sanctuary Columns & Perimeter Megaliths
+  for (let i = 0; i < 10; i++) {
+    const ang = (i / 10) * TAU;
+    const rx = Math.cos(ang) * 16.5;
+    const rz = Math.sin(ang) * 16.5;
+    const ry = getTerrainHeight(rx, rz);
+    staticColumns.push({
+      type: 'cyl', x: rx, y: ry - 0.3, z: rz,
+      rx: 0, ry: -ang, rz: 0,
+      sx: 1.8, sy: 7.5 + (i % 2) * 2.5, sz: 1.8,
+      col: [0.18, 0.32, 0.42], emissive: 0.15
+    });
+    // Glowing capital crystal atop each ruin column
+    staticColumns.push({
+      type: 'crystal', x: rx, y: ry + 7.2 + (i % 2) * 2.5, z: rz,
+      rx: 0, ry: ang, rz: 0,
+      sx: 1.4, sy: 2.2, sz: 1.4,
+      col: [0.0, 0.85, 1.0], emissive: 0.9
+    });
+  }
+
+  // 3. Populate Subterranean Crystal Cavern (-65, -65) with glowing crystal clusters & stalactites
+  let rng = 42;
+  const rand = () => { rng = (rng * 16807) % 2147483647; return (rng - 1) / 2147483646; };
+
+  for (let i = 0; i < 75; i++) {
+    const r = 3.5 + rand() * 26.0;
+    const a = rand() * TAU;
+    const cx = -65 + Math.cos(a) * r;
+    const cz = -65 + Math.sin(a) * r;
+    const floorY = getTerrainHeight(cx, cz);
+    const ceilY = getCaveCeilingHeight(cx, cz);
+
+    if (i % 3 === 0 && ceilY < 50) {
+      // Hanging cave ceiling stalactite
+      staticColumns.push({
+        type: 'crystal', x: cx, y: ceilY + 0.5, z: cz,
+        rx: Math.PI, ry: rand() * TAU, rz: (rand() - 0.5) * 0.25,
+        sx: 1.4 + rand() * 1.6, sy: 3.0 + rand() * 3.8, sz: 1.4 + rand() * 1.6,
+        col: [0.35, 0.18, 0.65], emissive: 0.35
+      });
+    } else {
+      // Interactive Glowing Cave Crystal Cluster on floor
+      const hue = rand() > 0.5 ? [0.75, 0.15, 1.0] : [0.0, 0.85, 1.0];
+      floraNodes.push({
+        kind: 'crystal',
+        x: cx, y: floorY - 0.2, z: cz,
+        rx: (rand() - 0.5) * 0.45, ry: rand() * TAU, rz: (rand() - 0.5) * 0.45,
+        scale: 1.3 + rand() * 2.4,
+        col: hue,
+        baseEmissive: 0.85,
+        reactivity: 0,
+        phase: rand() * TAU
+      });
+    }
+  }
+
+  // 4. Populate Bioluminescent Fungal Grove (-60, 60) & Worldwide Alien Flora
+  for (let i = 0; i < 185; i++) {
+    let fx, fz;
+    if (i < 85) {
+      // Dense cluster in Fungal Grove
+      const r = 3.5 + rand() * 38.0;
+      const a = rand() * TAU;
+      fx = -60 + Math.cos(a) * r;
+      fz = 60 + Math.sin(a) * r;
+    } else {
+      // Scattered across the alien world outside central ruins plaza
+      fx = (rand() - 0.5) * 210;
+      fz = (rand() - 0.5) * 210;
+      if (Math.hypot(fx, fz) < 20) continue;
+    }
+    const fy = getTerrainHeight(fx, fz);
+    const biome = getBiomeInfo(fx, fz).id;
+
+    let col = [0.0, 0.95, 0.78];
+    if (biome === 2) col = rand() > 0.45 ? [0.05, 0.95, 0.75] : [0.95, 0.18, 0.85];
+    else if (biome === 3) col = [1.0, 0.42, 0.12];
+    else if (biome === 4) col = [0.95, 0.75, 0.15];
+
+    const scale = (biome === 2 && rand() > 0.65) ? (2.2 + rand() * 2.8) : (0.8 + rand() * 1.5);
+    floraNodes.push({
+      kind: biome === 3 ? 'crystal' : 'mushroom',
+      x: fx, y: fy - 0.15, z: fz,
+      rx: (rand() - 0.5) * 0.2, ry: rand() * TAU, rz: (rand() - 0.5) * 0.2,
+      scale,
+      col,
+      baseEmissive: 0.7,
+      reactivity: 0,
+      phase: rand() * TAU
+    });
+  }
+
+  // 5. Populate Obsidian Monolith Spires (65, 65)
+  for (let i = 0; i < 32; i++) {
+    const r = 6.0 + rand() * 34.0;
+    const a = (i / 32) * TAU + rand() * 0.2;
+    const sx = 65 + Math.cos(a) * r;
+    const sz = 65 + Math.sin(a) * r;
+    const sy = getTerrainHeight(sx, sz);
+    staticColumns.push({
+      type: 'crystal', x: sx, y: sy - 0.5, z: sz,
+      rx: (rand() - 0.5) * 0.22, ry: rand() * TAU, rz: (rand() - 0.5) * 0.22,
+      sx: 2.2 + rand() * 2.0, sy: 8.0 + rand() * 14.0, sz: 2.2 + rand() * 2.0,
+      col: [0.18, 0.08, 0.16], emissive: 0.2
+    });
+  }
+
+  // 6. Populate Alien Wildlife (Graceful Sky-Leviathans & Interactive Spore Jellyfish)
+  // 14 Giant Sky-Leviathans soaring high above the biomes
+  for (let i = 0; i < 14; i++) {
+    wildlife.push({
+      type: 'leviathan',
+      cx: (rand() - 0.5) * 140,
+      cz: (rand() - 0.5) * 140,
+      alt: 28 + rand() * 24,
+      orbitR: 25 + rand() * 35,
+      speed: 0.12 + rand() * 0.12,
+      phase: rand() * TAU,
+      scale: 3.2 + rand() * 2.2,
+      col: i % 2 === 0 ? [0.1, 0.85, 1.0] : [0.85, 0.25, 1.0]
+    });
+  }
+  // 36 Bioluminescent Spore Jellyfish drifting near the ground & caves
+  for (let i = 0; i < 36; i++) {
+    const jx = (rand() - 0.5) * 160;
+    const jz = (rand() - 0.5) * 160;
+    const jy = getTerrainHeight(jx, jz) + 1.8 + rand() * 3.5;
+    wildlife.push({
+      type: 'jelly',
+      x: jx, y: jy, z: jz,
+      vx: 0, vy: 0, vz: 0,
+      homeX: jx, homeZ: jz,
+      phase: rand() * TAU,
+      scale: 0.45 + rand() * 0.45,
+      col: i % 3 === 0 ? [0.2, 1.0, 0.7] : (i % 3 === 1 ? [1.0, 0.3, 0.85] : [0.2, 0.8, 1.0])
+    });
+  }
+}
+
+/* ============================================================================
+   8. VR CONTROLLER STATE, LOCOMOTION & PHYSICAL INTERACTIONS
+   ============================================================================ */
+const hands = [
+  { active: false, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, mat: Mat4.create(), grip: false, prevGrip: false, trigger: false, prevTrigger: false },
+  { active: false, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, mat: Mat4.create(), grip: false, prevGrip: false, trigger: false, prevTrigger: false }
+];
+
+const tmpMat = Mat4.create();
+const tmpMat2 = Mat4.create();
+const rigMat = Mat4.create();
+const invRigMat = Mat4.create();
+const viewMat = Mat4.create();
+const viewProjMat = Mat4.create();
+const tmpPt = new Float32Array(3);
+
+function updateRigMatrices() {
+  Mat4.fromTranslationRotationScale(
+    rigMat,
+    playerRig.x, playerRig.y, playerRig.z,
+    0, playerRig.yaw, 0,
+    1, 1, 1
+  );
+  // Inverse of rigid body (T * Ry) is Ry(-yaw) * T(-pos)
+  const cy = Math.cos(-playerRig.yaw), sy = Math.sin(-playerRig.yaw);
+  const tx = -playerRig.x, ty = -playerRig.y, tz = -playerRig.z;
+  invRigMat[0] = cy;  invRigMat[1] = 0; invRigMat[2] = -sy; invRigMat[3] = 0;
+  invRigMat[4] = 0;   invRigMat[5] = 1; invRigMat[6] = 0;   invRigMat[7] = 0;
+  invRigMat[8] = sy;  invRigMat[9] = 0; invRigMat[10] = cy; invRigMat[11] = 0;
+  invRigMat[12] = cy * tx + sy * tz;
+  invRigMat[13] = ty;
+  invRigMat[14] = -sy * tx + cy * tz;
+  invRigMat[15] = 1;
+}
+
+function processXRInputAndPhysics(session, frame, refSpace, viewerPose, dt, time) {
+  // Determine head world position for terrain height following
+  const headLocal = viewerPose.transform.position;
+  Mat4.transformPoint(tmpPt, rigMat, headLocal.x, headLocal.y, headLocal.z);
+  let headWorldX = tmpPt[0], headWorldY = tmpPt[1], headWorldZ = tmpPt[2];
+
+  let moveX = 0, moveZ = 0;
+  let turnAxis = 0;
+  let jetpackThrust = false;
+  let weatherTogglePressed = false;
+
+  // 1. Read WebXR Input Sources (Controllers & Gamepads)
+  hands[0].active = false;
+  hands[1].active = false;
+
+  for (const src of session.inputSources) {
+    const hIdx = src.handedness === 'left' ? 0 : (src.handedness === 'right' ? 1 : 0);
+    const hand = hands[hIdx];
+    const space = src.gripSpace || src.targetRaySpace;
+    if (space) {
+      const pose = frame.getPose(space, refSpace);
+      if (pose) {
+        hand.active = true;
+        Mat4.multiply(hand.mat, rigMat, pose.transform.matrix);
+        const nx = hand.mat[12], ny = hand.mat[13], nz = hand.mat[14];
+        if (dt > 0.0001) {
+          hand.vx = (nx - hand.x) / dt;
+          hand.vy = (ny - hand.y) / dt;
+          hand.vz = (nz - hand.z) / dt;
+        }
+        hand.x = nx; hand.y = ny; hand.z = nz;
+      }
+    }
+
+    if (src.gamepad) {
+      const gp = src.gamepad;
+      const axX = gp.axes.length >= 4 ? gp.axes[2] : (gp.axes[0] || 0);
+      const axY = gp.axes.length >= 4 ? gp.axes[3] : (gp.axes[1] || 0);
+
+      if (src.handedness === 'left') {
+        if (Math.abs(axX) > 0.12) moveX += axX;
+        if (Math.abs(axY) > 0.12) moveZ += axY;
+      } else {
+        if (Math.abs(axX) > 0.55) turnAxis = axX;
+        if (axY < -0.55) jetpackThrust = true; // Push right thumbstick up to fly!
+      }
+
+      // Buttons: 0 = Trigger, 1 = Squeeze/Grip, 4 = A/X (Jetpack), 5 = B/Y (Weather Anomaly)
+      const trig = gp.buttons[0] && gp.buttons[0].pressed;
+      const grip = gp.buttons[1] && gp.buttons[1].pressed;
+      hand.prevTrigger = hand.trigger;
+      hand.prevGrip = hand.grip;
+      hand.trigger = !!trig;
+      hand.grip = !!grip;
+
+      if (gp.buttons[4] && gp.buttons[4].pressed) jetpackThrust = true;
+      if (gp.buttons[5] && gp.buttons[5].pressed) weatherTogglePressed = true;
+
+      // Trigger Press -> Emit Sonic Topographic Scanner Wave
+      if (hand.trigger && !hand.prevTrigger) {
+        scanWave.x = hand.x;
+        scanWave.y = hand.y;
+        scanWave.z = hand.z;
+        scanWave.radius = 0.2;
+        scanWave.active = true;
+        audio.playScannerPulse();
+      }
+    }
+  }
+
+  // Toggle weather manually on B/Y button press
+  if (weatherTogglePressed && !playerRig.weatherBtnHeld) {
+    weatherMode = (weatherMode + 1) % 3;
+    weatherTimer = 0;
+    audio.playFloraChime(weatherMode * 3);
+  }
+  playerRig.weatherBtnHeld = weatherTogglePressed;
+
+  // Snap Turning
+  if (playerRig.snapCooldown > 0) playerRig.snapCooldown -= dt;
+  if (Math.abs(turnAxis) > 0.55 && playerRig.snapCooldown <= 0) {
+    const dir = Math.sign(turnAxis);
+    // Rotate rig around current headWorldX, headWorldZ so player pivots in place
+    const dYaw = -dir * (Math.PI / 4);
+    playerRig.yaw += dYaw;
+    updateRigMatrices();
+    Mat4.transformPoint(tmpPt, rigMat, headLocal.x, headLocal.y, headLocal.z);
+    playerRig.x += (headWorldX - tmpPt[0]);
+    playerRig.z += (headWorldZ - tmpPt[2]);
+    playerRig.snapCooldown = 0.32;
+    updateRigMatrices();
+  }
+
+  // Smooth Locomotion along Headset Forward/Right direction
+  if (Math.abs(moveX) > 0.01 || Math.abs(moveZ) > 0.01) {
+    const viewInv = viewerPose.transform.matrix;
+    // Local headset forward vector (-Z column) and right vector (+X column) rotated by rig yaw
+    const lx = -viewInv[8], lz = -viewInv[10];
+    const cy = Math.cos(playerRig.yaw), sy = Math.sin(playerRig.yaw);
+    let fwdX = cy * lx + sy * lz;
+    let fwdZ = -sy * lx + cy * lz;
+    const fl = Math.hypot(fwdX, fwdZ) || 1;
+    fwdX /= fl; fwdZ /= fl;
+    const rightX = -fwdZ, rightZ = fwdX;
+
+    const speed = jetpackThrust ? 12.5 : 7.5;
+    playerRig.x += (fwdX * (-moveZ) + rightX * moveX) * speed * dt;
+    playerRig.z += (fwdZ * (-moveZ) + rightZ * moveX) * speed * dt;
+    // Keep within planet bounds
+    playerRig.x = clamp(playerRig.x, -118, 118);
+    playerRig.z = clamp(playerRig.z, -118, 118);
+  }
+
+  // Vertical Physics: Low-Gravity Alien Jetpack & Terrain/Cave Collision
+  updateRigMatrices();
+  Mat4.transformPoint(tmpPt, rigMat, headLocal.x, headLocal.y, headLocal.z);
+  headWorldX = tmpPt[0]; headWorldZ = tmpPt[2];
+
+  const groundY = getTerrainHeight(headWorldX, headWorldZ);
+  const ceilY = getCaveCeilingHeight(headWorldX, headWorldZ);
+
+  if (jetpackThrust) {
+    playerRig.vy = Math.min(playerRig.vy + 18.0 * dt, 9.5);
+    playerRig.grounded = false;
+  } else if (!playerRig.grounded) {
+    playerRig.vy -= 6.5 * dt; // Low alien gravity
+  }
+
+  playerRig.y += playerRig.vy * dt;
+
+  // Cave ceiling check
+  if (playerRig.y + headLocal.y > ceilY - 0.4) {
+    playerRig.y = ceilY - 0.4 - headLocal.y;
+    playerRig.vy = Math.min(0, playerRig.vy);
+  }
+  // Terrain floor check
+  if (playerRig.y <= groundY) {
+    playerRig.y = groundY;
+    playerRig.vy = 0;
+    playerRig.grounded = true;
+  }
+  updateRigMatrices();
+
+  // 2. Update Expanding Scanner Wave
+  if (scanWave.active) {
+    scanWave.radius += 34.0 * dt;
+    if (scanWave.radius > 135.0) scanWave.active = false;
+  }
+
+  // 3. Update Artifact Grabbing, Telekinetic Pull, Physics & Pedestal Socketing
+  let socketedCount = 0;
+  for (let hIdx = 0; hIdx < 2; hIdx++) {
+    const hand = hands[hIdx];
+    if (!hand.active) continue;
+
+    // On Grip Press: Grab nearest unsocketed artifact (within 2.6m for comfortable telekinetic reach!)
+    if (hand.grip && !hand.prevGrip) {
+      let bestDist = 2.6;
+      let bestArt = null;
+      for (const art of artifacts) {
+        if (art.socketedIn !== -1 || art.heldByHand !== -1) continue;
+        const d = Math.hypot(art.x - hand.x, art.y - hand.y, art.z - hand.z);
+        if (d < bestDist) {
+          bestDist = d;
+          bestArt = art;
+        }
+      }
+      if (bestArt) {
+        bestArt.heldByHand = hIdx;
+        audio.playArtifactEvent(false);
+      }
+    }
+  }
+
+  for (const art of artifacts) {
+    art.ry += dt * 1.4;
+    art.rx = Math.sin(time * 1.8 + art.id) * 0.25;
+
+    if (art.socketedIn !== -1) {
+      socketedCount++;
+      const ped = pedestals[art.socketedIn];
+      art.x = ped.x;
+      art.y = ped.y + 1.55 + Math.sin(time * 2.5 + art.id) * 0.12;
+      art.z = ped.z;
+      art.ry += dt * 2.2;
+      continue;
+    }
+
+    if (art.heldByHand !== -1) {
+      const hand = hands[art.heldByHand];
+      if (!hand.active || !hand.grip) {
+        // Released! Impart hand velocity
+        art.heldByHand = -1;
+        art.vx = clamp(hand.vx, -12, 12);
+        art.vy = clamp(hand.vy, -12, 12);
+        art.vz = clamp(hand.vz, -12, 12);
+      } else {
+        // Smoothly pull into palm (18cm in front of grip pose)
+        const targetX = hand.x - hand.mat[8] * 0.18;
+        const targetY = hand.y - hand.mat[9] * 0.18;
+        const targetZ = hand.z - hand.mat[10] * 0.18;
+        art.x = lerp(art.x, targetX, Math.min(1, dt * 18));
+        art.y = lerp(art.y, targetY, Math.min(1, dt * 18));
+        art.z = lerp(art.z, targetZ, Math.min(1, dt * 18));
+      }
+    } else {
+      // Free-floating / thrown physics in low alien gravity
+      const speedSq = art.vx*art.vx + art.vy*art.vy + art.vz*art.vz;
+      const gY = getTerrainHeight(art.x, art.z) + 1.15;
+      if (speedSq > 0.02 || art.y > gY + 0.35) {
+        art.vy -= 5.5 * dt;
+        art.x += art.vx * dt;
+        art.y += art.vy * dt;
+        art.z += art.vz * dt;
+        art.vx *= (1 - 0.8 * dt);
+        art.vz *= (1 - 0.8 * dt);
+        if (art.y < gY) {
+          art.y = gY;
+          art.vy = Math.abs(art.vy) * 0.45;
+          art.vx *= 0.6;
+          art.vz *= 0.6;
+          if (art.vy < 0.8) { art.vx = art.vy = art.vz = 0; }
+        }
+      } else {
+        // Gentle anti-gravity hover
+        art.y = gY + Math.sin(time * 2.0 + art.id * 1.5) * 0.18;
+      }
+    }
+
+    // Check if close to any empty Ancient Ruin Pedestal to socket!
+    for (let pIdx = 0; pIdx < pedestals.length; pIdx++) {
+      const ped = pedestals[pIdx];
+      if (ped.socketedArtifactId !== -1) continue;
+      const dPed = Math.hypot(art.x - ped.x, art.y - (ped.y + 1.4), art.z - ped.z);
+      if (dPed < 1.35) {
+        art.heldByHand = -1;
+        art.socketedIn = pIdx;
+        ped.socketedArtifactId = art.id;
+        socketedCount++;
+        // Emit celebratory scanner wave from the pedestal
+        scanWave.x = ped.x; scanWave.y = ped.y + 1.4; scanWave.z = ped.z;
+        scanWave.radius = 0.5; scanWave.active = true;
+        audio.playArtifactEvent(true);
+        break;
+      }
+    }
+  }
+
+  // 4. Update Weather Cycle & Audio Ambience
+  weatherTimer += dt;
+  if (weatherTimer > 75.0) {
+    weatherTimer = 0;
+    weatherMode = (weatherMode + 1) % 3;
+  }
+  if (weatherMode === 2 && Math.random() < dt * 0.35) {
+    weatherFlash = 0.85;
+  }
+  weatherFlash = Math.max(0, weatherFlash - dt * 2.8);
+
+  const inCave = Math.hypot(headWorldX + 65, headWorldZ + 65) < 32;
+  audio.update(time, inCave, weatherMode, jetpackThrust, socketedCount);
+}
+
+/* ============================================================================
+   9. POPULATE DYNAMIC INSTANCES & RENDER STEREO XR FRAME
+   ============================================================================ */
+const pointLightPos = new Float32Array(8 * 4);
+const pointLightCol = new Float32Array(8 * 3);
+
+function assembleSceneBatches(time, dt) {
+  crystalBatch.reset();
+  capBatch.reset();
+  cylBatch.reset();
+  torusBatch.reset();
+  artifactBatch.reset();
+
+  // Count socketed artifacts for planetary awakening effects
+  let socketedCount = 0;
+  for (const art of artifacts) if (art.socketedIn !== -1) socketedCount++;
+  const awakening = socketedCount / 5.0;
+
+  // 1. Static Columns, Cave Stalactites & Obsidian Monoliths
+  for (const col of staticColumns) {
+    Mat4.fromTranslationRotationScale(tmpMat, col.x, col.y, col.z, col.rx, col.ry, col.rz, col.sx, col.sy, col.sz);
+    if (col.type === 'cyl') {
+      cylBatch.addInstance(tmpMat, col.col[0], col.col[1], col.col[2], col.emissive, 0, 0, 0, 0.4);
+    } else {
+      crystalBatch.addInstance(tmpMat, col.col[0], col.col[1], col.col[2], col.emissive, 0, 0, 0, 0.85);
+    }
+  }
+
+  // 2. Central Ancient Astral Ruins: 5 Pedestals, Energy Beams & Giant Kinetic Rings
+  for (let i = 0; i < pedestals.length; i++) {
+    const ped = pedestals[i];
+    const active = ped.socketedArtifactId !== -1;
+    // Pedestal base pillar
+    Mat4.fromTranslationRotationScale(tmpMat, ped.x, ped.y - 0.1, ped.z, 0, 0, 0, 1.3, 1.25, 1.3);
+    cylBatch.addInstance(tmpMat, 0.2, 0.32, 0.42, active ? 0.6 : 0.15, 0, 0, 0, 0.6);
+
+    // Floating holographic socket ring
+    Mat4.fromTranslationRotationScale(tmpMat, ped.x, ped.y + 1.25, ped.z, Math.sin(time * 2 + i) * 0.2, time * 1.5 + i, 0, 0.65, 0.65, 0.65);
+    torusBatch.addInstance(tmpMat, ped.color[0], ped.color[1], ped.color[2], active ? 1.8 : 0.85, 0, 0, 0, 0.9);
+
+    // If socketed, shoot an energy beam into the Central Spire Conduit at (0, 14, 0)
+    if (active) {
+      Mat4.fromTranslationRotationScale(tmpMat, ped.x, ped.y + 1.6, ped.z, 0, 0, 0, 0.22, 18.0, 0.22);
+      cylBatch.addInstance(tmpMat, ped.color[0], ped.color[1], ped.color[2], 2.2, 0, 0, 0, 1.0);
+    }
+  }
+
+  // Giant Kinetic Concentric Rings hovering above Central Ruins (0, 14, 0)
+  const ringSpeed = 0.35 + awakening * 1.6;
+  for (let r = 0; r < 3; r++) {
+    const scale = 6.5 + r * 3.2;
+    Mat4.fromTranslationRotationScale(
+      tmpMat,
+      0, 13.5 + Math.sin(time + r) * 0.5, 0,
+      time * ringSpeed * (r % 2 === 0 ? 1 : -0.7) + r,
+      time * ringSpeed * 0.8,
+      r * 0.8,
+      scale, scale, scale
+    );
+    torusBatch.addInstance(tmpMat, 0.1, 0.85, 1.0, 0.7 + awakening * 1.5, 0, 0, 0, 0.9);
+  }
+  // Central Ruin Core Octahedron
+  Mat4.fromTranslationRotationScale(tmpMat, 0, 13.5, 0, time * 0.8, time * 1.2, 0, 2.2 + awakening * 1.5, 2.2 + awakening * 1.5, 2.2 + awakening * 1.5);
+  artifactBatch.addInstance(tmpMat, 0.2, 0.95, 1.0, 1.2 + awakening * 2.0, 0, 0, 0, 1.0);
+
+  // If all 5 artifacts are socketed, ignite the Planetary Awakening Beacon!
+  if (socketedCount === 5) {
+    Mat4.fromTranslationRotationScale(tmpMat, 0, 1.0, 0, 0, time * 2.0, 0, 1.8, 120.0, 1.8);
+    cylBatch.addInstance(tmpMat, 0.3, 1.0, 0.95, 2.8, 0, 0, 0, 1.0);
+  }
+
+  // 3. Reactive Bioluminescent Flora (Mushrooms & Glowing Crystal Clusters)
+  for (let i = 0; i < floraNodes.length; i++) {
+    const f = floraNodes[i];
+    // Decay reactivity smoothly
+    f.reactivity = Math.max(0, f.reactivity - dt * 1.2);
+
+    // Check touch proximity to VR hands
+    for (let h = 0; h < 2; h++) {
+      if (!hands[h].active) continue;
+      const dHand = Math.hypot(f.x - hands[h].x, (f.y + f.scale * 0.7) - hands[h].y, f.z - hands[h].z);
+      if (dHand < 0.75 + f.scale * 0.35) {
+        if (f.reactivity < 0.4) audio.playFloraChime(i);
+        f.reactivity = 1.0;
+      }
+    }
+    // Check intersection with expanding Scanner Wave
+    if (scanWave.active) {
+      const dWave = Math.hypot(f.x - scanWave.x, f.y - scanWave.y, f.z - scanWave.z);
+      if (Math.abs(dWave - scanWave.radius) < 2.2) {
+        f.reactivity = Math.max(f.reactivity, 0.85);
+      }
+    }
+
+    const s = f.scale;
+    if (f.kind === 'mushroom') {
+      // Stalk
+      Mat4.fromTranslationRotationScale(tmpMat, f.x, f.y, f.z, f.rx, f.ry, f.rz, s * 0.65, s * 1.15, s * 0.65);
+      cylBatch.addInstance(tmpMat, f.col[0] * 0.5, f.col[1] * 0.6, f.col[2] * 0.6, 0.35, 1, f.phase, f.reactivity, 0.4);
+      // Bioluminescent Cap
+      Mat4.fromTranslationRotationScale(tmpMat, f.x, f.y + s * 1.1, f.z, f.rx, f.ry, f.rz, s * 1.15, s * 0.95, s * 1.15);
+      capBatch.addInstance(tmpMat, f.col[0], f.col[1], f.col[2], f.baseEmissive, 1, f.phase, f.reactivity, 0.6);
+    } else {
+      // Glowing Crystal Cluster
+      Mat4.fromTranslationRotationScale(tmpMat, f.x, f.y, f.z, f.rx, f.ry, f.rz, s * 0.9, s * 1.6, s * 0.9);
+      crystalBatch.addInstance(tmpMat, f.col[0], f.col[1], f.col[2], f.baseEmissive, 1, f.phase, f.reactivity, 0.95);
+    }
+  }
+
+  // 4. Alien Wildlife (Sky-Leviathans & Interactive Spore Jellyfish)
+  for (const w of wildlife) {
+    if (w.type === 'leviathan') {
+      const ang = time * w.speed + w.phase;
+      const wx = w.cx + Math.cos(ang) * w.orbitR;
+      const wz = w.cz + Math.sin(ang) * w.orbitR;
+      const wy = w.alt + Math.sin(time * 0.8 + w.phase) * 3.5;
+      const heading = -ang;
+      // Undulating Manta Wing Body
+      Mat4.fromTranslationRotationScale(tmpMat, wx, wy, wz, 0.15 * Math.sin(time * 2 + w.phase), heading, 0, w.scale * 1.8, w.scale * 0.45, w.scale * 1.2);
+      capBatch.addInstance(tmpMat, w.col[0], w.col[1], w.col[2], 1.1, 2, w.phase, 0, 0.7);
+      // Glowing Core
+      Mat4.fromTranslationRotationScale(tmpMat, wx, wy - 0.3, wz, 0, heading, 0, w.scale * 0.4, w.scale * 0.3, w.scale * 0.8);
+      artifactBatch.addInstance(tmpMat, 1.0, 0.9, 1.0, 1.6, 0, 0, 0, 0.9);
+    } else {
+      // Spore Jellyfish: gently drift and react to player's VR hands
+      const targetX = w.homeX + Math.cos(time * 0.45 + w.phase) * 5.5;
+      const targetZ = w.homeZ + Math.sin(time * 0.38 + w.phase) * 5.5;
+      const targetY = getTerrainHeight(w.x, w.z) + 2.0 + Math.sin(time * 1.6 + w.phase) * 0.85;
+
+      w.vx += (targetX - w.x) * dt * 0.8;
+      w.vy += (targetY - w.y) * dt * 1.2;
+      w.vz += (targetZ - w.z) * dt * 0.8;
+
+      // React to VR hands (playful boost when touched, or orbit if holding an artifact!)
+      for (let h = 0; h < 2; h++) {
+        if (!hands[h].active) continue;
+        const dx = w.x - hands[h].x, dy = w.y - hands[h].y, dz = w.z - hands[h].z;
+        const d = Math.hypot(dx, dy, dz);
+        if (d < 1.2 && d > 0.01) {
+          w.vx += (dx / d) * 8.0 * dt;
+          w.vy += 4.0 * dt;
+          w.vz += (dz / d) * 8.0 * dt;
+          audio.playFloraChime(Math.floor(w.phase * 10));
+        }
+      }
+
+      w.vx *= (1 - 1.8 * dt);
+      w.vy *= (1 - 1.8 * dt);
+      w.vz *= (1 - 1.8 * dt);
+      w.x += w.vx * dt; w.y += w.vy * dt; w.z += w.vz * dt;
+
+      Mat4.fromTranslationRotationScale(tmpMat, w.x, w.y, w.z, 0, time + w.phase, 0, w.scale, w.scale * 1.1, w.scale);
+      capBatch.addInstance(tmpMat, w.col[0], w.col[1], w.col[2], 1.35, 2, w.phase, 0, 0.8);
+      // Trailing Tentacle
+      Mat4.fromTranslationRotationScale(tmpMat, w.x, w.y - w.scale * 0.9, w.z, 0, time + w.phase, 0, w.scale * 0.25, w.scale * 0.9, w.scale * 0.25);
+      cylBatch.addInstance(tmpMat, w.col[0], w.col[1], w.col[2], 0.95, 1, w.phase, 0, 0.5);
+    }
+  }
+
+  // 5. Collectible Alien Artifacts + Scanner Discovery Beacons
+  for (let i = 0; i < artifacts.length; i++) {
+    const art = artifacts[i];
+    const s = art.heldByHand !== -1 ? 0.22 : 0.36;
+    Mat4.fromTranslationRotationScale(tmpMat, art.x, art.y, art.z, art.rx, art.ry, art.rz, s, s * 1.3, s);
+    artifactBatch.addInstance(tmpMat, art.color[0], art.color[1], art.color[2], 2.2, 0, 0, 0, 1.0);
+
+    // Orbiting protective energy ring around unsocketed artifacts on the ground
+    if (art.heldByHand === -1 && art.socketedIn === -1) {
+      Mat4.fromTranslationRotationScale(tmpMat, art.x, art.y, art.z, time * 1.8 + i, time * 1.3, 0, 0.52, 0.52, 0.52);
+      torusBatch.addInstance(tmpMat, art.color[0], art.color[1], art.color[2], 1.4, 0, 0, 0, 0.9);
+
+      // Vertical Discovery Beacon when Scanner Wave is active!
+      if (scanWave.active) {
+        Mat4.fromTranslationRotationScale(tmpMat, art.x, art.y, art.z, 0, 0, 0, 0.14, 42.0, 0.14);
+        cylBatch.addInstance(tmpMat, art.color[0], art.color[1], art.color[2], 2.4, 0, 0, 0, 1.0);
+      }
+    }
+
+    // Bind Artifact as Real-Time Point Light (Slots 2..6)
+    const lOff = (2 + i) * 4;
+    pointLightPos[lOff]     = art.x;
+    pointLightPos[lOff + 1] = art.y;
+    pointLightPos[lOff + 2] = art.z;
+    pointLightPos[lOff + 3] = 16.0;
+    const cOff = (2 + i) * 3;
+    pointLightCol[cOff]     = art.color[0];
+    pointLightCol[cOff + 1] = art.color[1];
+    pointLightCol[cOff + 2] = art.color[2];
+  }
+
+  // Central Ruin Core Point Light (Slot 7)
+  pointLightPos[28] = 0; pointLightPos[29] = 6.0; pointLightPos[30] = 0; pointLightPos[31] = 28.0 + awakening * 25.0;
+  pointLightCol[21] = 0.1; pointLightCol[22] = 0.85; pointLightCol[23] = 1.0;
+
+  // 6. VR Hands, Energy Emitter & Left-Wrist 3D Holographic Artifact Radar!
+  for (let h = 0; h < 2; h++) {
+    const hand = hands[h];
+    const lOff = h * 4, cOff = h * 3;
+    if (!hand.active) {
+      pointLightPos[lOff + 3] = 0.0;
+      continue;
+    }
+
+    // Bind VR Hand Point Light (Slots 0 & 1) so hands illuminate dark cave walls!
+    pointLightPos[lOff]     = hand.x;
+    pointLightPos[lOff + 1] = hand.y;
+    pointLightPos[lOff + 2] = hand.z;
+    pointLightPos[lOff + 3] = 9.5;
+    pointLightCol[cOff]     = h === 0 ? 0.0 : 0.75;
+    pointLightCol[cOff + 1] = 0.85;
+    pointLightCol[cOff + 2] = 1.0;
+
+    // Futuristic VR Gauntlet Body aligned with controller pose
+    // Rotate cylinder local +Y axis to point along controller -Z forward axis
+    Mat4.fromTranslationRotationScale(tmpMat2, 0, 0, 0.08, -Math.PI * 0.5, 0, 0, 0.11, 0.22, 0.11);
+    Mat4.multiply(tmpMat, hand.mat, tmpMat2);
+    cylBatch.addInstance(tmpMat, 0.18, 0.28, 0.42, 0.45, 0, 0, 0, 0.9);
+
+    // Glowing Emitter Crystal Tip
+    Mat4.fromTranslationRotationScale(tmpMat2, 0, 0, -0.06, -Math.PI * 0.5, time * 3.0, 0, 0.09, 0.14, 0.09);
+    Mat4.multiply(tmpMat, hand.mat, tmpMat2);
+    crystalBatch.addInstance(tmpMat, h === 0 ? 0.0 : 0.85, 0.95, 1.0, hand.grip || hand.trigger ? 2.5 : 1.4, 0, 0, 0, 1.0);
+
+    // Left Hand (h === 0) Wrist Holographic Radar:
+    // Displays a glowing ring and 5 directional crystal needles pointing in 3D toward each Artifact!
+    if (h === 0) {
+      Mat4.fromTranslationRotationScale(tmpMat2, 0, 0.075, 0.02, 0, time * 0.8, 0, 0.075, 0.075, 0.075);
+      Mat4.multiply(tmpMat, hand.mat, tmpMat2);
+      torusBatch.addInstance(tmpMat, 0.0, 0.9, 1.0, 1.5, 0, 0, 0, 1.0);
+
+      const hx = tmpMat[12], hy = tmpMat[13], hz = tmpMat[14];
+      for (let aIdx = 0; aIdx < artifacts.length; aIdx++) {
+        const art = artifacts[aIdx];
+        const dx = art.x - hx, dz = art.z - hz;
+        const yawToArt = Math.atan2(dx, dz);
+        const orbitAng = (aIdx / 5) * TAU;
+        const px = hx + Math.sin(yawToArt) * 0.055;
+        const pz = hz + Math.cos(yawToArt) * 0.055;
+        const py = hy + 0.015 + (art.socketedIn !== -1 ? 0.025 : 0.0);
+
+        if (art.socketedIn !== -1) {
+          // Collected/Socketed: tiny floating star pip above wrist ring
+          Mat4.fromTranslationRotationScale(tmpMat, hx + Math.cos(orbitAng + time) * 0.03, py, hz + Math.sin(orbitAng + time) * 0.03, time * 2, time * 2, 0, 0.014, 0.014, 0.014);
+          artifactBatch.addInstance(tmpMat, art.color[0], art.color[1], art.color[2], 2.2, 0, 0, 0, 1.0);
+        } else {
+          // Uncollected: horizontal crystal needle pointing directly toward the Artifact's world coordinates!
+          Mat4.fromTranslationRotationScale(tmpMat, px, py, pz, Math.PI * 0.5, yawToArt, 0, 0.022, 0.038, 0.022);
+          crystalBatch.addInstance(tmpMat, art.color[0], art.color[1], art.color[2], 2.4, 0, 0, 0, 1.0);
+        }
+      }
+    }
+  }
+}
+
+/* ============================================================================
+   10. WEBGL2 INITIALIZATION & WEBXR SESSION LOOP
+   ============================================================================ */
+let uSurf = {}, uSky = {}, uWeather = {};
+
+function initWebGL2() {
+  const canvas = document.getElementById('xr-canvas');
+  gl = canvas.getContext('webgl2', { xrCompatible: true, antialias: true, alpha: false });
+  if (!gl) throw new Error('WebGL2 is required for this WebXR experience.');
+
+  gl.enable(gl.DEPTH_TEST);
+  gl.enable(gl.CULL_FACE);
+
+  // Compile Shaders
+  surfProg = createProgram(SURFACE_VS, SURFACE_FS);
+  skyProg = createProgram(SKY_VS, SKY_FS);
+  weatherProg = createProgram(WEATHER_VS, WEATHER_FS);
+
+  const getUniforms = (prog, names) => {
+    const map = {};
+    for (const n of names) map[n] = gl.getUniformLocation(prog, n);
+    return map;
+  };
+  uSurf = getUniforms(surfProg, [
+    'uViewProj', 'uTime', 'uCamPos', 'uScanWave', 'uFogColor',
+    'uWeatherFlash', 'uPointLights', 'uLightColors'
+  ]);
+  uSky = getUniforms(skyProg, ['uViewProj', 'uCamPos', 'uTime', 'uFogColor', 'uAuroraStrength', 'uWeatherFlash']);
+  uWeather = getUniforms(weatherProg, ['uViewProj', 'uPlayerPos', 'uTime', 'uWeatherMode']);
+
+  // 1. Build Planet Terrain + Subterranean Cavern + Stone Arch VAO
+  const planetGeom = buildPlanetAndCavesGeometry();
+  planetIndexCount = planetGeom.indices.length;
+  planetVAO = gl.createVertexArray();
+  gl.bindVertexArray(planetVAO);
+
+  const makeStaticAttr = (loc, data, size) => {
+    const b = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, b);
+    gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 0, 0);
+  };
+  makeStaticAttr(0, planetGeom.positions, 3);
+  makeStaticAttr(1, planetGeom.normals, 3);
+  makeStaticAttr(2, planetGeom.colors, 3);
+
+  const pIbo = gl.createBuffer();
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, pIbo);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, planetGeom.indices, gl.STATIC_DRAW);
+
+  // Set default constant instance attributes for the 1-instance planet mesh
+  gl.disableVertexAttribArray(3); gl.vertexAttrib4f(3, 1, 0, 0, 0);
+  gl.disableVertexAttribArray(4); gl.vertexAttrib4f(4, 0, 1, 0, 0);
+  gl.disableVertexAttribArray(5); gl.vertexAttrib4f(5, 0, 0, 1, 0);
+  gl.disableVertexAttribArray(6); gl.vertexAttrib4f(6, 0, 0, 0, 1);
+  gl.disableVertexAttribArray(7); gl.vertexAttrib4f(7, 1, 1, 1, 0.08);
+  gl.disableVertexAttribArray(8); gl.vertexAttrib4f(8, 0, 0, 0, 0.35);
+
+  // 2. Build Sky Dome VAO
+  const skyGeom = buildSkyDomeGeometry();
+  skyIndexCount = skyGeom.indices.length;
+  skyVAO = gl.createVertexArray();
+  gl.bindVertexArray(skyVAO);
+  makeStaticAttr(0, skyGeom.positions, 3);
+  const sIbo = gl.createBuffer();
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, sIbo);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, skyGeom.indices, gl.STATIC_DRAW);
+
+  // 3. Build Weather Particles VAO
+  weatherVAO = gl.createVertexArray();
+  gl.bindVertexArray(weatherVAO);
+  const seeds = new Float32Array(weatherCount * 3);
+  for (let i = 0; i < seeds.length; i++) seeds[i] = Math.random();
+  makeStaticAttr(0, seeds, 3);
+  gl.bindVertexArray(null);
+
+  // 4. Initialize Instanced Geometry Batches
+  crystalBatch  = new InstancedBatch(buildCrystalGeometry(), 380);
+  capBatch      = new InstancedBatch(buildOrganicCapGeometry(), 320);
+  cylBatch      = new InstancedBatch(buildCylinderGeometry(), 380);
+  torusBatch    = new InstancedBatch(buildTorusGeometry(), 64);
+  artifactBatch = new InstancedBatch(buildArtifactGeometry(), 64);
+
+  initAlienWorldEntities();
+}
+
+let xrSession = null;
+let xrRefSpace = null;
+let lastFrameTime = 0;
+
+function onXRFrame(timeMs, frame) {
+  const session = frame.session;
+  session.requestAnimationFrame(onXRFrame);
+
+  const time = timeMs * 0.001;
+  const dt = lastFrameTime === 0 ? 0.016 : clamp((timeMs - lastFrameTime) * 0.001, 0.001, 0.1);
+  lastFrameTime = timeMs;
+
+  const viewerPose = frame.getViewerPose(xrRefSpace);
+  if (!viewerPose) return;
+
+  // Update Locomotion, Controllers, Physics, Flora & Artifacts
+  processXRInputAndPhysics(session, frame, xrRefSpace, viewerPose, dt, time);
+  assembleSceneBatches(time, dt);
+
+  const baseLayer = session.renderState.baseLayer;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, baseLayer.framebuffer);
+
+  // Atmospheric fog color shifts with weather mode
+  let fogR = 0.04, fogG = 0.09, fogB = 0.18;
+  if (weatherMode === 1) { fogR = 0.03; fogG = 0.14; fogB = 0.22; }
+  else if (weatherMode === 2) { fogR = 0.11; fogG = 0.06; fogB = 0.19; }
+  fogR += weatherFlash * 0.25;
+  fogG += weatherFlash * 0.18;
+  fogB += weatherFlash * 0.35;
+
+  gl.clearColor(fogR, fogG, fogB, 1.0);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+  let socketedCount = 0;
+  for (const art of artifacts) if (art.socketedIn !== -1) socketedCount++;
+  const auroraStrength = 0.45 + (socketedCount / 5.0) * 1.35;
+
+  // Render Each Eye View
+  for (const view of viewerPose.views) {
+    const vp = baseLayer.getViewport(view);
+    gl.viewport(vp.x, vp.y, vp.width, vp.height);
+
+    // Combine eye view inverse with our world rig inverse: V_world = V_local * invRigMat
+    Mat4.multiply(viewMat, view.transform.inverse.matrix, invRigMat);
+    Mat4.multiply(viewProjMat, view.projectionMatrix, viewMat);
+
+    // Eye world position
+    const p = view.transform.position;
+    Mat4.transformPoint(tmpPt, rigMat, p.x, p.y, p.z);
+    const camX = tmpPt[0], camY = tmpPt[1], camZ = tmpPt[2];
+
+    // PASS 1: Alien Sky Dome, Ringed Gas Giant & Dynamic Aurora
+    gl.disable(gl.CULL_FACE);
+    gl.depthMask(false);
+    gl.useProgram(skyProg);
+    gl.uniformMatrix4fv(uSky.uViewProj, false, viewProjMat);
+    gl.uniform3f(uSky.uCamPos, camX, camY, camZ);
+    gl.uniform1f(uSky.uTime, time);
+    gl.uniform3f(uSky.uFogColor, fogR, fogG, fogB);
+    gl.uniform1f(uSky.uAuroraStrength, auroraStrength);
+    gl.uniform1f(uSky.uWeatherFlash, weatherFlash);
+    gl.bindVertexArray(skyVAO);
+    gl.drawElements(gl.TRIANGLES, skyIndexCount, gl.UNSIGNED_INT, 0);
+    gl.depthMask(true);
+    gl.enable(gl.CULL_FACE);
+
+    // PASS 2: Planet Terrain, Crystal Cavern & All Instanced World Entities
+    gl.useProgram(surfProg);
+    gl.uniformMatrix4fv(uSurf.uViewProj, false, viewProjMat);
+    gl.uniform1f(uSurf.uTime, time);
+    gl.uniform3f(uSurf.uCamPos, camX, camY, camZ);
+    gl.uniform4f(uSurf.uScanWave, scanWave.x, scanWave.y, scanWave.z, scanWave.active ? scanWave.radius : 0.0);
+    gl.uniform3f(uSurf.uFogColor, fogR, fogG, fogB);
+    gl.uniform1f(uSurf.uWeatherFlash, weatherFlash);
+    gl.uniform4fv(uSurf.uPointLights, pointLightPos);
+    gl.uniform3fv(uSurf.uLightColors, pointLightCol);
+
+    // Draw Planet Terrain + Vaulted Cave Mesh + Stone Arch
+    gl.bindVertexArray(planetVAO);
+    gl.drawElements(gl.TRIANGLES, planetIndexCount, gl.UNSIGNED_INT, 0);
+
+    // Draw Instanced Batches (Crystals, Flora Caps, Stalks/Ruins, Rings, Artifacts)
+    crystalBatch.uploadAndDraw();
+    cylBatch.uploadAndDraw();
+    torusBatch.uploadAndDraw();
+    artifactBatch.uploadAndDraw();
+
+    // Organic caps (mushrooms, jellyfish bells, leviathan wings) drawn without backface culling so glowing gills are visible from underneath
+    gl.disable(gl.CULL_FACE);
+    capBatch.uploadAndDraw();
+    gl.enable(gl.CULL_FACE);
+
+    // PASS 3: Volumetric GPU Weather Particles (Bioluminescent Spores / Rain / Ion Storm)
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+    gl.depthMask(false);
+    gl.useProgram(weatherProg);
+    gl.uniformMatrix4fv(uWeather.uViewProj, false, viewProjMat);
+    gl.uniform3f(uWeather.uPlayerPos, camX, camY, camZ);
+    gl.uniform1f(uWeather.uTime, time);
+    gl.uniform1f(uWeather.uWeatherMode, weatherMode);
+    gl.bindVertexArray(weatherVAO);
+    gl.drawArrays(gl.POINTS, 0, weatherCount);
+    gl.depthMask(true);
+    gl.disable(gl.BLEND);
+  }
+}
+
+/* ============================================================================
+   11. WEBXR ENTRY POINT (STRICTLY IMMERSIVE-VR, NO FALLBACKS)
+   ============================================================================ */
+const vrBtn = document.getElementById('vr-btn');
+const statusEl = document.getElementById('status');
+
+async function checkXR() {
+  if (!('xr' in navigator)) {
+    vrBtn.textContent = 'WebXR Not Available';
+    statusEl.textContent = 'Your browser does not support the WebXR Device API.';
+    return;
+  }
+  try {
+    const supported = await navigator.xr.isSessionSupported('immersive-vr');
+    if (supported) {
+      vrBtn.disabled = false;
+      vrBtn.textContent = 'Enter Alien World (VR)';
+      vrBtn.addEventListener('click', startVRSession);
+    } else {
+      vrBtn.textContent = 'Immersive VR Unsupported';
+      statusEl.textContent = 'Connect a VR headset to launch an immersive-vr session.';
+    }
+  } catch (err) {
+    vrBtn.textContent = 'WebXR Error';
+    statusEl.textContent = err.message;
+  }
+}
+
+async function startVRSession() {
+  try {
+    if (!gl) initWebGL2();
+    audio.init();
+    if (audio.ctx && audio.ctx.state === 'suspended') {
+      await audio.ctx.resume();
+    }
+
+    xrSession = await navigator.xr.requestSession('immersive-vr', {
+      optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking']
+    });
+
+    xrSession.addEventListener('end', () => {
+      xrSession = null;
+      lastFrameTime = 0;
+      vrBtn.textContent = 'Re-Enter Alien World (VR)';
+    });
+
+    await gl.makeXRCompatible();
+    xrSession.updateRenderState({
+      baseLayer: new XRWebGLLayer(xrSession, gl)
+    });
+
+    try {
+      xrRefSpace = await xrSession.requestReferenceSpace('local-floor');
+    } catch (_) {
+      xrRefSpace = await xrSession.requestReferenceSpace('local');
+    }
+
+    // Trigger an initial welcome scanner wave so the player immediately sees the world light up
+    scanWave.x = 0; scanWave.y = 2; scanWave.z = 12;
+    scanWave.radius = 0.5; scanWave.active = true;
+
+    xrSession.requestAnimationFrame(onXRFrame);
+  } catch (err) {
+    statusEl.textContent = 'Failed to start VR session: ' + err.message;
+  }
+}
+
+checkXR();
+</script>
+</body>
+</html>

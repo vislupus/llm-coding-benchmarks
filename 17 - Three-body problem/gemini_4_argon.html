@@ -1,0 +1,990 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chaotic 3-Body Gravity & Spacecraft Transfer — p5.js Simulation</title>
+  <script src="https://cdn.jsdelivr.net/npm/p5@1.9.4/lib/p5.min.js"></script>
+  <style>
+    :root {
+      --panel-bg: rgba(255, 255, 255, 0.86);
+      --panel-border: rgba(30, 41, 59, 0.14);
+      --text-main: #0f172a;
+      --text-muted: #475569;
+      --sun-color: #d97706;
+      --earth-color: #2563eb;
+      --jupiter-color: #c2410c;
+      --craft-color: #9333ea;
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --font-mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+    }
+
+    body, html {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: rgb(220, 220, 220);
+      font-family: var(--font-sans);
+      color: var(--text-main);
+    }
+
+    #canvas-container {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* Floating Telemetry & Control HUD */
+    .hud-sidebar {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      width: 315px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      z-index: 10;
+      pointer-events: none;
+    }
+
+    .hud-card {
+      pointer-events: auto;
+      background: var(--panel-bg);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border: 1px solid var(--panel-border);
+      border-radius: 10px;
+      padding: 12px 14px;
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+    }
+
+    .hud-title {
+      font-size: 0.74rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .status-pill {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: rgba(147, 51, 234, 0.14);
+      color: var(--craft-color);
+    }
+
+    .telemetry-rows {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      font-family: var(--font-mono);
+      font-size: 0.73rem;
+    }
+
+    .t-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .t-label {
+      color: var(--text-muted);
+    }
+
+    .t-val {
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    /* Progress Bar for Mission Phases */
+    .phase-steps {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 4px;
+      margin-top: 8px;
+    }
+
+    .phase-step {
+      height: 5px;
+      border-radius: 3px;
+      background: rgba(15, 23, 42, 0.12);
+      transition: background 0.25s ease;
+    }
+
+    .phase-step.active {
+      background: var(--craft-color);
+    }
+
+    .phase-step.done {
+      background: #10b981;
+    }
+
+    /* Legend */
+    .legend-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      font-size: 0.74rem;
+      font-weight: 600;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    /* Interactive Buttons */
+    .btn-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      margin-top: 4px;
+    }
+
+    button {
+      background: rgba(15, 23, 42, 0.06);
+      border: 1px solid rgba(15, 23, 42, 0.14);
+      border-radius: 6px;
+      padding: 7px 9px;
+      font-family: var(--font-sans);
+      font-size: 0.73rem;
+      font-weight: 700;
+      color: var(--text-main);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    button:hover {
+      background: rgba(15, 23, 42, 0.12);
+    }
+
+    button.primary {
+      grid-column: 1 / -1;
+      background: #7e22ce;
+      color: #fff;
+      border-color: #6b21a8;
+    }
+
+    button.primary:hover {
+      background: #9333ea;
+    }
+
+    .hint-text {
+      margin-top: 8px;
+      font-size: 0.68rem;
+      color: var(--text-muted);
+      line-height: 1.35;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="canvas-container"></div>
+
+  <!-- Telemetry & Interactive Controls Overlay -->
+  <aside class="hud-sidebar">
+    <div class="hud-card">
+      <div class="hud-title">
+        <span>Spacecraft Telemetry</span>
+        <span class="status-pill" id="ui-phase">1. EARTH PAD</span>
+      </div>
+
+      <div class="telemetry-rows">
+        <div class="t-row">
+          <span class="t-label">Solar Loop Angle:</span>
+          <span class="t-val" id="ui-loop">0° / 360°</span>
+        </div>
+        <div class="t-row">
+          <span class="t-label">Dist to Sun:</span>
+          <span class="t-val" id="ui-dist-sun">--</span>
+        </div>
+        <div class="t-row">
+          <span class="t-label">Dist to Jupiter:</span>
+          <span class="t-val" id="ui-dist-jup">--</span>
+        </div>
+        <div class="t-row">
+          <span class="t-label">Spacecraft Speed:</span>
+          <span class="t-val" id="ui-speed">--</span>
+        </div>
+      </div>
+
+      <div class="phase-steps">
+        <div class="phase-step active" id="step-1" title="Phase 1: Launch from Earth"></div>
+        <div class="phase-step" id="step-2" title="Phase 2: Complete Loop around Sun"></div>
+        <div class="phase-step" id="step-3" title="Phase 3: Transfer Trajectory to Jupiter"></div>
+        <div class="phase-step" id="step-4" title="Phase 4: Jupiter Rendezvous"></div>
+      </div>
+    </div>
+
+    <div class="hud-card">
+      <div class="hud-title">Chaotic 3-Body System</div>
+      <div class="legend-grid">
+        <div class="legend-item"><span class="dot" style="background:#f59e0b;"></span>Sun (M=1150)</div>
+        <div class="legend-item"><span class="dot" style="background:#2563eb;"></span>Earth (M=28)</div>
+        <div class="legend-item"><span class="dot" style="background:#ea580c;"></span>Jupiter (M=175)</div>
+        <div class="legend-item"><span class="dot" style="background:#9333ea;"></span>Spacecraft</div>
+      </div>
+    </div>
+
+    <div class="hud-card">
+      <div class="hud-title">Simulation Controls</div>
+      <div class="btn-grid">
+        <button class="primary" id="btn-relaunch">Relaunch Spacecraft from Earth</button>
+        <button id="btn-preset">New Chaotic Seed</button>
+        <button id="btn-kick">Perturb Orbits</button>
+        <button id="btn-clear">Clear Trails</button>
+        <button id="btn-speed">Speed: 1.0x</button>
+      </div>
+      <p class="hint-text">
+        <b>Tip:</b> Hold mouse button anywhere on the canvas to create a temporary gravitational attractor and perturb the orbits.
+      </p>
+    </div>
+  </aside>
+
+  <script>
+    /*************************************************************************
+     * CHAOTIC 3-BODY GRAVITATIONAL SIMULATION + SPACECRAFT MISSION (p5.js)
+     * - Background value: 220
+     * - Strictly uses noStroke() for all rendering & persistent orbital trails
+     *************************************************************************/
+
+    let trailLayer; // Offscreen graphics buffer for persistent orbital trails
+    let sun, earth, jupiter, craft;
+    let exhaustParticles = [];
+
+    // Physics constants
+    const G = 1.15;
+    const SUBSTEPS = 12;
+    let timeScale = 1.0;
+    let presetIndex = 0;
+
+    // Spacecraft Mission States
+    const PHASE = {
+      ON_EARTH: 1,
+      SOLAR_LOOP: 2,
+      JUPITER_TRANSFER: 3,
+      JUPITER_CAPTURED: 4
+    };
+
+    function setup() {
+      const cnv = createCanvas(windowWidth, windowHeight);
+      cnv.parent('canvas-container');
+      noStroke();
+
+      // Persistent trail buffer initialized with background(220)
+      trailLayer = createGraphics(windowWidth, windowHeight);
+      trailLayer.noStroke();
+      trailLayer.background(220);
+
+      initChaoticSystem(0);
+      bindUIControls();
+    }
+
+    function windowResized() {
+      const oldW = width;
+      const oldH = height;
+      resizeCanvas(windowWidth, windowHeight);
+      noStroke();
+
+      const newTrail = createGraphics(windowWidth, windowHeight);
+      newTrail.noStroke();
+      newTrail.background(220);
+      newTrail.image(trailLayer, (width - oldW) / 2, (height - oldH) / 2);
+      trailLayer = newTrail;
+
+      // Shift bodies to stay centered on resize
+      const dx = (width - oldW) / 2;
+      const dy = (height - oldH) / 2;
+      for (const b of [sun, earth, jupiter, craft]) {
+        if (b) {
+          b.x += dx;
+          b.y += dy;
+        }
+      }
+    }
+
+    /*************************************************************************
+     * 1. INITIALIZE BOUNDED CHAOTIC 3-BODY CONFIGURATIONS
+     *    High planet-to-sun mass ratios (Jupiter ~15% Sun, Earth ~2.5% Sun)
+     *    and eccentric/inclined velocities create non-repeating chaotic
+     *    rosette orbits while zero-momentum barycentric locking keeps the
+     *    entire system centered inside the canvas.
+     *************************************************************************/
+    function initChaoticSystem(seedIdx = 0) {
+      const cx = width * 0.54;
+      const cy = height * 0.50;
+      const scaleFactor = min(width, height) / 760;
+
+      // Curated chaotic initial conditions (positions & velocities before barycenter zeroing)
+      const presets = [
+        // Preset 0: Strong resonant energy exchange & rapid apsidal precession
+        {
+          earthPos:   { x: -135, y: 15 },
+          earthVel:   { vx: -0.35, vy: -3.25 },
+          jupiterPos: { x: 215, y: -25 },
+          jupiterVel: { vx: 0.42, vy: 2.15 }
+        },
+        // Preset 1: High-eccentricity three-body choreography
+        {
+          earthPos:   { x: 0, y: -130 },
+          earthVel:   { vx: 3.45, vy: 0.25 },
+          jupiterPos: { x: 0, y: 225 },
+          jupiterVel: { vx: -2.05, vy: 0.30 }
+        },
+        // Preset 2: Asymmetric chaotic slingshot dance
+        {
+          earthPos:   { x: 145, y: 40 },
+          earthVel:   { vx: -0.95, vy: 3.05 },
+          jupiterPos: { x: -195, y: -90 },
+          jupiterVel: { vx: 1.05, vy: -2.10 }
+        }
+      ];
+
+      const p = presets[seedIdx % presets.length];
+
+      sun = {
+        name: 'Sun',
+        mass: 1150,
+        radius: 17,
+        x: cx,
+        y: cy,
+        vx: 0,
+        vy: 0,
+        ax: 0,
+        ay: 0,
+        color: [234, 138, 12],
+        trailColor: [234, 138, 12, 115]
+      };
+
+      earth = {
+        name: 'Earth',
+        mass: 28,
+        radius: 7.5,
+        x: cx + p.earthPos.x * scaleFactor,
+        y: cy + p.earthPos.y * scaleFactor,
+        vx: p.earthVel.vx / sqrt(scaleFactor),
+        vy: p.earthVel.vy / sqrt(scaleFactor),
+        ax: 0,
+        ay: 0,
+        color: [37, 99, 235],
+        trailColor: [37, 99, 235, 135]
+      };
+
+      jupiter = {
+        name: 'Jupiter',
+        mass: 175,
+        radius: 12.5,
+        x: cx + p.jupiterPos.x * scaleFactor,
+        y: cy + p.jupiterPos.y * scaleFactor,
+        vx: p.jupiterVel.vx / sqrt(scaleFactor),
+        vy: p.jupiterVel.vy / sqrt(scaleFactor),
+        ax: 0,
+        ay: 0,
+        color: [217, 70, 15],
+        trailColor: [217, 70, 15, 135]
+      };
+
+      // Zero out total linear momentum and center of mass so the 3 bodies never drift
+      enforceBarycenter(cx, cy);
+
+      // Clear trail canvas to background(220)
+      trailLayer.background(220);
+      exhaustParticles = [];
+
+      // Initialize Spacecraft on Earth
+      launchSpacecraftFromEarth();
+    }
+
+    function enforceBarycenter(targetCx, targetCy) {
+      const bodies = [sun, earth, jupiter];
+      let totalMass = 0;
+      let comX = 0, comY = 0;
+      let momX = 0, momY = 0;
+
+      for (const b of bodies) {
+        totalMass += b.mass;
+        comX += b.mass * b.x;
+        comY += b.mass * b.y;
+        momX += b.mass * b.vx;
+        momY += b.mass * b.vy;
+      }
+
+      comX /= totalMass;
+      comY /= totalMass;
+      const vComX = momX / totalMass;
+      const vComY = momY / totalMass;
+
+      for (const b of bodies) {
+        b.x += (targetCx - comX);
+        b.y += (targetCy - comY);
+        b.vx -= vComX;
+        b.vy -= vComY;
+      }
+    }
+
+    /*************************************************************************
+     * 2. SPACECRAFT INITIALIZATION & MISSION GUIDANCE LOGIC
+     *************************************************************************/
+    function launchSpacecraftFromEarth() {
+      craft = {
+        x: earth.x,
+        y: earth.y,
+        vx: earth.vx,
+        vy: earth.vy,
+        ax: 0,
+        ay: 0,
+        phase: PHASE.ON_EARTH,
+        timer: 0,
+        solarAngleAccum: 0,
+        prevSolarAngle: atan2(earth.y - sun.y, earth.x - sun.x),
+        orbitDir: 1,
+        trailColor: [147, 51, 234, 195]
+      };
+    }
+
+    function computePlanetaryAccelerations() {
+      const bodies = [sun, earth, jupiter];
+      for (const b of bodies) {
+        b.ax = 0;
+        b.ay = 0;
+      }
+
+      // Pairwise softened Newtonian gravity (prevents numerical ejection while keeping chaos)
+      for (let i = 0; i < bodies.length; i++) {
+        for (let j = i + 1; j < bodies.length; j++) {
+          const b1 = bodies[i];
+          const b2 = bodies[j];
+          const dx = b2.x - b1.x;
+          const dy = b2.y - b1.y;
+          const distSq = dx * dx + dy * dy;
+
+          // Softening length prevents singular infinite kicks during close chaotic passages
+          const softSq = (i === 0) ? 420 : 950;
+          const invDist3 = 1.0 / pow(distSq + softSq, 1.5);
+          const forceMag = G * invDist3;
+
+          b1.ax += forceMag * b2.mass * dx;
+          b1.ay += forceMag * b2.mass * dy;
+          b2.ax -= forceMag * b1.mass * dx;
+          b2.ay -= forceMag * b1.mass * dy;
+        }
+      }
+
+      // Repulsive core below minimum separation so planets never merge into a cluster
+      const pairs = [[sun, earth, 58], [sun, jupiter, 92], [earth, jupiter, 48]];
+      for (const [b1, b2, minSep] of pairs) {
+        const dx = b2.x - b1.x;
+        const dy = b2.y - b1.y;
+        const d = sqrt(dx * dx + dy * dy) || 1;
+        if (d < minSep) {
+          const push = 0.08 * (minSep - d) / d;
+          b1.ax -= push * (b2.mass / (b1.mass + b2.mass)) * dx;
+          b1.ay -= push * (b2.mass / (b1.mass + b2.mass)) * dy;
+          b2.ax += push * (b1.mass / (b1.mass + b2.mass)) * dx;
+          b2.ay += push * (b1.mass / (b1.mass + b2.mass)) * dy;
+        }
+      }
+
+      // Smooth outer boundary potential so all 3 bodies always stay within the canvas
+      const cx = width * 0.54;
+      const cy = height * 0.50;
+      const maxRadius = min(width, height) * 0.39;
+
+      for (const b of bodies) {
+        const rx = b.x - cx;
+        const ry = b.y - cy;
+        const r = sqrt(rx * rx + ry * ry);
+        if (r > maxRadius) {
+          const excess = r - maxRadius;
+          const pull = 0.0018 * excess;
+          b.ax -= pull * (rx / r);
+          b.ay -= pull * (ry / r);
+          // Slight radial velocity damping at rim
+          b.vx *= 0.9992;
+          b.vy *= 0.9992;
+        }
+
+        // Interactive Mouse Attractor (if user holds mouse button on canvas)
+        if (mouseIsPressed && mouseX > 330) {
+          const mx = mouseX - b.x;
+          const my = mouseY - b.y;
+          const md2 = mx * mx + my * my + 1200;
+          const mPull = (G * 380) / pow(md2, 1.5);
+          b.ax += mPull * mx;
+          b.ay += mPull * my;
+        }
+      }
+    }
+
+    function updateSpacecraftSubstep(dt) {
+      craft.timer += dt;
+
+      // STAGE 1: Starts on Earth
+      if (craft.phase === PHASE.ON_EARTH) {
+        const padAngle = craft.timer * 0.08;
+        craft.x = earth.x + cos(padAngle) * (earth.radius + 3);
+        craft.y = earth.y + sin(padAngle) * (earth.radius + 3);
+        craft.vx = earth.vx;
+        craft.vy = earth.vy;
+
+        // After brief stay on Earth, depart toward inner solar loop
+        if (craft.timer >= 36) {
+          craft.phase = PHASE.SOLAR_LOOP;
+          craft.timer = 0;
+
+          // Determine Earth's angular direction around the Sun (CCW or CW)
+          const rx = earth.x - sun.x;
+          const ry = earth.y - sun.y;
+          const rMag = sqrt(rx * rx + ry * ry) || 1;
+          const rvx = earth.vx - sun.vx;
+          const rvy = earth.vy - sun.vy;
+          const cross = rx * rvy - ry * rvx;
+          craft.orbitDir = cross >= 0 ? 1 : -1;
+
+          // Unit radial and tangential vectors relative to Sun
+          const urx = rx / rMag;
+          const ury = ry / rMag;
+          const utx = -ury * craft.orbitDir;
+          const uty =  urx * craft.orbitDir;
+
+          // Departure impulse from Earth into a tight heliocentric loop
+          const vTarget = sqrt((G * sun.mass) / 72);
+          craft.vx = sun.vx + utx * vTarget * 0.95 - urx * 1.45;
+          craft.vy = sun.vy + uty * vTarget * 0.95 - ury * 1.45;
+          craft.prevSolarAngle = atan2(craft.y - sun.y, craft.x - sun.x);
+          craft.solarAngleAccum = 0;
+
+          spawnExhaust(craft.x, craft.y, -utx, -uty, 12);
+        }
+        return;
+      }
+
+      // Compute true Newtonian gravity on Spacecraft from Sun, Earth, and Jupiter
+      let gx = 0, gy = 0;
+      const attractors = [
+        { body: sun, soft: 260, weight: 1.0 },
+        { body: earth, soft: 320, weight: (craft.phase === PHASE.SOLAR_LOOP ? 0.35 : 0.75) },
+        { body: jupiter, soft: 280, weight: 1.0 }
+      ];
+
+      for (const a of attractors) {
+        const dx = a.body.x - craft.x;
+        const dy = a.body.y - craft.y;
+        const d2 = dx * dx + dy * dy + a.soft;
+        const f = (G * a.body.mass * a.weight) / pow(d2, 1.5);
+        gx += f * dx;
+        gy += f * dy;
+      }
+
+      // Mission Orbital Guidance Burns (continuous low-thrust + impulsive maneuvers)
+      let thrustX = 0, thrustY = 0;
+
+      if (craft.phase === PHASE.SOLAR_LOOP) {
+        // Track cumulative angular sweep around the Sun
+        const curAngle = atan2(craft.y - sun.y, craft.x - sun.x);
+        let dTheta = curAngle - craft.prevSolarAngle;
+        if (dTheta > PI) dTheta -= TWO_PI;
+        if (dTheta < -PI) dTheta += TWO_PI;
+        craft.solarAngleAccum += abs(dTheta);
+        craft.prevSolarAngle = curAngle;
+
+        // Maintain a crisp, smooth heliocentric orbit at target radius ~66 px around the moving Sun
+        const rx = craft.x - sun.x;
+        const ry = craft.y - sun.y;
+        const r = sqrt(rx * rx + ry * ry) || 1;
+        const urx = rx / r;
+        const ury = ry / r;
+        const utx = -ury * craft.orbitDir;
+        const uty =  urx * craft.orbitDir;
+
+        const targetR = 66;
+        const vCirc = sqrt((G * sun.mass) / targetR);
+
+        // Desired velocity in Sun's frame: tangential orbital speed + radial spring toward targetR
+        const desiredVx = sun.vx + utx * vCirc - urx * ((r - targetR) * 0.085);
+        const desiredVy = sun.vy + uty * vCirc - ury * ((r - targetR) * 0.085);
+
+        thrustX = (desiredVx - craft.vx) * 0.14;
+        thrustY = (desiredVy - craft.vy) * 0.14;
+
+        // Check if at least 1 full loop (360 deg = TWO_PI) is completed AND phase window to Jupiter is open
+        if (craft.solarAngleAccum >= TWO_PI * 1.04) {
+          const toJupX = jupiter.x - craft.x;
+          const toJupY = jupiter.y - craft.y;
+          const toJupDist = sqrt(toJupX * toJupX + toJupY * toJupY) || 1;
+          // Alignment between spacecraft prograde tangent and vector toward Jupiter
+          const align = (utx * toJupX + uty * toJupY) / toJupDist;
+
+          if (align > 0.68 || craft.solarAngleAccum >= TWO_PI * 1.55) {
+            craft.phase = PHASE.JUPITER_TRANSFER;
+            craft.timer = 0;
+            // Prograde Trans-Jovian Injection (TJI) delta-v boost
+            craft.vx += utx * 1.65 + (toJupX / toJupDist) * 0.85;
+            craft.vy += uty * 1.65 + (toJupY / toJupDist) * 0.85;
+            spawnExhaust(craft.x, craft.y, -utx, -uty, 16);
+          }
+        }
+      } else if (craft.phase === PHASE.JUPITER_TRANSFER) {
+        // Physically plausible curved transfer trajectory to intercept moving Jupiter
+        const dx = jupiter.x - craft.x;
+        const dy = jupiter.y - craft.y;
+        const dist = sqrt(dx * dx + dy * dy) || 1;
+
+        // Lead Jupiter's chaotic velocity with a curved prograde angular component
+        const timeToGo = constrain(dist / 5.2, 8, 55);
+        const predX = jupiter.x + jupiter.vx * timeToGo * 0.45 - craft.x;
+        const predY = jupiter.y + jupiter.vy * timeToGo * 0.45 - craft.y;
+        const predDist = sqrt(predX * predX + predY * predY) || 1;
+
+        const dirX = predX / predDist;
+        const dirY = predY / predDist;
+
+        // Add a graceful tangential curve component when far so the transfer arches around the Sun
+        const tangX = -dirY * craft.orbitDir;
+        const tangY =  dirX * craft.orbitDir;
+        const curveBlend = constrain(dist / 260, 0, 0.38);
+
+        const cruiseSpeed = constrain(dist * 0.045 + 2.4, 2.6, 5.8);
+        const targetVx = jupiter.vx + (dirX * (1 - curveBlend) + tangX * curveBlend) * cruiseSpeed;
+        const targetVy = jupiter.vy + (dirY * (1 - curveBlend) + tangY * curveBlend) * cruiseSpeed;
+
+        // Mid-course guidance thrust
+        thrustX = (targetVx - craft.vx) * 0.095;
+        thrustY = (targetVy - craft.vy) * 0.095;
+
+        // Solar collision avoidance if Jupiter is directly across the Sun
+        const sx = craft.x - sun.x;
+        const sy = craft.y - sun.y;
+        const sDist = sqrt(sx * sx + sy * sy) || 1;
+        if (sDist < 52) {
+          const deflect = (52 - sDist) * 0.035;
+          thrustX += (sx / sDist - (sy / sDist) * craft.orbitDir) * deflect;
+          thrustY += (sy / sDist + (sx / sDist) * craft.orbitDir) * deflect;
+        }
+
+        // Check for arrival at Jupiter's capture sphere
+        if (dist <= jupiter.radius + 11) {
+          craft.phase = PHASE.JUPITER_CAPTURED;
+          craft.timer = 0;
+          spawnExhaust(craft.x, craft.y, dirX, dirY, 18);
+        }
+      } else if (craft.phase === PHASE.JUPITER_CAPTURED) {
+        // Captured Jovian Orbit around Jupiter
+        const rx = craft.x - jupiter.x;
+        const ry = craft.y - jupiter.y;
+        const r = sqrt(rx * rx + ry * ry) || 1;
+        const urx = rx / r;
+        const ury = ry / r;
+        const utx = -ury * craft.orbitDir;
+        const uty =  urx * craft.orbitDir;
+
+        const targetOrbitR = jupiter.radius + 10;
+        const vOrbit = 2.65;
+        const desiredVx = jupiter.vx + utx * vOrbit - urx * ((r - targetOrbitR) * 0.22);
+        const desiredVy = jupiter.vy + uty * vOrbit - ury * ((r - targetOrbitR) * 0.22);
+
+        thrustX = (desiredVx - craft.vx) * 0.28;
+        thrustY = (desiredVy - craft.vy) * 0.28;
+      }
+
+      craft.vx += (gx + thrustX) * dt;
+      craft.vy += (gy + thrustY) * dt;
+      craft.x  += craft.vx * dt;
+      craft.y  += craft.vy * dt;
+    }
+
+    function spawnExhaust(x, y, dirX, dirY, count) {
+      for (let i = 0; i < count; i++) {
+        const spread = (random() - 0.5) * 1.1;
+        const spd = random(1.2, 3.4);
+        const c = cos(spread), s = sin(spread);
+        exhaustParticles.push({
+          x,
+          y,
+          vx: (dirX * c - dirY * s) * spd,
+          vy: (dirX * s + dirY * c) * spd,
+          life: 1.0,
+          size: random(3, 6)
+        });
+      }
+    }
+
+    /*************************************************************************
+     * 3. MAIN P5.JS DRAW LOOP (background(220) + noStroke() + Trails)
+     *************************************************************************/
+    function draw() {
+      // Required background value of 220 and noStroke()
+      background(220);
+      noStroke();
+
+      const dt = (1.0 / SUBSTEPS) * timeScale;
+
+      // Step physics with Velocity Verlet integration
+      for (let s = 0; s < SUBSTEPS; s++) {
+        computePlanetaryAccelerations();
+
+        for (const b of [sun, earth, jupiter]) {
+          b.vx += 0.5 * b.ax * dt;
+          b.vy += 0.5 * b.ay * dt;
+          b.x  += b.vx * dt;
+          b.y  += b.vy * dt;
+        }
+
+        computePlanetaryAccelerations();
+
+        for (const b of [sun, earth, jupiter]) {
+          b.vx += 0.5 * b.ax * dt;
+          b.vy += 0.5 * b.ay * dt;
+        }
+
+        // Gently keep the 3-body center of mass anchored so no net drift accumulates
+        const cx = width * 0.54;
+        const cy = height * 0.50;
+        const totalM = sun.mass + earth.mass + jupiter.mass;
+        const comX = (sun.mass * sun.x + earth.mass * earth.x + jupiter.mass * jupiter.x) / totalM;
+        const comY = (sun.mass * sun.y + earth.mass * earth.y + jupiter.mass * jupiter.y) / totalM;
+        for (const b of [sun, earth, jupiter]) {
+          b.x += (cx - comX) * 0.02;
+          b.y += (cy - comY) * 0.02;
+        }
+
+        updateSpacecraftSubstep(dt);
+
+        // Stamp persistent orbital trails onto offscreen trailLayer (using noStroke())
+        trailLayer.noStroke();
+        trailLayer.fill(sun.trailColor);
+        trailLayer.circle(sun.x, sun.y, 4.2);
+
+        trailLayer.fill(earth.trailColor);
+        trailLayer.circle(earth.x, earth.y, 3.2);
+
+        trailLayer.fill(jupiter.trailColor);
+        trailLayer.circle(jupiter.x, jupiter.y, 4.4);
+
+        trailLayer.fill(craft.trailColor);
+        trailLayer.circle(craft.x, craft.y, 2.7);
+      }
+
+      // Render persistent orbital trail layer onto the main canvas
+      image(trailLayer, 0, 0);
+
+      // Draw interactive mouse gravity well if pressed
+      if (mouseIsPressed && mouseX > 330) {
+        fill(15, 23, 42, 18);
+        circle(mouseX, mouseY, 90);
+        fill(15, 23, 42, 35);
+        circle(mouseX, mouseY, 45);
+      }
+
+      // Render exhaust burst particles
+      for (let i = exhaustParticles.length - 1; i >= 0; i--) {
+        const p = exhaustParticles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life -= 0.04;
+        if (p.life <= 0) {
+          exhaustParticles.splice(i, 1);
+        } else {
+          fill(147, 51, 234, p.life * 210);
+          circle(p.x, p.y, p.size * p.life);
+        }
+      }
+
+      // Render Celestial Bodies & Spacecraft (strictly using noStroke())
+      drawSun(sun);
+      drawEarth(earth);
+      drawJupiter(jupiter);
+      drawSpacecraft(craft);
+
+      // Update live telemetry HUD
+      updateTelemetryDOM();
+    }
+
+    /*************************************************************************
+     * 4. PROCEDURAL BODY RENDERERS (All using noStroke())
+     *************************************************************************/
+    function drawSun(b) {
+      noStroke();
+      // Multi-layered corona glow
+      fill(245, 158, 11, 28);
+      circle(b.x, b.y, b.radius * 4.2);
+      fill(245, 158, 11, 55);
+      circle(b.x, b.y, b.radius * 2.8);
+      fill(234, 138, 12);
+      circle(b.x, b.y, b.radius * 2);
+      fill(254, 240, 138);
+      circle(b.x - 3, b.y - 3, b.radius * 0.9);
+
+      fill(30, 41, 59, 190);
+      textAlign(CENTER, BOTTOM);
+      textSize(11);
+      textStyle(BOLD);
+      text('SUN', b.x, b.y - b.radius - 6);
+    }
+
+    function drawEarth(b) {
+      noStroke();
+      // Atmosphere halo
+      fill(59, 130, 246, 45);
+      circle(b.x, b.y, b.radius * 3.1);
+      // Ocean sphere
+      fill(37, 99, 235);
+      circle(b.x, b.y, b.radius * 2);
+      // Continental patch
+      fill(16, 185, 129);
+      circle(b.x + 1.5, b.y - 1.5, b.radius * 0.95);
+
+      fill(30, 41, 59, 190);
+      textAlign(CENTER, BOTTOM);
+      textSize(10);
+      textStyle(BOLD);
+      text('EARTH', b.x, b.y - b.radius - 5);
+    }
+
+    function drawJupiter(b) {
+      noStroke();
+      // Magnetosphere / target halo
+      fill(234, 88, 12, 38);
+      circle(b.x, b.y, b.radius * 3.0);
+      // Planet body
+      fill(194, 65, 12);
+      circle(b.x, b.y, b.radius * 2);
+      // Banded highlight & Great Red Spot
+      fill(251, 146, 60);
+      ellipse(b.x, b.y - 2, b.radius * 1.85, b.radius * 0.7);
+      fill(254, 215, 170);
+      ellipse(b.x, b.y + 2.5, b.radius * 1.7, b.radius * 0.55);
+      fill(185, 28, 28);
+      circle(b.x + 3.5, b.y + 2, 4.5);
+
+      fill(30, 41, 59, 190);
+      textAlign(CENTER, BOTTOM);
+      textSize(10.5);
+      textStyle(BOLD);
+      text('JUPITER', b.x, b.y - b.radius - 5);
+    }
+
+    function drawSpacecraft(c) {
+      noStroke();
+      const angle = atan2(c.vy, c.vx);
+
+      // Glowing locator halo
+      fill(147, 51, 234, 55);
+      circle(c.x, c.y, 18);
+
+      push();
+      translate(c.x, c.y);
+      rotate(angle);
+
+      // Thruster plume when actively maneuvering in space
+      if (c.phase === PHASE.SOLAR_LOOP || c.phase === PHASE.JUPITER_TRANSFER) {
+        fill(245, 158, 11, 200);
+        triangle(-4, -2.2, -4, 2.2, -10 - random(0, 4), 0);
+      }
+
+      // Spacecraft delta hull
+      fill(126, 34, 206);
+      triangle(7, 0, -5, -4.5, -5, 4.5);
+      fill(243, 232, 255);
+      circle(1, 0, 3.2);
+      pop();
+
+      fill(107, 33, 168);
+      textAlign(CENTER, TOP);
+      textSize(9.5);
+      textStyle(BOLD);
+      text('PROBE', c.x, c.y + 10);
+    }
+
+    /*************************************************************************
+     * 5. TELEMETRY & INTERACTIVE UI HANDLERS
+     *************************************************************************/
+    function updateTelemetryDOM() {
+      const phaseNames = {
+        [PHASE.ON_EARTH]:         '1. EARTH PAD',
+        [PHASE.SOLAR_LOOP]:       '2. SOLAR LOOP',
+        [PHASE.JUPITER_TRANSFER]: '3. JUPITER TRANSFER',
+        [PHASE.JUPITER_CAPTURED]: '4. AT JUPITER'
+      };
+
+      document.getElementById('ui-phase').textContent = phaseNames[craft.phase];
+
+      const loopDeg = min(360, floor(degrees(craft.solarAngleAccum)));
+      document.getElementById('ui-loop').textContent = `${loopDeg}° / 360°`;
+
+      const dSun = dist(craft.x, craft.y, sun.x, sun.y);
+      const dJup = dist(craft.x, craft.y, jupiter.x, jupiter.y);
+      const spd  = sqrt(craft.vx * craft.vx + craft.vy * craft.vy);
+
+      document.getElementById('ui-dist-sun').textContent = `${ dSun.toFixed(0) } px`;
+      document.getElementById('ui-dist-jup').textContent = `${ dJup.toFixed(0) } px`;
+      document.getElementById('ui-speed').textContent    = `${ spd.toFixed(2) } px/f`;
+
+      for (let i = 1; i <= 4; i++) {
+        const el = document.getElementById(`step-${i}`);
+        el.className = 'phase-step';
+        if (i < craft.phase) el.classList.add('done');
+        else if (i === craft.phase) el.classList.add('active');
+      }
+    }
+
+    function bindUIControls() {
+      document.getElementById('btn-relaunch').addEventListener('click', () => {
+        launchSpacecraftFromEarth();
+      });
+
+      document.getElementById('btn-preset').addEventListener('click', () => {
+        presetIndex = (presetIndex + 1) % 3;
+        initChaoticSystem(presetIndex);
+      });
+
+      document.getElementById('btn-kick').addEventListener('click', () => {
+        // Inject a zero-net-momentum gravitational kick to Earth & Jupiter
+        const impulseAngle = random(TWO_PI);
+        const jx = cos(impulseAngle) * 0.65;
+        const jy = sin(impulseAngle) * 0.65;
+        earth.vx += jx;
+        earth.vy += jy;
+        jupiter.vx -= jx * (earth.mass / jupiter.mass);
+        jupiter.vy -= jy * (earth.mass / jupiter.mass);
+      });
+
+      document.getElementById('btn-clear').addEventListener('click', () => {
+        trailLayer.background(220);
+      });
+
+      const speeds = [0.5, 1.0, 1.75];
+      let spdIdx = 1;
+      const btnSpeed = document.getElementById('btn-speed');
+      btnSpeed.addEventListener('click', () => {
+        spdIdx = (spdIdx + 1) % speeds.length;
+        timeScale = speeds[spdIdx];
+        btnSpeed.textContent = `Speed: ${timeScale.toFixed(1)}x`;
+      });
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,3323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Crown of Embervale — WebGPU Voxel Fantasy Diorama</title>
+<style>
+  :root {
+    --bg-glass: rgba(14, 18, 26, 0.76);
+    --bg-glass-hover: rgba(26, 33, 48, 0.88);
+    --border-glass: rgba(255, 215, 150, 0.22);
+    --accent: #f3b659;
+    --accent-glow: rgba(243, 182, 89, 0.35);
+    --text-main: #f4efe6;
+    --text-dim: #a9b2c3;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+  html, body {
+    width: 100%; height: 100%; overflow: hidden;
+    background: #0a0d14;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    color: var(--text-main);
+  }
+  canvas {
+    width: 100vw; height: 100vh; display: block; cursor: grab;
+  }
+  canvas:active { cursor: grabbing; }
+
+  /* Loading Overlay */
+  #loader {
+    position: fixed; inset: 0; z-index: 100;
+    background: radial-gradient(circle at 50% 40%, #1c2436 0%, #090c12 100%);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    transition: opacity 0.6s ease, visibility 0.6s ease;
+  }
+  #loader.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+  .loader-crest {
+    width: 68px; height: 68px; margin-bottom: 18px;
+    border: 2px solid var(--accent); border-radius: 14px;
+    transform: rotate(45deg);
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 0 32px var(--accent-glow), inset 0 0 18px var(--accent-glow);
+    animation: pulseCrest 2s infinite ease-in-out;
+  }
+  .loader-crest-inner {
+    width: 34px; height: 34px; background: var(--accent); border-radius: 4px;
+  }
+  @keyframes pulseCrest {
+    0%, 100% { transform: rotate(45deg) scale(1); }
+    50% { transform: rotate(45deg) scale(1.08); }
+  }
+  #loader h1 {
+    font-size: 1.7rem; letter-spacing: 3px; text-transform: uppercase;
+    color: var(--accent); margin-bottom: 8px; font-weight: 700;
+    text-shadow: 0 2px 12px rgba(0,0,0,0.6);
+  }
+  #loader-status {
+    font-size: 0.92rem; color: var(--text-dim); margin-bottom: 20px; letter-spacing: 0.6px;
+  }
+  .progress-track {
+    width: 320px; height: 6px; background: rgba(255,255,255,0.08);
+    border-radius: 99px; overflow: hidden; border: 1px solid rgba(255,215,150,0.18);
+  }
+  #progress-bar {
+    width: 8%; height: 100%; background: linear-gradient(90deg, #d97724, #f7c96e);
+    transition: width 0.2s ease;
+  }
+  #error-box {
+    display: none; max-width: 520px; margin-top: 20px; padding: 18px 22px;
+    background: rgba(160, 35, 35, 0.25); border: 1px solid rgba(255, 100, 100, 0.45);
+    border-radius: 10px; color: #ffd4d4; text-align: center; line-height: 1.5; font-size: 0.92rem;
+  }
+
+  /* Main HUD Overlay */
+  #hud {
+    position: fixed; inset: 0; pointer-events: none; z-index: 10;
+    display: flex; flex-direction: column; justify-content: space-between;
+    padding: 18px 22px;
+    transition: opacity 0.35s ease;
+  }
+  #hud.showcase-hidden { opacity: 0; pointer-events: none !important; }
+  .hud-row {
+    display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; flex-wrap: wrap;
+  }
+  .hud-bottom {
+    display: flex; justify-content: space-between; align-items: flex-end; gap: 14px; flex-wrap: wrap;
+  }
+  .panel {
+    pointer-events: auto;
+    background: var(--bg-glass);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--border-glass);
+    border-radius: 12px;
+    padding: 10px 14px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  }
+  .brand-panel {
+    display: flex; flex-direction: column; gap: 3px;
+  }
+  .brand-title {
+    font-size: 1.05rem; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase;
+    color: var(--accent); display: flex; align-items: center; gap: 8px;
+  }
+  .brand-sub {
+    font-size: 0.76rem; color: var(--text-dim); letter-spacing: 0.3px;
+  }
+  .stats-pill {
+    margin-top: 4px; font-size: 0.72rem; color: #cfd8e8; font-family: monospace;
+    background: rgba(0,0,0,0.3); padding: 3px 8px; border-radius: 6px; display: inline-block;
+  }
+
+  .btn-group {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  }
+  .group-label {
+    font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--text-dim); margin-right: 4px; font-weight: 600;
+  }
+  button.ui-btn {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-main);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 8px;
+    padding: 6px 11px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    cursor: pointer;
+    transition: all 0.18s ease;
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  button.ui-btn:hover {
+    background: var(--bg-glass-hover);
+    border-color: var(--accent);
+    transform: translateY(-1px);
+  }
+  button.ui-btn.active {
+    background: linear-gradient(135deg, rgba(243, 182, 89, 0.28), rgba(215, 115, 35, 0.34));
+    border-color: var(--accent);
+    color: #fff6e5;
+    box-shadow: 0 0 14px var(--accent-glow);
+  }
+  .kbd {
+    display: inline-block; padding: 1px 5px; font-size: 0.68rem; font-family: monospace;
+    background: rgba(255,255,255,0.12); border-radius: 4px; color: var(--accent);
+  }
+  .controls-help {
+    font-size: 0.76rem; color: var(--text-dim); line-height: 1.6;
+  }
+  .controls-help strong { color: var(--text-main); }
+
+  /* Floating Return Button when in Showcase Mode */
+  #showcase-badge {
+    position: fixed; bottom: 18px; right: 22px; z-index: 20;
+    background: rgba(14, 18, 26, 0.65); border: 1px solid var(--border-glass);
+    color: var(--text-dim); padding: 7px 13px; border-radius: 99px;
+    font-size: 0.75rem; cursor: pointer; backdrop-filter: blur(8px);
+    opacity: 0; pointer-events: none; transition: opacity 0.3s ease;
+  }
+  #showcase-badge.visible { opacity: 1; pointer-events: auto; }
+  #showcase-badge:hover { color: var(--accent); border-color: var(--accent); }
+
+  /* Subtle Crosshair when Pointer Locked */
+  #crosshair {
+    position: fixed; left: 50%; top: 50%; width: 12px; height: 12px;
+    transform: translate(-50%, -50%); pointer-events: none; z-index: 5;
+    opacity: 0; transition: opacity 0.2s;
+  }
+  #crosshair.visible { opacity: 0.65; }
+  #crosshair::before, #crosshair::after {
+    content: ''; position: absolute; background: #fff8e7; border-radius: 1px;
+    box-shadow: 0 0 4px rgba(0,0,0,0.8);
+  }
+  #crosshair::before { left: 5px; top: 0; width: 2px; height: 12px; }
+  #crosshair::after { left: 0; top: 5px; width: 12px; height: 2px; }
+</style>
+</head>
+<body>
+
+<div id="loader">
+  <div class="loader-crest"><div class="loader-crest-inner"></div></div>
+  <h1>Crown of Embervale</h1>
+  <div id="loader-status">Initializing Pure WebGPU Pipeline...</div>
+  <div class="progress-track"><div id="progress-bar"></div></div>
+  <div id="error-box"></div>
+</div>
+
+<div id="crosshair"></div>
+
+<div id="hud">
+  <div class="hud-row">
+    <div class="panel brand-panel">
+      <div class="brand-title">Crown of Embervale</div>
+      <div class="brand-sub">Handcrafted Voxel Fantasy Diorama &bull; Pure WebGPU</div>
+      <div class="stats-pill" id="stats-text">Building chunks...</div>
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:8px; align-items:flex-end;">
+      <div class="panel btn-group">
+        <span class="group-label">Atmosphere</span>
+        <button class="ui-btn" data-tod="0"><span class="kbd">1</span> Dawn</button>
+        <button class="ui-btn active" data-tod="1"><span class="kbd">2</span> Day</button>
+        <button class="ui-btn" data-tod="2"><span class="kbd">3</span> Dusk</button>
+        <button class="ui-btn" data-tod="3"><span class="kbd">4</span> Night</button>
+      </div>
+
+      <div class="panel btn-group">
+        <span class="group-label">Mode &amp; FX</span>
+        <button class="ui-btn active" id="btn-orbit"><span class="kbd">O</span> Orbit</button>
+        <button class="ui-btn" id="btn-fly"><span class="kbd">F</span> Fly</button>
+        <button class="ui-btn" id="btn-walk"><span class="kbd">G</span> Walk</button>
+        <button class="ui-btn active" id="btn-bloom"><span class="kbd">B</span> Bloom</button>
+        <button class="ui-btn" id="btn-showcase"><span class="kbd">H</span> Showcase UI</button>
+        <button class="ui-btn" id="btn-snap">Capture PNG</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="hud-bottom">
+    <div class="panel controls-help">
+      <div>
+        <strong>Navigate:</strong> <span class="kbd">W</span><span class="kbd">A</span><span class="kbd">S</span><span class="kbd">D</span> Move &bull;
+        <span class="kbd">Space</span> / <span class="kbd">E</span> Up/Jump &bull;
+        <span class="kbd">C</span> / <span class="kbd">Q</span> Down &bull;
+        <span class="kbd">Shift</span> Fast Boost
+      </div>
+      <div>
+        <strong>Look:</strong> Click &amp; Drag Mouse (or Double-Click Canvas to Lock Pointer) &bull; Scroll Wheel to Zoom / Adjust Speed
+      </div>
+    </div>
+
+    <div class="panel btn-group">
+      <span class="group-label">Landmarks</span>
+      <button class="ui-btn" data-poi="overview">Aerial Overview</button>
+      <button class="ui-btn" data-poi="castle">Castle &amp; Keep</button>
+      <button class="ui-btn" data-poi="village">Village Market</button>
+      <button class="ui-btn" data-poi="bridge">Bridge &amp; Watermill</button>
+      <button class="ui-btn" data-poi="waterfall">Waterfall Gorge</button>
+      <button class="ui-btn" data-poi="volcano">Volcano &amp; Ruins</button>
+    </div>
+  </div>
+</div>
+
+<div id="showcase-badge" title="Click or press H to restore UI">Showcase Mode &bull; Press <strong>H</strong> for Controls</div>
+
+<canvas id="gpu-canvas"></canvas>
+
+<script>
+"use strict";
+
+// ============================================================================
+// 1. CONSTANTS, SEEDED PRNG & VECTOR/MATRIX MATH
+// ============================================================================
+const WX = 256;
+const WY = 96;
+const WZ = 256;
+const CHUNK_SIZE = 16;
+const CX = WX / CHUNK_SIZE; // 16
+const CZ = WZ / CHUNK_SIZE; // 16
+const WATER_Y = 18;
+const MAX_LIGHTS = 192;
+
+// Deterministic PRNG (Mulberry32) so the handcrafted diorama builds identically
+let rngState = 0x5EED1234;
+function rand() {
+  let t = (rngState += 0x6D2B79F5);
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+function hash2(x, z) {
+  let n = Math.imul(x, 374761393) + Math.imul(z, 668265263);
+  n = (n ^ (n >> 13)) * 1274126177;
+  return ((n ^ (n >> 16)) >>> 0) / 4294967296;
+}
+function smoothstep(a, b, x) {
+  const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+}
+function lerp(a, b, t) { return a + (b - a) * t; }
+function valueNoise2D(x, z) {
+  const xi = Math.floor(x), zi = Math.floor(z);
+  const xf = x - xi, zf = z - zi;
+  const u = xf * xf * (3 - 2 * xf);
+  const v = zf * zf * (3 - 2 * zf);
+  const a = hash2(xi, zi), b = hash2(xi + 1, zi);
+  const c = hash2(xi, zi + 1), d = hash2(xi + 1, zi + 1);
+  return lerp(lerp(a, b, u), lerp(c, d, u), v);
+}
+function fbm2D(x, z, octaves = 4) {
+  let val = 0, amp = 0.5, freq = 1, norm = 0;
+  for (let i = 0; i < octaves; i++) {
+    val += valueNoise2D(x * freq, z * freq) * amp;
+    norm += amp;
+    amp *= 0.5;
+    freq *= 2.02;
+  }
+  return val / norm;
+}
+
+// Matrix & Vector Utilities (WebGPU 0..1 Depth Convention)
+const Mat4 = {
+  create() { return new Float32Array(16); },
+  perspective(out, fovy, aspect, near, far) {
+    const f = 1.0 / Math.tan(fovy * 0.5);
+    out.fill(0);
+    out[0] = f / aspect;
+    out[5] = f;
+    out[10] = far / (near - far);
+    out[11] = -1;
+    out[14] = (far * near) / (near - far);
+    return out;
+  },
+  ortho(out, left, right, bottom, top, near, far) {
+    out.fill(0);
+    out[0] = 2 / (right - left);
+    out[5] = 2 / (top - bottom);
+    out[10] = 1 / (near - far);
+    out[12] = (left + right) / (left - right);
+    out[13] = (bottom + top) / (bottom - top);
+    out[14] = near / (near - far);
+    out[15] = 1;
+    return out;
+  },
+  lookAt(out, eye, center, up) {
+    let zx = eye[0] - center[0], zy = eye[1] - center[1], zz = eye[2] - center[2];
+    let len = Math.hypot(zx, zy, zz) || 1;
+    zx /= len; zy /= len; zz /= len;
+    let xx = up[1] * zz - up[2] * zy;
+    let xy = up[2] * zx - up[0] * zz;
+    let xz = up[0] * zy - up[1] * zx;
+    len = Math.hypot(xx, xy, xz) || 1;
+    xx /= len; xy /= len; xz /= len;
+    const yx = zy * xz - zz * xy;
+    const yy = zz * xx - zx * xz;
+    const yz = zx * xy - zy * xx;
+    out[0] = xx; out[1] = yx; out[2] = zx; out[3] = 0;
+    out[4] = xy; out[5] = yy; out[6] = zy; out[7] = 0;
+    out[8] = xz; out[9] = yz; out[10] = zz; out[11] = 0;
+    out[12] = -(xx * eye[0] + xy * eye[1] + xz * eye[2]);
+    out[13] = -(yx * eye[0] + yy * eye[1] + yz * eye[2]);
+    out[14] = -(zx * eye[0] + zy * eye[1] + zz * eye[2]);
+    out[15] = 1;
+    return out;
+  },
+  multiply(out, a, b) {
+    const a00 = a[0], a01 = a[1], a02 = a[2], a03 = a[3];
+    const a10 = a[4], a11 = a[5], a12 = a[6], a13 = a[7];
+    const a20 = a[8], a21 = a[9], a22 = a[10], a23 = a[11];
+    const a30 = a[12], a31 = a[13], a32 = a[14], a33 = a[15];
+    for (let i = 0; i < 4; i++) {
+      const b0 = b[i * 4], b1 = b[i * 4 + 1], b2 = b[i * 4 + 2], b3 = b[i * 4 + 3];
+      out[i * 4]     = b0 * a00 + b1 * a10 + b2 * a20 + b3 * a30;
+      out[i * 4 + 1] = b0 * a01 + b1 * a11 + b2 * a21 + b3 * a31;
+      out[i * 4 + 2] = b0 * a02 + b1 * a12 + b2 * a22 + b3 * a32;
+      out[i * 4 + 3] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
+    }
+    return out;
+  },
+  invert(out, m) {
+    const inv = new Float32Array(16);
+    inv[0] = m[5]*m[10]*m[15] - m[5]*m[11]*m[14] - m[9]*m[6]*m[15] + m[9]*m[7]*m[14] + m[13]*m[6]*m[11] - m[13]*m[7]*m[10];
+    inv[4] = -m[4]*m[10]*m[15] + m[4]*m[11]*m[14] + m[8]*m[6]*m[15] - m[8]*m[7]*m[14] - m[12]*m[6]*m[11] + m[12]*m[7]*m[10];
+    inv[8] = m[4]*m[9]*m[15] - m[4]*m[11]*m[13] - m[8]*m[5]*m[15] + m[8]*m[7]*m[13] + m[12]*m[5]*m[11] - m[12]*m[7]*m[9];
+    inv[12] = -m[4]*m[9]*m[14] + m[4]*m[10]*m[13] + m[8]*m[5]*m[14] - m[8]*m[6]*m[13] - m[12]*m[5]*m[10] + m[12]*m[6]*m[9];
+    inv[1] = -m[1]*m[10]*m[15] + m[1]*m[11]*m[14] + m[9]*m[2]*m[15] - m[9]*m[3]*m[14] - m[13]*m[2]*m[11] + m[13]*m[3]*m[10];
+    inv[5] = m[0]*m[10]*m[15] - m[0]*m[11]*m[14] - m[8]*m[2]*m[15] + m[8]*m[3]*m[14] + m[12]*m[2]*m[11] - m[12]*m[3]*m[10];
+    inv[9] = -m[0]*m[9]*m[15] + m[0]*m[11]*m[13] + m[8]*m[1]*m[15] - m[8]*m[3]*m[13] - m[12]*m[1]*m[11] + m[12]*m[3]*m[9];
+    inv[13] = m[0]*m[9]*m[14] - m[0]*m[10]*m[13] - m[8]*m[1]*m[14] + m[8]*m[2]*m[13] + m[12]*m[1]*m[10] - m[12]*m[2]*m[9];
+    inv[2] = m[1]*m[6]*m[15] - m[1]*m[7]*m[14] - m[5]*m[2]*m[15] + m[5]*m[3]*m[14] + m[13]*m[2]*m[7] - m[13]*m[3]*m[6];
+    inv[6] = -m[0]*m[6]*m[15] + m[0]*m[7]*m[14] + m[4]*m[2]*m[15] - m[4]*m[3]*m[14] - m[12]*m[2]*m[7] + m[12]*m[3]*m[6];
+    inv[10] = m[0]*m[5]*m[15] - m[0]*m[7]*m[13] - m[4]*m[1]*m[15] + m[4]*m[3]*m[13] + m[12]*m[1]*m[7] - m[12]*m[3]*m[5];
+    inv[14] = -m[0]*m[5]*m[14] + m[0]*m[6]*m[13] + m[4]*m[1]*m[14] - m[4]*m[2]*m[13] - m[12]*m[1]*m[6] + m[12]*m[2]*m[5];
+    inv[3] = -m[1]*m[6]*m[11] + m[1]*m[7]*m[10] + m[5]*m[2]*m[11] - m[5]*m[3]*m[10] - m[9]*m[2]*m[7] + m[9]*m[3]*m[6];
+    inv[7] = m[0]*m[6]*m[11] - m[0]*m[7]*m[10] - m[4]*m[2]*m[11] + m[4]*m[3]*m[10] + m[8]*m[2]*m[7] - m[8]*m[3]*m[6];
+    inv[11] = -m[0]*m[5]*m[11] + m[0]*m[7]*m[9] + m[4]*m[1]*m[11] - m[4]*m[3]*m[9] - m[8]*m[1]*m[7] + m[8]*m[3]*m[5];
+    inv[15] = m[0]*m[5]*m[10] - m[0]*m[6]*m[9] - m[4]*m[1]*m[10] + m[4]*m[2]*m[9] + m[8]*m[1]*m[6] - m[8]*m[2]*m[5];
+    let det = m[0]*inv[0] + m[1]*inv[4] + m[2]*inv[8] + m[3]*inv[12];
+    if (!det) return out;
+    det = 1.0 / det;
+    for (let i = 0; i < 16; i++) out[i] = inv[i] * det;
+    return out;
+  }
+};
+
+// ============================================================================
+// 2. VOXEL MATERIAL PALETTE & DEFINITIONS
+// ============================================================================
+const MAT = {
+  AIR: 0,
+  WATER: 1,
+  GRASS: 2,
+  GRASS_FOREST: 3,
+  GRASS_ALPINE: 4,
+  DIRT: 5,
+  SAND: 6,
+  GRAVEL: 7,
+  STONE: 8,
+  STONE_DARK: 9,
+  MOSSY_STONE: 10,
+  SNOW: 11,
+  ICE: 12,
+  COBBLESTONE: 13,
+  MOSSY_COBBLE: 14,
+  STONE_BRICK: 15,
+  STONE_BRICK_LIGHT: 16,
+  STONE_BRICK_DARK: 17,
+  CASTLE_SLATE: 18,
+  CASTLE_CRIMSON: 19,
+  OAK_LOG: 20,
+  OAK_PLANKS: 21,
+  SPRUCE_PLANKS: 22,
+  BIRCH_LOG: 23,
+  PLASTER_WHITE: 24,
+  PLASTER_OCHRE: 25,
+  PLASTER_ROSE: 26,
+  ROOF_TERRACOTTA: 27,
+  ROOF_CEDAR: 28,
+  ROOF_THATCH: 29,
+  ROOF_MOSS: 30,
+  LEAVES_OAK: 31,
+  LEAVES_PINE: 32,
+  LEAVES_BIRCH: 33,
+  LEAVES_AUTUMN_ORANGE: 34,
+  LEAVES_AUTUMN_RED: 35,
+  LEAVES_WILLOW: 36,
+  HEDGE: 37,
+  WHEAT: 38,
+  FARMLAND: 39,
+  REEDS: 40,
+  FLOWERS_RED: 41,
+  FLOWERS_GOLD: 42,
+  FLOWERS_BLUE: 43,
+  WINDOW_WARM: 44,
+  WINDOW_STAINED: 45,
+  TORCH_FLAME: 46,
+  IRON_DARK: 47,
+  GOLD_TRIM: 48,
+  FLAG_RED: 49,
+  FLAG_GOLD: 50,
+  FLAG_BLUE: 51,
+  CLOTH_WHITE: 52,
+  CLOTH_GREEN: 53,
+  BASALT: 54,
+  OBSIDIAN: 55,
+  ASH: 56,
+  DEAD_WOOD: 57,
+  LAVA: 58,
+  MAGMA_CRUST: 59,
+  CRYSTAL_CYAN: 60,
+  PUMPKIN: 61,
+  BARREL: 62,
+  WATER_FOAM: 63
+};
+
+// Pattern types for procedural 8x8 pixel-art shader texturing:
+// 0: natural noise, 1: stone bricks, 2: cobblestone, 3: wood planks/logs,
+// 4: roof shingles, 5: glowing window frame, 6: foliage dither, 7: magma cracks, 8: plaster/cloth
+const MATERIAL_TABLE = new Float32Array(64 * 8);
+const MAT_ANIM = new Uint8Array(64);
+
+function defMat(id, topHex, sideHex, roughness, emissive, pattern, anim = 0) {
+  const tr = ((topHex >> 16) & 255) / 255, tg = ((topHex >> 8) & 255) / 255, tb = (topHex & 255) / 255;
+  const sr = ((sideHex >> 16) & 255) / 255, sg = ((sideHex >> 8) & 255) / 255, sb = (sideHex & 255) / 255;
+  const idx = id * 8;
+  MATERIAL_TABLE[idx + 0] = tr;
+  MATERIAL_TABLE[idx + 1] = tg;
+  MATERIAL_TABLE[idx + 2] = tb;
+  MATERIAL_TABLE[idx + 3] = roughness;
+  MATERIAL_TABLE[idx + 4] = sr;
+  MATERIAL_TABLE[idx + 5] = sg;
+  MATERIAL_TABLE[idx + 6] = sb;
+  MATERIAL_TABLE[idx + 7] = Math.round(emissive * 10) * 10 + pattern;
+  MAT_ANIM[id] = anim;
+}
+
+function initMaterials() {
+  defMat(MAT.WATER,               0x2678a8, 0x1d628c, 0.08, 0.0, 0, 5);
+  defMat(MAT.GRASS,               0x5aa03c, 0x6b5137, 0.85, 0.0, 0, 0);
+  defMat(MAT.GRASS_FOREST,        0x448232, 0x5d452e, 0.85, 0.0, 0, 0);
+  defMat(MAT.GRASS_ALPINE,        0x668e44, 0x63503b, 0.85, 0.0, 0, 0);
+  defMat(MAT.DIRT,                0x6e5136, 0x644830, 0.92, 0.0, 0, 0);
+  defMat(MAT.SAND,                0xdcc68b, 0xd1b87c, 0.80, 0.0, 0, 0);
+  defMat(MAT.GRAVEL,              0x85817b, 0x7a7670, 0.88, 0.0, 2, 0);
+  defMat(MAT.STONE,               0x82878c, 0x777c82, 0.82, 0.0, 0, 0);
+  defMat(MAT.STONE_DARK,          0x585d64, 0x4e5359, 0.80, 0.0, 0, 0);
+  defMat(MAT.MOSSY_STONE,         0x5f7b4e, 0x667260, 0.86, 0.0, 2, 0);
+  defMat(MAT.SNOW,                0xf2f7fc, 0xe2ebf5, 0.65, 0.0, 0, 0);
+  defMat(MAT.ICE,                 0x8ec8f2, 0x7ab8e8, 0.25, 0.0, 0, 0);
+  defMat(MAT.COBBLESTONE,         0x747678, 0x696b6e, 0.84, 0.0, 2, 0);
+  defMat(MAT.MOSSY_COBBLE,        0x5f7354, 0x596b4f, 0.85, 0.0, 2, 0);
+  defMat(MAT.STONE_BRICK,         0x969592, 0x8b8a86, 0.75, 0.0, 1, 0);
+  defMat(MAT.STONE_BRICK_LIGHT,   0xb8b5ad, 0xaba79e, 0.70, 0.0, 1, 0);
+  defMat(MAT.STONE_BRICK_DARK,    0x646568, 0x595a5d, 0.78, 0.0, 1, 0);
+  defMat(MAT.CASTLE_SLATE,        0x394b68, 0x31415c, 0.65, 0.0, 4, 0);
+  defMat(MAT.CASTLE_CRIMSON,      0x962e34, 0x84262b, 0.68, 0.0, 4, 0);
+  defMat(MAT.OAK_LOG,             0x9c7b50, 0x523b26, 0.85, 0.0, 3, 0);
+  defMat(MAT.OAK_PLANKS,          0xa8804f, 0x9b7445, 0.78, 0.0, 3, 0);
+  defMat(MAT.SPRUCE_PLANKS,       0x5a4028, 0x4f3721, 0.80, 0.0, 3, 0);
+  defMat(MAT.BIRCH_LOG,           0xbca87e, 0xd8d3c8, 0.82, 0.0, 3, 0);
+  defMat(MAT.PLASTER_WHITE,       0xeae2d3, 0xe0d7c5, 0.86, 0.0, 8, 0);
+  defMat(MAT.PLASTER_OCHRE,       0xdfc088, 0xd4b379, 0.86, 0.0, 8, 0);
+  defMat(MAT.PLASTER_ROSE,        0xcf9584, 0xc28876, 0.86, 0.0, 8, 0);
+  defMat(MAT.ROOF_TERRACOTTA,     0xb85236, 0xa8472c, 0.74, 0.0, 4, 0);
+  defMat(MAT.ROOF_CEDAR,          0x6b4832, 0x5e3e2a, 0.80, 0.0, 4, 0);
+  defMat(MAT.ROOF_THATCH,         0xcba752, 0xbc9844, 0.88, 0.0, 4, 0);
+  defMat(MAT.ROOF_MOSS,           0x55754c, 0x4b6943, 0.82, 0.0, 4, 0);
+  defMat(MAT.LEAVES_OAK,          0x488a31, 0x3e7a29, 0.88, 0.0, 6, 1);
+  defMat(MAT.LEAVES_PINE,         0x2c5c34, 0x244f2c, 0.88, 0.0, 6, 1);
+  defMat(MAT.LEAVES_BIRCH,        0x74a63f, 0x679636, 0.86, 0.0, 6, 1);
+  defMat(MAT.LEAVES_AUTUMN_ORANGE,0xd87424, 0xc4641b, 0.85, 0.0, 6, 1);
+  defMat(MAT.LEAVES_AUTUMN_RED,   0xb4322a, 0x9e2822, 0.85, 0.0, 6, 1);
+  defMat(MAT.LEAVES_WILLOW,       0x5ca056, 0x50914a, 0.88, 0.0, 6, 1);
+  defMat(MAT.HEDGE,               0x38742c, 0x306625, 0.88, 0.0, 6, 0);
+  defMat(MAT.WHEAT,               0xdcb84a, 0xc9a338, 0.86, 0.0, 6, 1);
+  defMat(MAT.FARMLAND,            0x4b3420, 0x452f1c, 0.92, 0.0, 3, 0);
+  defMat(MAT.REEDS,               0x6da145, 0x5f8f3b, 0.85, 0.0, 6, 1);
+  defMat(MAT.FLOWERS_RED,         0xd93838, 0x4c8531, 0.80, 0.0, 6, 1);
+  defMat(MAT.FLOWERS_GOLD,        0xf0be32, 0x4c8531, 0.80, 0.0, 6, 1);
+  defMat(MAT.FLOWERS_BLUE,        0x4884e0, 0x4c8531, 0.80, 0.0, 6, 1);
+  defMat(MAT.WINDOW_WARM,         0xffcb6b, 0xffb84d, 0.20, 2.6, 5, 0);
+  defMat(MAT.WINDOW_STAINED,      0x72c8ff, 0xf2884b, 0.20, 2.2, 5, 0);
+  defMat(MAT.TORCH_FLAME,         0xffe28a, 0xff9429, 0.10, 4.2, 0, 3);
+  defMat(MAT.IRON_DARK,           0x34383e, 0x2b2e33, 0.45, 0.0, 1, 0);
+  defMat(MAT.GOLD_TRIM,           0xf2c144, 0xdba82c, 0.28, 0.2, 1, 0);
+  defMat(MAT.FLAG_RED,            0xc8282e, 0xb82228, 0.78, 0.0, 8, 2);
+  defMat(MAT.FLAG_GOLD,           0xebb434, 0xd9a226, 0.78, 0.0, 8, 2);
+  defMat(MAT.FLAG_BLUE,           0x2e64b8, 0x2656a3, 0.78, 0.0, 8, 2);
+  defMat(MAT.CLOTH_WHITE,         0xf0ece1, 0xe2ddd0, 0.80, 0.0, 8, 0);
+  defMat(MAT.CLOTH_GREEN,         0x388846, 0x2f783c, 0.80, 0.0, 8, 0);
+  defMat(MAT.BASALT,              0x35363b, 0x2c2d32, 0.84, 0.0, 2, 0);
+  defMat(MAT.OBSIDIAN,            0x20192b, 0x181222, 0.30, 0.0, 1, 0);
+  defMat(MAT.ASH,                 0x4c4a4e, 0x434145, 0.92, 0.0, 0, 0);
+  defMat(MAT.DEAD_WOOD,           0x423833, 0x382f2b, 0.90, 0.0, 3, 0);
+  defMat(MAT.LAVA,                0xff6a14, 0xff3c00, 0.15, 4.5, 7, 4);
+  defMat(MAT.MAGMA_CRUST,         0x4a241c, 0xd94414, 0.75, 1.4, 7, 4);
+  defMat(MAT.CRYSTAL_CYAN,        0x5cf2ff, 0x28b8e8, 0.15, 3.4, 1, 0);
+  defMat(MAT.PUMPKIN,             0xdc7622, 0xc96518, 0.75, 0.0, 3, 0);
+  defMat(MAT.BARREL,              0x8c6238, 0x75502c, 0.78, 0.0, 3, 0);
+  defMat(MAT.WATER_FOAM,          0xd6f0ff, 0xb8e2fa, 0.20, 0.2, 0, 5);
+}
+initMaterials();
+
+// ============================================================================
+// 3. WORLD STORAGE, SUB-VOXEL DECORATIONS, POINT LIGHTS & PARTICLES
+// ============================================================================
+const voxels = new Uint8Array(WX * WY * WZ);
+const heightMap = new Uint8Array(WX * WZ);
+const roadMask = new Uint8Array(WX * WZ); // 1: road, 2: house footprint, 3: river/moat, 4: castle
+
+function getBlock(x, y, z) {
+  if (x < 0 || x >= WX || y < 0 || y >= WY || z < 0 || z >= WZ) return MAT.AIR;
+  return voxels[(y * WZ + z) * WX + x];
+}
+function setBlock(x, y, z, mat) {
+  x = x | 0; y = y | 0; z = z | 0;
+  if (x < 0 || x >= WX || y < 0 || y >= WY || z < 0 || z >= WZ) return;
+  voxels[(y * WZ + z) * WX + x] = mat;
+}
+function fillBox(x0, y0, z0, x1, y1, z1, mat) {
+  const ax = Math.max(0, Math.min(x0, x1) | 0), bx = Math.min(WX - 1, Math.max(x0, x1) | 0);
+  const ay = Math.max(0, Math.min(y0, y1) | 0), by = Math.min(WY - 1, Math.max(y0, y1) | 0);
+  const az = Math.max(0, Math.min(z0, z1) | 0), bz = Math.min(WZ - 1, Math.max(z0, z1) | 0);
+  for (let y = ay; y <= by; y++) {
+    for (let z = az; z <= bz; z++) {
+      let row = (y * WZ + z) * WX;
+      for (let x = ax; x <= bx; x++) voxels[row + x] = mat;
+    }
+  }
+}
+
+// Sub-voxel precision custom boxes (0.25 block resolution) stored per chunk
+const chunkSubBoxes = Array.from({ length: CX * CZ }, () => []);
+function addSubBox(x0, y0, z0, x1, y1, z1, mat, animOverride = -1) {
+  const cx = Math.max(0, Math.min(CX - 1, Math.floor(((x0 + x1) * 0.5) / CHUNK_SIZE)));
+  const cz = Math.max(0, Math.min(CZ - 1, Math.floor(((z0 + z1) * 0.5) / CHUNK_SIZE)));
+  const anim = animOverride >= 0 ? animOverride : MAT_ANIM[mat];
+  chunkSubBoxes[cz * CX + cx].push({ x0, y0, z0, x1, y1, z1, mat, anim });
+}
+
+// Point Lights List (clustered automatically so 192 lights cover the entire diorama)
+const pointLights = [];
+function addPointLight(x, y, z, r, g, b, radius = 14, flicker = 0.25, mergeDist = 4.2) {
+  for (let i = 0; i < pointLights.length; i++) {
+    const L = pointLights[i];
+    const dx = L.x - x, dy = L.y - y, dz = L.z - z;
+    if (dx * dx + dy * dy + dz * dz < mergeDist * mergeDist) {
+      L.x = (L.x + x) * 0.5;
+      L.y = (L.y + y) * 0.5;
+      L.z = (L.z + z) * 0.5;
+      L.radius = Math.min(26, Math.max(L.radius, radius) * 1.06);
+      return;
+    }
+  }
+  if (pointLights.length < MAX_LIGHTS) {
+    pointLights.push({ x, y, z, r, g, b, radius, flicker });
+  }
+}
+
+// Dynamic GPU-driven Particle / Bird / Cloud Instances
+const dynamicInstances = [];
+function addDynamicInstance(ox, oy, oz, type, seed, scale, radius, speed) {
+  dynamicInstances.push(ox, oy, oz, type, seed, scale, radius, speed);
+}
+
+// ============================================================================
+// 4. HANDCRAFTED DIORAMA WORLD GENERATOR
+// ============================================================================
+function riverCenterX(z) {
+  if (z < 48) return 125 + Math.sin(z * 0.08) * 3;
+  return 126 + Math.sin((z - 48) * 0.036) * 15 + Math.cos(z * 0.018) * 6;
+}
+function riverWidth(z) {
+  if (z < 48) return 8;
+  if (z > 210) return 12 + (z - 210) * 0.32;
+  return 10.5 + Math.sin(z * 0.05) * 1.8;
+}
+
+function generateTerrain() {
+  for (let z = 0; z < WZ; z++) {
+    const rcx = riverCenterX(z);
+    const rw = riverWidth(z);
+    for (let x = 0; x < WX; x++) {
+      const nx = x / WX, nz = z / WZ;
+      const baseNoise = fbm2D(nx * 4.5 + 1.3, nz * 4.5 + 2.7, 4);
+      const detailNoise = fbm2D(nx * 14.0, nz * 14.0, 2);
+
+      // Base valley elevation
+      let h = 20.5 + baseNoise * 9.0 + (detailNoise - 0.5) * 2.5;
+
+      // 1. Northern Snowy Mountain Range & Waterfall Cliff (z < 64, x < 170)
+      if (z < 68 && x < 175) {
+        const mFactor = smoothstep(68, 14, z) * smoothstep(175, 130, x);
+        const ridge = fbm2D(x * 0.035 + 4.1, z * 0.035 + 1.2, 4);
+        let mountainH = 44 + ridge * 44;
+        const dLake = Math.hypot((x - 125) * 0.85, (z - 33) * 0.9);
+        if (dLake < 16) {
+          mountainH = lerp(41, mountainH, smoothstep(7, 16, dLake));
+        }
+        const cliffStep = smoothstep(54, 46, z) * smoothstep(168, 100, x);
+        h = Math.max(h, lerp(h, mountainH, Math.max(mFactor, cliffStep * 0.85)));
+      }
+
+      // 2. Dramatic Volcano in Northeast (cx = 212, cz = 46)
+      const dvx = x - 212, dvz = z - 46;
+      const dVolcano = Math.hypot(dvx, dvz);
+      if (dVolcano < 58) {
+        const angle = Math.atan2(dvz, dvx);
+        const ridgeVar = Math.sin(angle * 5) * 1.8 + (detailNoise - 0.5) * 4.0;
+        const cone = Math.max(0, 1.0 - dVolcano / 54);
+        let vH = 21 + Math.pow(cone, 1.28) * 68 + ridgeVar * cone;
+        if (dVolcano < 13.5) {
+          const craterDepth = smoothstep(13.5, 4.0, dVolcano) * 18.0;
+          vH -= craterDepth;
+        }
+        h = Math.max(h, vH);
+      }
+
+      // 3. Western Castle Terraced Hill & Surrounding Moat (cx = 68, cz = 112)
+      const dcx = x - 68, dcz = z - 112;
+      const dCastle = Math.hypot(dcx * 0.95, dcz * 0.85);
+      if (dCastle >= 32 && dCastle <= 46) {
+        const moatT = 1.0 - Math.abs(dCastle - 39.0) / 7.0;
+        if (moatT > 0) {
+          h = lerp(h, 13.0, smoothstep(0, 1, moatT));
+          if (moatT > 0.35) roadMask[z * WX + x] = 3;
+        }
+      }
+      if (x >= 34 && x <= 98 && z >= 78 && z <= 146 && dCastle < 36.5) {
+        h = 27.0;
+        roadMask[z * WX + x] = 4;
+        if (x >= 40 && x <= 66 && z >= 95 && z <= 129) {
+          h = 36.0;
+        }
+      }
+
+      // 4. Medieval Village Gentle River Terrace (x: 138..228, z: 86..218)
+      if (x >= 136 && x <= 232 && z >= 84 && z <= 225 && dVolcano >= 50) {
+        const vDist = Math.hypot((x - 180) * 0.7, (z - 142) * 0.65);
+        if (vDist < 48) {
+          const targetVH = 20.5 + smoothstep(138, 215, x) * 5.0 + Math.sin(z * 0.05) * 1.2;
+          h = lerp(targetVH, h, smoothstep(32, 48, vDist));
+        }
+      }
+
+      // 5. Southwest Forest Hills & Coastal Cliffs (x < 105, z > 152)
+      if (x < 108 && z > 150) {
+        const swFactor = smoothstep(150, 185, z) * smoothstep(108, 65, x);
+        const hillNoise = fbm2D(x * 0.04 + 2.0, z * 0.04 + 5.0, 3);
+        h = lerp(h, 24 + hillNoise * 24, swFactor);
+      }
+
+      // 6. Carve Main Winding River & Waterfall Plunge Pool
+      const distRiver = Math.abs(x - rcx);
+      if (z >= 47) {
+        if (distRiver < rw + 6) {
+          const riverDepth = smoothstep(rw + 5, rw - 2.5, distRiver);
+          const bedH = z < 58 ? 12.0 : 13.5;
+          h = lerp(h, bedH, riverDepth);
+          if (distRiver < rw + 1) roadMask[z * WX + x] = 3;
+        }
+      } else if (z >= 18 && z < 47 && distRiver < 8) {
+        const tChan = smoothstep(8, 3, distRiver);
+        h = lerp(h, 43.0, tChan);
+        roadMask[z * WX + x] = 3;
+      }
+
+      // 7. Diorama Soft Island Border Drop-off near outer 6 blocks
+      const edgeDist = Math.min(x, WX - 1 - x, z, WZ - 1 - z);
+      if (edgeDist < 6 && h < 36) {
+        h = lerp(14, h, edgeDist / 6);
+      }
+
+      const ih = Math.max(2, Math.min(WY - 4, Math.round(h)));
+      heightMap[z * WX + x] = ih;
+
+      // Fill Column Voxels
+      for (let y = 0; y <= ih; y++) {
+        let mat = MAT.STONE;
+        if (dVolcano < 54 && h > 22) {
+          if (dVolcano < 11.5 && y >= 68) {
+            mat = MAT.OBSIDIAN;
+          } else if (y === ih) {
+            mat = (detailNoise > 0.62 && y < 58) ? MAT.ASH : (detailNoise < 0.25 ? MAT.OBSIDIAN : MAT.BASALT);
+          } else {
+            mat = MAT.BASALT;
+          }
+        } else if (roadMask[z * WX + x] === 4) {
+          mat = (y === ih) ? MAT.GRASS : (y > 17 ? MAT.STONE_BRICK_DARK : MAT.MOSSY_STONE);
+        } else if (y === ih) {
+          if (ih <= WATER_Y + 1 && z > 52) {
+            mat = (hash2(x, z) > 0.45) ? MAT.SAND : MAT.GRAVEL;
+          } else if (ih >= 60) {
+            mat = MAT.SNOW;
+          } else if (ih >= 49) {
+            mat = (detailNoise > 0.45) ? MAT.SNOW : MAT.STONE;
+          } else if (ih >= 39) {
+            mat = (detailNoise > 0.5) ? MAT.GRASS_ALPINE : MAT.STONE;
+          } else if (x < 105 && z > 152) {
+            mat = MAT.GRASS_FOREST;
+          } else {
+            mat = MAT.GRASS;
+          }
+        } else if (y >= ih - 2 && ih < 42) {
+          mat = MAT.DIRT;
+        } else {
+          mat = ((y + x + z) % 7 === 0) ? MAT.STONE_DARK : MAT.STONE;
+        }
+        setBlock(x, y, z, mat);
+      }
+
+      // Fill Water (Main River, Moat, and High Alpine Lake)
+      if (ih < WATER_Y) {
+        for (let y = ih + 1; y <= WATER_Y; y++) {
+          setBlock(x, y, z, MAT.WATER);
+        }
+      } else if (z >= 18 && z <= 47 && x >= 112 && x <= 138 && ih < 46) {
+        for (let y = ih + 1; y <= 46; y++) {
+          setBlock(x, y, z, MAT.WATER);
+        }
+      }
+    }
+  }
+
+  // Build the Northern Waterfall Cascade (z = 46..53, x = 119..131, Y = 18..46)
+  for (let x = 120; x <= 130; x++) {
+    const edge = Math.abs(x - 125);
+    if (edge > 5) continue;
+    for (let y = WATER_Y; y <= 46; y++) {
+      const zOff = Math.floor((46 - y) * 0.18);
+      const wz = 47 + zOff;
+      setBlock(x, y, wz, (y < 22 || y === 46) ? MAT.WATER_FOAM : MAT.WATER);
+      if (y < 45) setBlock(x, y, wz + 1, (y % 4 === 0) ? MAT.WATER_FOAM : MAT.WATER);
+    }
+  }
+  // Waterfall Mist Particles at plunge pool
+  for (let i = 0; i < 75; i++) {
+    addDynamicInstance(125 + (rand() - 0.5) * 12, 18.5, 50 + (rand() - 0.5) * 6, 4, rand() * 10, 0.7 + rand() * 0.9, 3.0, 0.4 + rand() * 0.3);
+  }
+
+  // Carve Hidden Glowing Crystal Cave behind the Waterfall & under the Castle Cliff
+  carveGlowingCave(125, 21, 41, 9, 5, 8);
+  carveGlowingCave(60, 20, 148, 10, 5, 10);
+
+  // Fill Volcano Crater Lava & Carve 3 Flowing Lava Rivers down the Volcano
+  for (let z = 34; z <= 58; z++) {
+    for (let x = 200; x <= 224; x++) {
+      const d = Math.hypot(x - 212, z - 46);
+      if (d < 9.5) {
+        for (let y = 66; y <= 74; y++) {
+          setBlock(x, y, z, y === 74 ? MAT.LAVA : MAT.BASALT);
+        }
+      }
+    }
+  }
+  addPointLight(212, 77, 46, 1.0, 0.35, 0.05, 26, 0.4, 2.0);
+  // Volcano Smoke & Ember Plume
+  for (let i = 0; i < 95; i++) {
+    addDynamicInstance(212 + (rand() - 0.5) * 12, 75, 46 + (rand() - 0.5) * 12, 2, rand() * 10, 1.4 + rand() * 1.8, 8.0, 0.18 + rand() * 0.14);
+  }
+  for (let i = 0; i < 110; i++) {
+    addDynamicInstance(212 + (rand() - 0.5) * 28, 45 + rand() * 32, 46 + (rand() - 0.5) * 28, 3, rand() * 10, 0.32 + rand() * 0.25, 10.0, 0.35 + rand() * 0.3);
+  }
+
+  // Three Lava Streams flowing down from crater (SW, S, and WNW)
+  const lavaAngles = [2.35, 1.75, 2.95];
+  for (const baseAng of lavaAngles) {
+    for (let r = 8; r < 49; r += 0.6) {
+      const ang = baseAng + Math.sin(r * 0.18) * 0.14;
+      const lx = Math.round(212 + Math.cos(ang) * r);
+      const lz = Math.round(46 + Math.sin(ang) * r);
+      if (lx < 2 || lx >= WX - 2 || lz < 2 || lz >= WZ - 2) continue;
+      for (let dz = -1; dz <= 1; dz++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const px = lx + dx, pz = lz + dz;
+          const th = heightMap[pz * WX + px];
+          if (dx === 0 && dz === 0) {
+            setBlock(px, th, pz, MAT.LAVA);
+            setBlock(px, th - 1, pz, MAT.MAGMA_CRUST);
+            if (r % 6 < 0.7) addPointLight(px + 0.5, th + 2.0, pz + 0.5, 1.0, 0.32, 0.05, 16, 0.35, 5.0);
+          } else if (getBlock(px, th, pz) !== MAT.LAVA) {
+            setBlock(px, th, pz, (rand() > 0.4) ? MAT.MAGMA_CRUST : MAT.OBSIDIAN);
+          }
+        }
+      }
+    }
+  }
+}
+
+function carveGlowingCave(cx, cy, cz, rx, ry, rz) {
+  for (let y = cy - 1; y <= cy + ry; y++) {
+    for (let z = cz - rz; z <= cz + rz; z++) {
+      for (let x = cx - rx; x <= cx + rx; x++) {
+        const d = Math.hypot((x - cx) / rx, (y - cy) / ry, (z - cz) / rz);
+        if (d < 0.95) {
+          if (y === cy - 1) {
+            setBlock(x, y, z, (rand() > 0.3) ? MAT.MOSSY_STONE : MAT.WATER);
+          } else {
+            setBlock(x, y, z, MAT.AIR);
+          }
+          if (d > 0.72 && y >= cy + 1 && rand() < 0.08) {
+            setBlock(x, y, z, MAT.CRYSTAL_CYAN);
+            addPointLight(x + 0.5, y - 0.5, z + 0.5, 0.25, 0.88, 1.0, 12, 0.1, 4.0);
+          }
+        }
+      }
+    }
+  }
+}
+
+// ============================================================================
+// 5. ARCHITECTURAL BUILDERS: CASTLE, TOWERS, KEEP, CHAPEL, BRIDGE, GARDENS
+// ============================================================================
+function buildTorch(x, y, z) {
+  addSubBox(x + 0.375, y, z + 0.375, x + 0.625, y + 0.625, z + 0.625, MAT.SPRUCE_PLANKS);
+  addSubBox(x + 0.3125, y + 0.625, z + 0.3125, x + 0.6875, y + 0.9375, z + 0.6875, MAT.TORCH_FLAME, 3);
+  addPointLight(x + 0.5, y + 1.1, z + 0.5, 1.0, 0.68, 0.28, 13, 0.35);
+}
+
+function buildStreetLantern(x, y, z) {
+  setBlock(x, y, z, MAT.STONE_BRICK);
+  addSubBox(x + 0.375, y + 1, z + 0.375, x + 0.625, y + 3.5, z + 0.625, MAT.SPRUCE_PLANKS);
+  addSubBox(x + 0.25, y + 3.25, z + 0.25, x + 0.75, y + 3.5, z + 0.75, MAT.IRON_DARK);
+  addSubBox(x + 0.3125, y + 3.5, z + 0.3125, x + 0.6875, y + 4.0, z + 0.6875, MAT.TORCH_FLAME, 3);
+  addSubBox(x + 0.25, y + 4.0, z + 0.25, x + 0.75, y + 4.25, z + 0.75, MAT.IRON_DARK);
+  addPointLight(x + 0.5, y + 3.8, z + 0.5, 1.0, 0.72, 0.32, 14, 0.28);
+}
+
+function buildFlag(x, y, z, poleHeight = 5, length = 4, mat = MAT.FLAG_RED, trimMat = MAT.FLAG_GOLD) {
+  addSubBox(x + 0.375, y, z + 0.375, x + 0.625, y + poleHeight, z + 0.625, MAT.SPRUCE_PLANKS);
+  addSubBox(x + 0.3125, y + poleHeight, z + 0.3125, x + 0.6875, y + poleHeight + 0.375, z + 0.6875, MAT.GOLD_TRIM);
+  for (let i = 0; i < length; i++) {
+    const h = i === length - 1 ? 1.25 : 1.75;
+    const cMat = (i === length - 1) ? trimMat : mat;
+    addSubBox(x + 0.625 + i * 0.75, y + poleHeight - 2.0, z + 0.375, x + 0.625 + (i + 1) * 0.75, y + poleHeight - 2.0 + h, z + 0.625, cMat, 2);
+  }
+}
+
+function buildCastleWall(x0, z0, x1, z1, baseY, wallH = 8) {
+  const steps = Math.max(Math.abs(x1 - x0), Math.abs(z1 - z0));
+  for (let i = 0; i <= steps; i++) {
+    const x = Math.round(lerp(x0, x1, i / steps));
+    const z = Math.round(lerp(z0, z1, i / steps));
+    const isHoriz = Math.abs(x1 - x0) >= Math.abs(z1 - z0);
+    for (let w = -1; w <= 1; w++) {
+      const wx = isHoriz ? x : x + w;
+      const wz = isHoriz ? z + w : z;
+      for (let y = baseY - 4; y <= baseY + wallH; y++) {
+        let mat = MAT.STONE_BRICK;
+        if (y <= baseY + 1) mat = MAT.STONE_BRICK_DARK;
+        else if (y === baseY + wallH) mat = MAT.OAK_PLANKS;
+        setBlock(wx, y, wz, mat);
+      }
+      if (w === -1 || w === 1) {
+        setBlock(wx, baseY + wallH + 1, wz, MAT.STONE_BRICK_LIGHT);
+        if (i % 2 === 0) {
+          setBlock(wx, baseY + wallH + 2, wz, MAT.STONE_BRICK_LIGHT);
+        }
+      }
+    }
+    if (i % 6 === 3) {
+      buildTorch(x, baseY + wallH + 1, z);
+    }
+  }
+}
+
+function buildCastleTower(cx, cz, baseY, radius, height, roofMat, flagMat = MAT.FLAG_RED) {
+  const topY = baseY + height;
+  for (let y = baseY - 8; y <= topY; y++) {
+    for (let z = cz - radius - 1; z <= cz + radius + 1; z++) {
+      for (let x = cx - radius - 1; x <= cx + radius + 1; x++) {
+        const d = Math.hypot(x - cx, z - cz);
+        const rEff = (y >= topY - 1) ? radius + 0.8 : radius + 0.35;
+        if (d <= rEff) {
+          if (d >= rEff - 1.2 || y === baseY || y === topY) {
+            let mat = MAT.STONE_BRICK;
+            if (y < baseY + 2) mat = MAT.STONE_BRICK_DARK;
+            else if (y === topY - 1) mat = MAT.STONE_BRICK_LIGHT;
+            if (y > baseY + 4 && y < topY - 3 && (y - baseY) % 5 === 0) {
+              if ((x === cx && Math.abs(z - cz) >= radius - 1) || (z === cz && Math.abs(x - cx) >= radius - 1)) {
+                mat = MAT.WINDOW_WARM;
+                addPointLight(x + 0.5, y + 0.5, z + 0.5, 1.0, 0.72, 0.32, 13, 0.15);
+              }
+            }
+            setBlock(x, y, z, mat);
+          } else {
+            setBlock(x, y, z, MAT.AIR);
+          }
+        }
+      }
+    }
+  }
+  for (let z = cz - radius - 1; z <= cz + radius + 1; z++) {
+    for (let x = cx - radius - 1; x <= cx + radius + 1; x++) {
+      const d = Math.hypot(x - cx, z - cz);
+      if (d >= radius - 0.2 && d <= radius + 0.9 && ((x + z) & 1) === 0) {
+        setBlock(x, topY + 1, z, MAT.STONE_BRICK_LIGHT);
+      }
+    }
+  }
+  const roofH = radius * 2 + 4;
+  for (let ry = 0; ry <= roofH; ry++) {
+    const rCurr = (1.0 - ry / roofH) * (radius + 1.2);
+    for (let z = cz - radius - 2; z <= cz + radius + 2; z++) {
+      for (let x = cx - radius - 2; x <= cx + radius + 2; x++) {
+        if (Math.hypot(x - cx, z - cz) <= rCurr + 0.35) {
+          setBlock(x, topY + 1 + ry, z, roofMat);
+        }
+      }
+    }
+  }
+  buildFlag(cx, topY + 1 + roofH, cz, 5, 4, flagMat, MAT.FLAG_GOLD);
+}
+
+function buildGrandCastle() {
+  const baseY = 27;
+  for (let z = 77; z <= 147; z++) {
+    for (let x = 33; x <= 99; x++) {
+      const d = Math.hypot((x - 68) * 0.95, (z - 112) * 0.85);
+      if (d >= 34.5 && d <= 36.8) {
+        for (let y = 14; y <= baseY; y++) {
+          setBlock(x, y, z, y < 19 ? MAT.MOSSY_COBBLE : (y === baseY ? MAT.STONE_BRICK_LIGHT : MAT.STONE_BRICK_DARK));
+        }
+      }
+    }
+  }
+
+  // Outer Curtain Walls
+  buildCastleWall(38, 82, 94, 82, baseY, 8);
+  buildCastleWall(38, 142, 94, 142, baseY, 8);
+  buildCastleWall(38, 82, 38, 142, baseY, 8);
+  buildCastleWall(94, 82, 94, 104, baseY, 8);
+  buildCastleWall(94, 120, 94, 142, baseY, 8);
+
+  // East Gatehouse / Barbican (x: 90..99, z: 104..120)
+  fillBox(90, baseY, 104, 98, baseY + 11, 120, MAT.STONE_BRICK);
+  fillBox(90, baseY, 104, 98, baseY + 2, 120, MAT.STONE_BRICK_DARK);
+  fillBox(89, baseY + 1, 110, 99, baseY + 6, 114, MAT.AIR);
+  fillBox(89, baseY + 7, 111, 99, baseY + 7, 113, MAT.AIR);
+  fillBox(88, baseY, 109, 100, baseY, 115, MAT.COBBLESTONE);
+  for (let z = 110; z <= 114; z++) {
+    for (let y = baseY + 5; y <= baseY + 7; y++) {
+      addSubBox(96.375, y, z + 0.375, 96.625, y + 1, z + 0.625, MAT.IRON_DARK);
+    }
+  }
+  buildCastleTower(95, 105, baseY, 4, 17, MAT.CASTLE_CRIMSON, MAT.FLAG_RED);
+  buildCastleTower(95, 119, baseY, 4, 17, MAT.CASTLE_CRIMSON, MAT.FLAG_RED);
+  for (let y = baseY + 4; y <= baseY + 9; y++) {
+    addSubBox(98.75, y, 108.25, 99.0, y + 1, 109.25, y === baseY + 4 ? MAT.FLAG_GOLD : MAT.FLAG_RED, 2);
+    addSubBox(98.75, y, 114.75, 99.0, y + 1, 115.75, y === baseY + 4 ? MAT.FLAG_GOLD : MAT.FLAG_RED, 2);
+  }
+  buildTorch(99, baseY + 3, 109);
+  buildTorch(99, baseY + 3, 115);
+
+  // Perimeter Curtain Towers
+  buildCastleTower(38, 82,  baseY, 4, 16, MAT.CASTLE_SLATE, MAT.FLAG_BLUE);
+  buildCastleTower(38, 112, baseY, 4, 18, MAT.CASTLE_CRIMSON, MAT.FLAG_RED);
+  buildCastleTower(38, 142, baseY, 4, 16, MAT.CASTLE_SLATE, MAT.FLAG_BLUE);
+  buildCastleTower(66, 82,  baseY, 4, 15, MAT.CASTLE_SLATE, MAT.FLAG_GOLD);
+  buildCastleTower(66, 142, baseY, 4, 15, MAT.CASTLE_SLATE, MAT.FLAG_GOLD);
+  buildCastleTower(94, 82,  baseY, 4, 16, MAT.CASTLE_CRIMSON, MAT.FLAG_RED);
+  buildCastleTower(94, 142, baseY, 4, 16, MAT.CASTLE_CRIMSON, MAT.FLAG_RED);
+
+  // Upper Royal Keep Terrace Retaining Wall & Grand Staircase (x: 40..66, z: 95..129, Y = 36)
+  for (let z = 95; z <= 129; z++) {
+    for (let x = 40; x <= 66; x++) {
+      if (x === 40 || x === 66 || z === 95 || z === 129) {
+        for (let y = baseY; y <= 36; y++) {
+          setBlock(x, y, z, y === 36 ? MAT.STONE_BRICK_LIGHT : MAT.STONE_BRICK_DARK);
+        }
+        if (((x + z) & 1) === 0) setBlock(x, 37, z, MAT.STONE_BRICK_LIGHT);
+      }
+    }
+  }
+  for (let i = 0; i <= 9; i++) {
+    const sx = 75 - i;
+    const sy = baseY + i;
+    fillBox(sx, baseY, 109, sx, sy, 115, MAT.STONE_BRICK_LIGHT);
+    setBlock(sx, sy + 1, 109, MAT.STONE_BRICK);
+    setBlock(sx, sy + 1, 115, MAT.STONE_BRICK);
+    if (i === 0 || i === 5 || i === 9) {
+      buildTorch(sx, sy + 2, 109);
+      buildTorch(sx, sy + 2, 115);
+    }
+  }
+
+  // The Royal Keep Citadel (x: 44..62, z: 100..124, base Y = 36)
+  const ky = 36;
+  fillBox(44, ky, 100, 62, ky + 22, 124, MAT.STONE_BRICK);
+  fillBox(44, ky, 100, 62, ky + 3, 124, MAT.STONE_BRICK_DARK);
+  fillBox(46, ky + 1, 102, 60, ky + 21, 122, MAT.AIR);
+  for (let z = 100; z <= 124; z += 6) {
+    fillBox(43, ky, z, 44, ky + 20, z + 1, MAT.STONE_BRICK_LIGHT);
+    fillBox(62, ky, z, 63, ky + 20, z + 1, MAT.STONE_BRICK_LIGHT);
+  }
+  fillBox(61, ky + 1, 110, 63, ky + 5, 114, MAT.AIR);
+  fillBox(62, ky + 7, 108, 65, ky + 7, 116, MAT.STONE_BRICK_LIGHT);
+  buildTorch(64, ky + 8, 109);
+  buildTorch(64, ky + 8, 115);
+
+  for (let floor = 0; floor < 3; floor++) {
+    const wy = ky + 5 + floor * 6;
+    for (let z = 104; z <= 120; z += 4) {
+      for (let dy = 0; dy < 3; dy++) {
+        setBlock(62, wy + dy, z, MAT.WINDOW_WARM);
+        setBlock(44, wy + dy, z, MAT.WINDOW_WARM);
+      }
+      addPointLight(63.5, wy + 1.5, z + 0.5, 1.0, 0.74, 0.34, 15, 0.15);
+      addPointLight(42.5, wy + 1.5, z + 0.5, 1.0, 0.74, 0.34, 15, 0.15);
+    }
+    for (let x = 48; x <= 58; x += 5) {
+      for (let dy = 0; dy < 3; dy++) {
+        setBlock(x, wy + dy, 100, MAT.WINDOW_WARM);
+        setBlock(x, wy + dy, 124, MAT.WINDOW_WARM);
+      }
+      addPointLight(x + 0.5, wy + 1.5, 98.5, 1.0, 0.74, 0.34, 15, 0.15);
+      addPointLight(x + 0.5, wy + 1.5, 125.5, 1.0, 0.74, 0.34, 15, 0.15);
+    }
+  }
+  for (let r = 0; r <= 7; r++) {
+    fillBox(44 + r, ky + 23 + r, 100 + r, 62 - r, ky + 23 + r, 124 - r, MAT.CASTLE_SLATE);
+  }
+  buildCastleTower(44, 100, ky, 3, 25, MAT.CASTLE_CRIMSON, MAT.FLAG_RED);
+  buildCastleTower(62, 100, ky, 3, 25, MAT.CASTLE_CRIMSON, MAT.FLAG_RED);
+  buildCastleTower(44, 124, ky, 3, 25, MAT.CASTLE_CRIMSON, MAT.FLAG_RED);
+  buildCastleTower(62, 124, ky, 3, 25, MAT.CASTLE_CRIMSON, MAT.FLAG_RED);
+  buildCastleTower(52, 112, ky + 14, 5, 22, MAT.CASTLE_CRIMSON, MAT.FLAG_GOLD);
+
+  // Castle Chapel in South Courtyard (x: 70..86, z: 124..136, Y = 27)
+  fillBox(70, baseY, 124, 86, baseY + 10, 136, MAT.STONE_BRICK);
+  fillBox(72, baseY + 1, 126, 84, baseY + 9, 134, MAT.AIR);
+  for (let x = 73; x <= 83; x += 3) {
+    for (let dy = 3; dy <= 7; dy++) {
+      setBlock(x, baseY + dy, 124, MAT.WINDOW_STAINED);
+      setBlock(x, baseY + dy, 136, MAT.WINDOW_STAINED);
+    }
+    addPointLight(x + 0.5, baseY + 5, 123.5, 0.55, 0.82, 1.0, 11, 0.1);
+  }
+  for (let r = 0; r <= 6; r++) {
+    fillBox(69, baseY + 11 + r, 124 + r, 87, baseY + 11 + r, 136 - r, MAT.CASTLE_SLATE);
+  }
+  fillBox(70, baseY + 11, 128, 74, baseY + 21, 132, MAT.STONE_BRICK_LIGHT);
+  fillBox(71, baseY + 18, 128, 73, baseY + 20, 132, MAT.AIR);
+  setBlock(72, baseY + 19, 130, MAT.GOLD_TRIM);
+  for (let r = 0; r <= 4; r++) {
+    fillBox(70 + Math.floor(r / 2), baseY + 22 + r, 128 + Math.floor(r / 2), 74 - Math.floor(r / 2), baseY + 22 + r, 132 - Math.floor(r / 2), MAT.CASTLE_CRIMSON);
+  }
+  addSubBox(71.75, baseY + 27, 129.75, 72.25, baseY + 30, 130.25, MAT.GOLD_TRIM);
+  addSubBox(71.0, baseY + 28.5, 129.75, 73.0, baseY + 29.0, 130.25, MAT.GOLD_TRIM);
+
+  // Royal Courtyard Gardens & Fountain in North Bailey (x: 70..88, z: 86..103, Y = 27)
+  fillBox(70, baseY, 86, 88, baseY, 103, MAT.GRASS);
+  for (let z = 86; z <= 103; z++) {
+    for (let x = 70; x <= 88; x++) {
+      if (x === 70 || x === 88 || z === 86 || z === 103) {
+        setBlock(x, baseY + 1, z, MAT.HEDGE);
+        setBlock(x, baseY + 2, z, MAT.HEDGE);
+      } else if (x === 79 || z === 94 || z === 95) {
+        setBlock(x, baseY, z, MAT.COBBLESTONE);
+      } else if ((x + z) % 3 === 0) {
+        const fl = ((x * 7 + z) % 3 === 0) ? MAT.FLOWERS_RED : (((x + z) & 1) ? MAT.FLOWERS_GOLD : MAT.FLOWERS_BLUE);
+        setBlock(x, baseY + 1, z, fl);
+      }
+    }
+  }
+  fillBox(77, baseY + 1, 92, 81, baseY + 1, 96, MAT.STONE_BRICK_LIGHT);
+  fillBox(78, baseY + 1, 93, 80, baseY + 1, 95, MAT.WATER);
+  for (let y = baseY + 1; y <= baseY + 4; y++) setBlock(79, y, 94, MAT.STONE_BRICK_LIGHT);
+  setBlock(79, baseY + 5, 94, MAT.WATER_FOAM);
+
+  // Courtyard Cobblestone Plaza (x: 67..90, z: 105..121)
+  for (let z = 105; z <= 121; z++) {
+    for (let x = 67; x <= 90; x++) {
+      if (rand() > 0.15) {
+        setBlock(x, baseY, z, (rand() > 0.3) ? MAT.COBBLESTONE : MAT.STONE_BRICK);
+      }
+    }
+  }
+  buildStreetLantern(76, baseY, 107);
+  buildStreetLantern(76, baseY, 117);
+  buildStreetLantern(86, baseY, 107);
+  buildStreetLantern(86, baseY, 117);
+
+  // Castle Moat Bridge & Sloped Causeway (x: 98..116, z: 109..115)
+  for (let x = 98; x <= 116; x++) {
+    const t = Math.max(0, (x - 104) / 12);
+    const cy = Math.round(lerp(baseY, 21, t));
+    for (let z = 109; z <= 115; z++) {
+      roadMask[z * WX + x] = 1;
+      const isArchHole = (x >= 101 && x <= 105) && (Math.abs(x - 103) <= 2);
+      const bottomY = isArchHole ? 21 : 13;
+      for (let y = bottomY; y <= cy; y++) {
+        setBlock(x, y, z, y === cy ? MAT.COBBLESTONE : MAT.STONE_BRICK_DARK);
+      }
+      for (let y = cy + 1; y <= cy + 6; y++) setBlock(x, y, z, MAT.AIR);
+      if (z === 109 || z === 115) {
+        setBlock(x, cy + 1, z, MAT.STONE_BRICK_LIGHT);
+        if (x % 4 === 0) {
+          setBlock(x, cy + 2, z, MAT.STONE_BRICK_LIGHT);
+          if (x === 104 || x === 112) buildTorch(x, cy + 3, z);
+        }
+      }
+    }
+  }
+}
+
+function buildRiverBridge() {
+  const xStart = 115, xEnd = 149;
+  for (let x = xStart; x <= xEnd; x++) {
+    const u = (x - xStart) / (xEnd - xStart);
+    const archLift = Math.sin(u * Math.PI) * 4.2;
+    const deckY = Math.round(20.5 + archLift);
+    const archPhase = Math.abs(((x - 118) % 10) - 5);
+    const isPier = archPhase >= 4 || x <= 118 || x >= 146;
+    const archCeil = deckY - 2 - Math.floor((4 - archPhase) * 0.5);
+
+    for (let z = 109; z <= 115; z++) {
+      roadMask[z * WX + x] = 1;
+      const minY = isPier ? 12 : Math.max(WATER_Y + 2, archCeil);
+      for (let y = minY; y <= deckY; y++) {
+        let mat = MAT.STONE_BRICK;
+        if (y <= WATER_Y + 1) mat = MAT.MOSSY_COBBLE;
+        else if (y === deckY) mat = ((x + z) % 3 === 0) ? MAT.MOSSY_COBBLE : MAT.COBBLESTONE;
+        setBlock(x, y, z, mat);
+      }
+      for (let y = deckY + 1; y <= deckY + 7; y++) setBlock(x, y, z, MAT.AIR);
+      if (z === 109 || z === 115) {
+        setBlock(x, deckY + 1, z, MAT.STONE_BRICK_LIGHT);
+        if (x % 2 === 0) setBlock(x, deckY + 2, z, MAT.STONE_BRICK_LIGHT);
+        if (x === 123 || x === 132 || x === 141) {
+          setBlock(x, deckY + 2, z, MAT.STONE_BRICK_LIGHT);
+          buildStreetLantern(x, deckY + 1, z);
+        }
+      }
+    }
+  }
+}
+
+// ============================================================================
+// 6. MEDIEVAL VILLAGE, HOUSES, MARKET, BLACKSMITH, TAVERN, WATERMILL & FARMS
+// ============================================================================
+function paveRoadSegment(x0, z0, x1, z1, halfWidth = 2.2) {
+  const steps = Math.ceil(Math.hypot(x1 - x0, z1 - z0) * 1.5);
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const cx = lerp(x0, x1, t) + Math.sin(t * Math.PI * 2) * 1.2;
+    const cz = lerp(z0, z1, t) + Math.cos(t * Math.PI * 2) * 1.0;
+    const r = Math.ceil(halfWidth + 1);
+    for (let dz = -r; dz <= r; dz++) {
+      for (let dx = -r; dx <= r; dx++) {
+        const px = Math.round(cx + dx), pz = Math.round(cz + dz);
+        if (px < 4 || px >= WX - 4 || pz < 4 || pz >= WZ - 4) continue;
+        const d = Math.hypot(px - cx, pz - cz);
+        if (d <= halfWidth) {
+          if (roadMask[pz * WX + px] === 3) continue;
+          roadMask[pz * WX + px] = 1;
+          const th = heightMap[pz * WX + px];
+          if (th > WATER_Y) {
+            const pMat = (hash2(px, pz) > 0.38) ? MAT.COBBLESTONE : (hash2(px + 9, pz) > 0.5 ? MAT.GRAVEL : MAT.DIRT);
+            setBlock(px, th, pz, pMat);
+          }
+        }
+      }
+    }
+  }
+}
+
+function buildHouse(cx, cz, w, d, wallH, stories, plasterMat, roofMat, orient = 0, isTavern = false) {
+  const x0 = cx - Math.floor(w / 2), x1 = x0 + w - 1;
+  const z0 = cz - Math.floor(d / 2), z1 = z0 + d - 1;
+  let baseY = 0;
+  for (let z = z0; z <= z1; z++) {
+    for (let x = x0; x <= x1; x++) {
+      baseY = Math.max(baseY, heightMap[z * WX + x]);
+      roadMask[z * WX + x] = 2;
+    }
+  }
+  baseY = Math.max(WATER_Y + 2, baseY);
+
+  for (let z = z0 - 1; z <= z1 + 1; z++) {
+    for (let x = x0 - 1; x <= x1 + 1; x++) {
+      roadMask[z * WX + x] = Math.max(roadMask[z * WX + x], 2);
+      if (x >= x0 && x <= x1 && z >= z0 && z <= z1) {
+        for (let y = baseY - 6; y <= baseY; y++) {
+          setBlock(x, y, z, y === baseY ? MAT.COBBLESTONE : MAT.STONE_BRICK_DARK);
+        }
+      }
+    }
+  }
+
+  let curY = baseY + 1;
+  for (let s = 0; s < stories; s++) {
+    const ox = (s > 0 && orient === 0) ? 1 : 0;
+    const oz = (s > 0 && orient === 1) ? 1 : 0;
+    const sx0 = x0 - ox, sx1 = x1 + ox;
+    const sz0 = z0 - oz, sz1 = z1 + oz;
+    const sh = wallH;
+
+    for (let y = curY; y < curY + sh; y++) {
+      for (let z = sz0; z <= sz1; z++) {
+        for (let x = sx0; x <= sx1; x++) {
+          const isXEdge = (x === sx0 || x === sx1);
+          const isZEdge = (z === sz0 || z === sz1);
+          if (isXEdge || isZEdge) {
+            let mat = (s === 0 && y === curY) ? MAT.COBBLESTONE : plasterMat;
+            if ((isXEdge && isZEdge) || y === curY + sh - 1 || (s > 0 && y === curY)) {
+              mat = MAT.OAK_LOG;
+            } else if (((x - sx0) % 4 === 0 && isZEdge) || ((z - sz0) % 4 === 0 && isXEdge)) {
+              mat = MAT.SPRUCE_PLANKS;
+            }
+            if (y === curY + 1 || (sh >= 4 && y === curY + 2)) {
+              const midX = Math.floor((sx0 + sx1) / 2);
+              const midZ = Math.floor((sz0 + sz1) / 2);
+              if ((isZEdge && Math.abs(x - midX) <= 1 && (x - sx0) % 2 === 1) ||
+                  (isXEdge && Math.abs(z - midZ) <= 1 && (z - sz0) % 2 === 1)) {
+                mat = MAT.WINDOW_WARM;
+                if (y === curY + 1) {
+                  addPointLight(x + 0.5, y + 0.5, z + 0.5, 1.0, 0.70, 0.30, 12, 0.18, 4.5);
+                }
+              }
+            }
+            setBlock(x, y, z, mat);
+          } else {
+            setBlock(x, y, z, y === curY ? MAT.OAK_PLANKS : MAT.AIR);
+          }
+        }
+      }
+    }
+    curY += sh;
+  }
+
+  const doorX = orient === 0 ? Math.floor((x0 + x1) / 2) : x0;
+  const doorZ = orient === 0 ? z0 : Math.floor((z0 + z1) / 2);
+  setBlock(doorX, baseY + 1, doorZ, MAT.SPRUCE_PLANKS);
+  setBlock(doorX, baseY + 2, doorZ, MAT.SPRUCE_PLANKS);
+  if (orient === 0) {
+    setBlock(doorX, baseY, doorZ - 1, MAT.COBBLESTONE);
+    buildTorch(doorX + 1, baseY + 2, doorZ - 1);
+  } else {
+    setBlock(doorX - 1, baseY, doorZ, MAT.COBBLESTONE);
+    buildTorch(doorX - 1, baseY + 2, doorZ + 1);
+  }
+
+  const ox = (stories > 1 && orient === 0) ? 1 : 0;
+  const oz = (stories > 1 && orient === 1) ? 1 : 0;
+  const rx0 = x0 - ox - 1, rx1 = x1 + ox + 1;
+  const rz0 = z0 - oz - 1, rz1 = z1 + oz + 1;
+
+  if (orient === 0) {
+    const halfSpan = Math.ceil((rx1 - rx0) / 2);
+    for (let r = 0; r <= halfSpan; r++) {
+      const ry = curY + r;
+      for (let z = rz0; z <= rz1; z++) {
+        setBlock(rx0 + r, ry, z, (z === rz0 || z === rz1) ? MAT.SPRUCE_PLANKS : roofMat);
+        setBlock(rx1 - r, ry, z, (z === rz0 || z === rz1) ? MAT.SPRUCE_PLANKS : roofMat);
+        if (z === rz0 + 1 || z === rz1 - 1) {
+          for (let gx = rx0 + r + 1; gx <= rx1 - r - 1; gx++) {
+            setBlock(gx, ry, z, gx === Math.floor((rx0 + rx1) / 2) ? MAT.OAK_LOG : plasterMat);
+          }
+        }
+      }
+    }
+  } else {
+    const halfSpan = Math.ceil((rz1 - rz0) / 2);
+    for (let r = 0; r <= halfSpan; r++) {
+      const ry = curY + r;
+      for (let x = rx0; x <= rx1; x++) {
+        setBlock(x, ry, rz0 + r, (x === rx0 || x === rx1) ? MAT.SPRUCE_PLANKS : roofMat);
+        setBlock(x, ry, rz1 - r, (x === rx0 || x === rx1) ? MAT.SPRUCE_PLANKS : roofMat);
+        if (x === rx0 + 1 || x === rx1 - 1) {
+          for (let gz = rz0 + r + 1; gz <= rz1 - r - 1; gz++) {
+            setBlock(x, ry, gz, gz === Math.floor((rz0 + rz1) / 2) ? MAT.OAK_LOG : plasterMat);
+          }
+        }
+      }
+    }
+  }
+
+  const chimX = x1 - 1, chimZ = z1 - 1;
+  const chimTop = curY + Math.ceil(Math.min(w, d) / 2) + 3;
+  for (let y = baseY + 1; y <= chimTop; y++) {
+    setBlock(chimX, y, chimZ, y === chimTop ? MAT.STONE_BRICK_DARK : MAT.COBBLESTONE);
+  }
+  for (let i = 0; i < (isTavern ? 6 : 3); i++) {
+    addDynamicInstance(chimX + 0.5, chimTop + 0.8, chimZ + 0.5, 2, rand() * 10, 0.55 + rand() * 0.45, 1.4, 0.25 + rand() * 0.15);
+  }
+}
+
+function buildMarketStall(x, z, canopyMat) {
+  const by = heightMap[z * WX + x];
+  for (let dz = -1; dz <= 1; dz++) {
+    for (let dx = -2; dx <= 2; dx++) {
+      roadMask[(z + dz) * WX + (x + dx)] = 2;
+      setBlock(x + dx, by, z + dz, MAT.COBBLESTONE);
+    }
+  }
+  fillBox(x - 1, by + 1, z, x + 1, by + 1, z, MAT.OAK_PLANKS);
+  setBlock(x - 2, by + 1, z + 1, MAT.BARREL);
+  setBlock(x + 2, by + 1, z - 1, MAT.PUMPKIN);
+  addSubBox(x - 1.875, by + 1, z - 1.125, x - 1.625, by + 3.5, z - 0.875, MAT.SPRUCE_PLANKS);
+  addSubBox(x + 1.625, by + 1, z - 1.125, x + 1.875, by + 3.5, z - 0.875, MAT.SPRUCE_PLANKS);
+  addSubBox(x - 1.875, by + 1, z + 0.875, x - 1.625, by + 3.5, z + 1.125, MAT.SPRUCE_PLANKS);
+  addSubBox(x + 1.625, by + 1, z + 0.875, x + 1.875, by + 3.5, z + 1.125, MAT.SPRUCE_PLANKS);
+  for (let dx = -2; dx <= 2; dx++) {
+    const m = (dx & 1) === 0 ? canopyMat : MAT.CLOTH_WHITE;
+    addSubBox(x + dx, by + 3.25, z - 1.5, x + dx + 1, by + 3.85, z + 1.5, m, 2);
+  }
+}
+
+function buildVillageWell(cx, cz) {
+  const by = heightMap[cz * WX + cx];
+  for (let dz = -2; dz <= 2; dz++) {
+    for (let dx = -2; dx <= 2; dx++) {
+      setBlock(cx + dx, by, cz + dz, MAT.MOSSY_COBBLE);
+      if (Math.abs(dx) <= 1 && Math.abs(dz) <= 1) {
+        if (dx === 0 && dz === 0) {
+          setBlock(cx, by - 1, cz, MAT.WATER);
+          setBlock(cx, by, cz, MAT.WATER);
+          setBlock(cx, by + 1, cz, MAT.AIR);
+        } else {
+          setBlock(cx + dx, by + 1, cz + dz, MAT.STONE_BRICK);
+        }
+      }
+    }
+  }
+  addSubBox(cx - 0.875, by + 2, cz - 0.125, cx - 0.625, by + 4.25, cz + 0.125, MAT.OAK_LOG);
+  addSubBox(cx + 0.625, by + 2, cz - 0.125, cx + 0.875, by + 4.25, cz + 0.125, MAT.OAK_LOG);
+  addSubBox(cx - 1.5, by + 4.0, cz - 1.25, cx + 1.5, by + 4.75, cz + 1.25, MAT.ROOF_CEDAR);
+  buildTorch(cx + 1, by + 2, cz + 1);
+}
+
+function buildWatermill(cx, cz) {
+  buildHouse(cx, cz, 9, 8, 4, 2, MAT.PLASTER_OCHRE, MAT.ROOF_CEDAR, 0, false);
+  const by = WATER_Y + 2;
+  addSubBox(cx - 7.5, by + 1.25, cz - 0.375, cx - 3.5, by + 1.75, cz + 0.375, MAT.OAK_LOG);
+  const wx = cx - 6.25;
+  for (let i = 0; i < 16; i++) {
+    const a = (i / 16) * Math.PI * 2;
+    const py = by + 1.5 + Math.sin(a) * 4.0;
+    const pz = cz + Math.cos(a) * 4.0;
+    addSubBox(wx - 0.6, py - 0.4, pz - 0.4, wx + 0.6, py + 0.4, pz + 0.4, (i & 1) ? MAT.SPRUCE_PLANKS : MAT.OAK_PLANKS);
+    if (i % 2 === 0) {
+      const sy = by + 1.5 + Math.sin(a) * 2.0;
+      const sz = cz + Math.cos(a) * 2.0;
+      addSubBox(wx - 0.2, sy - 0.25, sz - 0.25, wx + 0.2, sy + 0.25, sz + 0.25, MAT.OAK_LOG);
+    }
+  }
+  for (let dz = -4; dz <= 4; dz++) {
+    setBlock(Math.floor(wx), WATER_Y, cz + dz, MAT.WATER_FOAM);
+  }
+}
+
+function buildWindmill(cx, cz) {
+  const by = heightMap[cz * WX + cx];
+  for (let y = by - 2; y <= by + 14; y++) {
+    const r = y < by + 4 ? 4.2 : (y < by + 11 ? 3.5 : 2.8);
+    for (let dz = -5; dz <= 5; dz++) {
+      for (let dx = -5; dx <= 5; dx++) {
+        const d = Math.hypot(dx, dz);
+        if (d <= r) {
+          roadMask[(cz + dz) * WX + (cx + dx)] = 2;
+          let mat = y < by + 4 ? MAT.COBBLESTONE : (y < by + 12 ? MAT.PLASTER_WHITE : MAT.ROOF_THATCH);
+          if (y === by + 7 && dx === 0 && Math.abs(dz) >= 3) mat = MAT.WINDOW_WARM;
+          setBlock(cx + dx, y, cz + dz, mat);
+        }
+      }
+    }
+  }
+  const hubX = cx - 4.2, hubY = by + 10.5, hubZ = cz + 0.5;
+  addSubBox(hubX - 1.2, hubY - 0.5, hubZ - 0.5, hubX + 1.0, hubY + 0.5, hubZ + 0.5, MAT.OAK_LOG);
+  const dirs = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
+  for (const [dy, dz] of dirs) {
+    for (let step = 1; step <= 9; step++) {
+      const sy = hubY + dy * step * 0.85;
+      const sz = hubZ + dz * step * 0.85;
+      addSubBox(hubX - 0.75, sy - 0.25, sz - 0.25, hubX - 0.25, sy + 0.25, sz + 0.25, MAT.SPRUCE_PLANKS);
+      if (step >= 2) {
+        addSubBox(hubX - 0.95, sy - 0.65, sz - 0.65, hubX - 0.65, sy + 0.65, sz + 0.65, MAT.CLOTH_WHITE, 2);
+      }
+    }
+  }
+  buildStreetLantern(cx - 5, by, cz + 3);
+}
+
+function buildBlacksmith(cx, cz) {
+  buildHouse(cx, cz, 9, 8, 4, 1, MAT.STONE_BRICK, MAT.ROOF_TERRACOTTA, 1, false);
+  const by = heightMap[cz * WX + cx];
+  for (let z = cz - 3; z <= cz + 3; z++) {
+    for (let x = cx - 8; x <= cx - 4; x++) {
+      roadMask[z * WX + x] = 2;
+      setBlock(x, by, z, MAT.STONE_BRICK_DARK);
+      addSubBox(x, by + 4.0, z, x + 1, by + 4.5, z + 1, MAT.ROOF_CEDAR);
+    }
+  }
+  fillBox(cx - 6, by + 1, cz - 2, cx - 5, by + 3, cz, MAT.STONE_BRICK_DARK);
+  setBlock(cx - 6, by + 1, cz - 1, MAT.LAVA);
+  addPointLight(cx - 6.5, by + 2.0, cz - 0.5, 1.0, 0.42, 0.08, 15, 0.4);
+  for (let i = 0; i < 6; i++) {
+    addDynamicInstance(cx - 5.5, by + 4.8, cz - 1.0, 2, rand() * 10, 0.65 + rand() * 0.4, 1.5, 0.3 + rand() * 0.15);
+  }
+  addSubBox(cx - 7.5, by + 1, cz + 1.25, cx - 6.5, by + 1.85, cz + 2.25, MAT.IRON_DARK);
+  setBlock(cx - 5, by + 1, cz + 2, MAT.WATER);
+}
+
+function buildDockAndBoat(zPos, hasSail = true) {
+  const rcx = Math.round(riverCenterX(zPos));
+  const rw = Math.round(riverWidth(zPos));
+  const bankX = rcx + rw;
+  for (let x = bankX - 7; x <= bankX + 2; x++) {
+    for (let z = zPos - 1; z <= zPos + 1; z++) {
+      roadMask[z * WX + x] = 2;
+      addSubBox(x, WATER_Y + 0.75, z, x + 1, WATER_Y + 1.25, z + 1, MAT.OAK_PLANKS);
+    }
+    if (x % 3 === 0) {
+      addSubBox(x + 0.25, WATER_Y - 3, zPos - 1.25, x + 0.75, WATER_Y + 2.25, zPos - 0.75, MAT.OAK_LOG);
+      addSubBox(x + 0.25, WATER_Y - 3, zPos + 1.75, x + 0.75, WATER_Y + 2.25, zPos + 2.25, MAT.OAK_LOG);
+    }
+  }
+  buildStreetLantern(bankX + 1, WATER_Y + 1, zPos - 2);
+  setBlock(bankX, WATER_Y + 1, zPos + 1, MAT.BARREL);
+
+  const bx = rcx + (hasSail ? -2 : 2);
+  const bz = zPos + (hasSail ? 2 : -3);
+  addSubBox(bx - 1.25, WATER_Y - 0.25, bz - 3.0, bx + 1.25, WATER_Y + 0.75, bz + 3.0, MAT.SPRUCE_PLANKS);
+  addSubBox(bx - 0.75, WATER_Y + 0.25, bz - 2.25, bx + 0.75, WATER_Y + 0.85, bz + 2.25, MAT.OAK_PLANKS);
+  if (hasSail) {
+    addSubBox(bx - 0.125, WATER_Y + 0.75, bz - 0.125, bx + 0.125, WATER_Y + 6.5, bz + 0.125, MAT.OAK_LOG);
+    addSubBox(bx + 0.125, WATER_Y + 2.0, bz - 2.0, bx + 0.75, WATER_Y + 6.0, bz + 2.0, MAT.CLOTH_WHITE, 2);
+    addSubBox(bx - 0.125, WATER_Y + 6.5, bz, bx + 1.5, WATER_Y + 7.0, bz + 0.25, MAT.FLAG_RED, 2);
+  }
+  buildTorch(Math.round(bx), WATER_Y + 1, Math.round(bz - 2.5));
+}
+
+function buildWoodenCart(x, z) {
+  const by = heightMap[z * WX + x];
+  roadMask[z * WX + x] = 2;
+  addSubBox(x - 1.0, by + 0.65, z - 0.75, x + 1.25, by + 1.5, z + 0.75, MAT.OAK_PLANKS);
+  addSubBox(x - 0.5, by + 1.5, z - 0.5, x + 0.5, by + 2.1, z + 0.5, MAT.BARREL);
+  addSubBox(x - 0.65, by, z - 1.0, x + 0.35, by + 1.0, z - 0.75, MAT.SPRUCE_PLANKS);
+  addSubBox(x - 0.65, by, z + 0.75, x + 0.35, by + 1.0, z + 1.0, MAT.SPRUCE_PLANKS);
+}
+
+function buildMedievalVillage() {
+  paveRoadSegment(149, 112, 174, 122, 2.8);
+  paveRoadSegment(174, 122, 206, 134, 2.4);
+  paveRoadSegment(174, 122, 168, 92,  2.2);
+  paveRoadSegment(174, 122, 168, 162, 2.5);
+  paveRoadSegment(168, 162, 188, 194, 2.0);
+  paveRoadSegment(152, 96,  148, 168, 2.0);
+
+  for (let z = 114; z <= 132; z++) {
+    for (let x = 164; x <= 184; x++) {
+      if (Math.hypot(x - 174, z - 123) <= 10.5) {
+        roadMask[z * WX + x] = 1;
+        const th = heightMap[z * WX + x];
+        setBlock(x, th, z, ((x + z) % 3 === 0) ? MAT.STONE_BRICK : MAT.COBBLESTONE);
+      }
+    }
+  }
+  buildVillageWell(174, 123);
+  buildMarketStall(168, 117, MAT.FLAG_RED);
+  buildMarketStall(180, 117, MAT.FLAG_BLUE);
+  buildMarketStall(168, 129, MAT.CLOTH_GREEN);
+  buildMarketStall(180, 129, MAT.FLAG_GOLD);
+  buildStreetLantern(164, heightMap[123 * WX + 164], 123);
+  buildStreetLantern(184, heightMap[123 * WX + 184], 123);
+  buildWoodenCart(162, 118);
+  buildWoodenCart(175, 135);
+
+  buildHouse(175, 106, 13, 9, 4, 2, MAT.PLASTER_WHITE, MAT.ROOF_TERRACOTTA, 1, true);
+  buildHouse(182, 109, 7, 8, 4, 2, MAT.PLASTER_WHITE, MAT.ROOF_TERRACOTTA, 0, true);
+  buildBlacksmith(164, 140);
+  buildWatermill(145, 142);
+  buildHouse(206, 134, 13, 8, 5, 1, MAT.STONE_BRICK_LIGHT, MAT.CASTLE_SLATE, 1, false);
+  buildCastleTower(200, 134, heightMap[134 * WX + 200], 3, 14, MAT.CASTLE_SLATE, MAT.FLAG_GOLD);
+  buildWindmill(194, 190);
+
+  buildDockAndBoat(96, true);
+  buildDockAndBoat(127, false);
+  buildDockAndBoat(158, true);
+  buildDockAndBoat(176, false);
+
+  const houseSpecs = [
+    [156, 88,  8, 7, 3, 2, MAT.PLASTER_WHITE, MAT.ROOF_TERRACOTTA, 0],
+    [168, 84,  9, 7, 4, 2, MAT.PLASTER_OCHRE, MAT.ROOF_CEDAR, 1],
+    [182, 86,  8, 8, 3, 2, MAT.PLASTER_ROSE,  MAT.ROOF_TERRACOTTA, 0],
+    [194, 92,  7, 7, 3, 1, MAT.PLASTER_WHITE, MAT.ROOF_THATCH, 1],
+    [156, 101, 8, 7, 4, 2, MAT.PLASTER_OCHRE, MAT.ROOF_TERRACOTTA, 0],
+    [192, 104, 9, 7, 4, 2, MAT.PLASTER_WHITE, MAT.ROOF_CEDAR, 1],
+    [205, 102, 7, 6, 3, 1, MAT.PLASTER_OCHRE, MAT.ROOF_THATCH, 0],
+    [192, 118, 9, 8, 4, 2, MAT.PLASTER_ROSE,  MAT.ROOF_TERRACOTTA, 1],
+    [206, 118, 8, 7, 3, 2, MAT.PLASTER_WHITE, MAT.ROOF_CEDAR, 0],
+    [218, 122, 7, 7, 3, 1, MAT.PLASTER_OCHRE, MAT.ROOF_MOSS, 1],
+    [192, 132, 8, 7, 4, 2, MAT.PLASTER_WHITE, MAT.ROOF_TERRACOTTA, 0],
+    [218, 136, 8, 6, 3, 1, MAT.PLASTER_OCHRE, MAT.ROOF_THATCH, 1],
+    [154, 126, 8, 7, 4, 2, MAT.PLASTER_WHITE, MAT.ROOF_TERRACOTTA, 0],
+    [154, 156, 9, 7, 4, 2, MAT.PLASTER_OCHRE, MAT.ROOF_CEDAR, 0],
+    [154, 168, 8, 7, 3, 2, MAT.PLASTER_ROSE,  MAT.ROOF_TERRACOTTA, 1],
+    [166, 152, 8, 8, 4, 2, MAT.PLASTER_WHITE, MAT.ROOF_CEDAR, 0],
+    [178, 144, 9, 7, 4, 2, MAT.PLASTER_OCHRE, MAT.ROOF_TERRACOTTA, 1],
+    [192, 148, 8, 7, 3, 2, MAT.PLASTER_WHITE, MAT.ROOF_MOSS, 0],
+    [206, 150, 7, 7, 3, 1, MAT.PLASTER_ROSE,  MAT.ROOF_THATCH, 1],
+    [178, 158, 9, 7, 4, 2, MAT.PLASTER_WHITE, MAT.ROOF_TERRACOTTA, 0],
+    [192, 160, 8, 7, 3, 2, MAT.PLASTER_OCHRE, MAT.ROOF_CEDAR, 1],
+    [206, 162, 7, 6, 3, 1, MAT.PLASTER_WHITE, MAT.ROOF_THATCH, 0],
+    [164, 174, 8, 7, 3, 1, MAT.PLASTER_OCHRE, MAT.ROOF_CEDAR, 1],
+    [178, 172, 8, 7, 3, 2, MAT.PLASTER_WHITE, MAT.ROOF_TERRACOTTA, 0],
+    [158, 188, 7, 6, 3, 1, MAT.PLASTER_OCHRE, MAT.ROOF_THATCH, 1],
+    [174, 188, 8, 6, 3, 1, MAT.PLASTER_WHITE, MAT.ROOF_THATCH, 0],
+    [210, 178, 7, 6, 3, 1, MAT.PLASTER_OCHRE, MAT.ROOF_MOSS, 1],
+    [214, 194, 7, 6, 3, 1, MAT.PLASTER_WHITE, MAT.ROOF_THATCH, 0],
+    [176, 204, 8, 6, 3, 1, MAT.PLASTER_ROSE,  MAT.ROOF_THATCH, 1],
+    [200, 206, 7, 6, 3, 1, MAT.PLASTER_OCHRE, MAT.ROOF_THATCH, 0]
+  ];
+  for (const s of houseSpecs) {
+    buildHouse(s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7], s[8], false);
+  }
+
+  for (let z = 176; z <= 220; z++) {
+    for (let x = 162; x <= 224; x++) {
+      if (roadMask[z * WX + x] !== 0) continue;
+      const dFarm = Math.hypot((x - 192) * 0.8, (z - 198) * 0.9);
+      if (dFarm < 26) {
+        const th = heightMap[z * WX + x];
+        if (th > WATER_Y + 1) {
+          if (x % 9 === 0 || z % 11 === 0) {
+            addSubBox(x + 0.35, th + 1, z + 0.35, x + 0.65, th + 2.1, z + 0.65, MAT.OAK_PLANKS);
+            addSubBox(x, th + 1.5, z + 0.4, x + 1, th + 1.75, z + 0.6, MAT.OAK_PLANKS);
+          } else if (z % 5 === 0) {
+            setBlock(x, th, z, MAT.WATER);
+          } else {
+            setBlock(x, th, z, MAT.FARMLAND);
+            const crop = (hash2(x, z) > 0.92) ? MAT.PUMPKIN : MAT.WHEAT;
+            setBlock(x, th + 1, z, crop);
+          }
+        }
+      }
+    }
+  }
+
+  const lanternCoords = [
+    [154, 112], [162, 116], [186, 127], [196, 131], [171, 100],
+    [168, 138], [168, 150], [168, 164], [178, 178], [186, 188],
+    [150, 104], [150, 134], [150, 150]
+  ];
+  for (const [lx, lz] of lanternCoords) {
+    buildStreetLantern(lx, heightMap[lz * WX + lx], lz);
+  }
+}
+
+// ============================================================================
+// 7. OUTLYING LANDMARKS: WATCHTOWERS, FOREST RUINS, VOLCANO TEMPLE RUINS
+// ============================================================================
+function buildOutlyingLandmarks() {
+  const ny = heightMap[54 * WX + 104];
+  buildCastleTower(104, 54, ny, 4, 15, MAT.CASTLE_SLATE, MAT.FLAG_BLUE);
+  paveRoadSegment(82, 78, 104, 58, 1.6);
+
+  const sy = heightMap[186 * WX + 54];
+  buildCastleTower(54, 186, sy, 4, 15, MAT.ROOF_MOSS, MAT.CLOTH_GREEN);
+  paveRoadSegment(66, 146, 54, 182, 1.6);
+
+  const ry = heightMap[194 * WX + 78];
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    const px = Math.round(78 + Math.cos(a) * 9);
+    const pz = Math.round(194 + Math.sin(a) * 9);
+    const py = heightMap[pz * WX + px];
+    const h = 4 + (i % 3) * 2;
+    for (let y = py; y <= py + h; y++) {
+      setBlock(px, y, pz, (y & 1) ? MAT.MOSSY_STONE : MAT.STONE_BRICK);
+    }
+    if (i % 2 === 0) {
+      setBlock(px, py + h + 1, pz, MAT.CRYSTAL_CYAN);
+      addPointLight(px + 0.5, py + h + 1.5, pz + 0.5, 0.25, 0.88, 1.0, 12, 0.15);
+    }
+  }
+  setBlock(78, ry + 1, 194, MAT.STONE_BRICK_LIGHT);
+  setBlock(78, ry + 2, 194, MAT.CRYSTAL_CYAN);
+  addPointLight(78.5, ry + 2.5, 194.5, 0.3, 0.9, 1.0, 15, 0.15);
+
+  const vx = 182, vz = 68;
+  const vy = heightMap[vz * WX + vx];
+  for (let dz = -7; dz <= 7; dz++) {
+    for (let dx = -7; dx <= 7; dx++) {
+      const d = Math.hypot(dx, dz);
+      if (d <= 7.5) {
+        const px = vx + dx, pz = vz + dz;
+        roadMask[pz * WX + px] = 2;
+        for (let y = vy - 4; y <= vy; y++) {
+          setBlock(px, y, pz, (d < 2.5 && y === vy) ? MAT.LAVA : MAT.OBSIDIAN);
+        }
+      }
+    }
+  }
+  addPointLight(vx + 0.5, vy + 2.0, vz + 0.5, 1.0, 0.32, 0.06, 18, 0.4);
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    const px = Math.round(vx + Math.cos(a) * 6);
+    const pz = Math.round(vz + Math.sin(a) * 6);
+    const h = 6 + (i % 2) * 3;
+    for (let y = vy + 1; y <= vy + h; y++) {
+      setBlock(px, y, pz, y === vy + h ? MAT.MAGMA_CRUST : MAT.OBSIDIAN);
+    }
+    setBlock(px, vy + h + 1, pz, MAT.TORCH_FLAME);
+    addPointLight(px + 0.5, vy + h + 1.5, pz + 0.5, 1.0, 0.45, 0.1, 13, 0.35);
+  }
+}
+
+// ============================================================================
+// 8. FORESTS, TREES, REEDS, FLOWERS, CLOUDS & BIRDS
+// ============================================================================
+function buildTree(x, y, z, style) {
+  if (style === 'pine' || style === 'snow_pine') {
+    const h = 7 + Math.floor(rand() * 5);
+    for (let ty = y; ty < y + h; ty++) setBlock(x, ty, z, MAT.OAK_LOG);
+    for (let ly = 2; ly <= h + 1; ly++) {
+      const r = Math.max(1, Math.floor((h + 2 - ly) * 0.48));
+      for (let dz = -r; dz <= r; dz++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.hypot(dx, dz) <= r + 0.25 && !(dx === 0 && dz === 0 && ly < h)) {
+            const isTop = (ly === h + 1 || (style === 'snow_pine' && rand() > 0.55));
+            setBlock(x + dx, y + ly, z + dz, isTop && style === 'snow_pine' ? MAT.SNOW : MAT.LEAVES_PINE);
+          }
+        }
+      }
+    }
+  } else if (style === 'dead') {
+    const h = 5 + Math.floor(rand() * 4);
+    for (let ty = y; ty < y + h; ty++) setBlock(x, ty, z, MAT.DEAD_WOOD);
+    setBlock(x + 1, y + h - 2, z, MAT.DEAD_WOOD);
+    setBlock(x - 1, y + h - 1, z + 1, MAT.DEAD_WOOD);
+  } else if (style === 'willow') {
+    const h = 6;
+    for (let ty = y; ty < y + h; ty++) setBlock(x, ty, z, MAT.OAK_LOG);
+    for (let dz = -3; dz <= 3; dz++) {
+      for (let dx = -3; dx <= 3; dx++) {
+        const d = Math.hypot(dx, dz);
+        if (d <= 3.2) {
+          setBlock(x + dx, y + h, z + dz, MAT.LEAVES_WILLOW);
+          setBlock(x + dx, y + h - 1, z + dz, MAT.LEAVES_WILLOW);
+          if (d >= 2.2 && rand() > 0.35) {
+            for (let vy = 1; vy <= 3; vy++) setBlock(x + dx, y + h - 1 - vy, z + dz, MAT.LEAVES_WILLOW);
+          }
+        }
+      }
+    }
+  } else {
+    const h = 5 + Math.floor(rand() * 3);
+    const trunkMat = style === 'birch' ? MAT.BIRCH_LOG : MAT.OAK_LOG;
+    const leafMat = style === 'birch' ? MAT.LEAVES_BIRCH :
+                    style === 'autumn_orange' ? MAT.LEAVES_AUTUMN_ORANGE :
+                    style === 'autumn_red' ? MAT.LEAVES_AUTUMN_RED : MAT.LEAVES_OAK;
+    for (let ty = y; ty < y + h; ty++) setBlock(x, ty, z, trunkMat);
+    for (let dy = -2; dy <= 2; dy++) {
+      const r = dy === 2 ? 1.5 : (dy === -2 ? 2.0 : 2.6);
+      for (let dz = -3; dz <= 3; dz++) {
+        for (let dx = -3; dx <= 3; dx++) {
+          if (Math.hypot(dx, dz) <= r + (rand() - 0.5) * 0.5) {
+            if (!(dx === 0 && dz === 0 && dy < 0)) {
+              setBlock(x + dx, y + h + dy, z + dz, leafMat);
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+function populateNature() {
+  for (let z = 8; z < WZ - 8; z += 4) {
+    for (let x = 8; x < WX - 8; x += 4) {
+      const jx = x + Math.floor((rand() - 0.5) * 3);
+      const jz = z + Math.floor((rand() - 0.5) * 3);
+      if (roadMask[jz * WX + jx] !== 0) continue;
+      const th = heightMap[jz * WX + jx];
+      const ground = getBlock(jx, th, jz);
+      const dVolcano = Math.hypot(jx - 212, jz - 46);
+      const dVillage = Math.hypot(jx - 180, jz - 140);
+      const dCastle = Math.hypot(jx - 68, jz - 112);
+
+      if (dCastle < 45) continue;
+      if (dVillage < 40 && rand() > 0.14) continue;
+
+      if (dVolcano < 52 && dVolcano > 16 && th < 56) {
+        if (rand() < 0.14) buildTree(jx, th + 1, jz, 'dead');
+        continue;
+      }
+
+      if (ground === MAT.GRASS || ground === MAT.GRASS_FOREST || ground === MAT.GRASS_ALPINE || ground === MAT.SNOW) {
+        const rcx = riverCenterX(jz);
+        const distRiv = Math.abs(jx - rcx);
+        if (distRiv >= 11 && distRiv <= 16 && jz > 65 && rand() < 0.35) {
+          buildTree(jx, th + 1, jz, 'willow');
+        } else if (th >= 46 || jz < 58) {
+          if (th < 64 && rand() < 0.42) buildTree(jx, th + 1, jz, th >= 50 ? 'snow_pine' : 'pine');
+        } else if (jx < 112 && jz > 148) {
+          if (rand() < 0.58) {
+            const p = rand();
+            const st = p < 0.45 ? 'oak' : (p < 0.7 ? 'autumn_orange' : (p < 0.88 ? 'autumn_red' : 'birch'));
+            buildTree(jx, th + 1, jz, st);
+          }
+        } else if (rand() < 0.25) {
+          const p = rand();
+          buildTree(jx, th + 1, jz, p < 0.55 ? 'oak' : (p < 0.8 ? 'birch' : 'autumn_orange'));
+        }
+      }
+    }
+  }
+
+  for (let z = 54; z < WZ - 6; z++) {
+    for (let x = 6; x < WX - 6; x++) {
+      if (roadMask[z * WX + x] !== 0) continue;
+      const th = heightMap[z * WX + x];
+      const g = getBlock(x, th, z);
+      if ((g === MAT.SAND || g === MAT.GRASS) && th === WATER_Y + 1) {
+        if (rand() < 0.22) {
+          setBlock(x, th + 1, z, MAT.REEDS);
+          setBlock(x, th + 2, z, MAT.REEDS);
+          if (rand() > 0.5) setBlock(x, th + 3, z, MAT.REEDS);
+        }
+      } else if ((g === MAT.GRASS || g === MAT.GRASS_FOREST) && getBlock(x, th + 1, z) === MAT.AIR) {
+        if (rand() < 0.035) {
+          const fl = rand() < 0.4 ? MAT.FLOWERS_GOLD : (rand() < 0.7 ? MAT.FLOWERS_RED : MAT.FLOWERS_BLUE);
+          setBlock(x, th + 1, z, fl);
+        }
+      }
+    }
+  }
+
+  // Drifting Voxel Clouds
+  for (let c = 0; c < 26; c++) {
+    const cx = rand() * WX;
+    const cy = 78 + rand() * 14;
+    const cz = rand() * WZ;
+    const seed = rand() * 100;
+    const speed = 1.4 + rand() * 1.2;
+    const puffCount = 5 + Math.floor(rand() * 5);
+    for (let p = 0; p < puffCount; p++) {
+      const px = cx + (rand() - 0.5) * 14;
+      const py = cy + (rand() - 0.5) * 2.5;
+      const pz = cz + (rand() - 0.5) * 9;
+      const sc = 3.5 + rand() * 4.5;
+      addDynamicInstance(px, py, pz, 0, seed, sc, 0, speed);
+    }
+  }
+
+  // Flocks of Circling & Flapping Voxel Birds
+  const flockCenters = [
+    [68, 66, 112, 26],
+    [130, 48, 112, 32],
+    [176, 52, 130, 28],
+    [125, 62, 46, 22]
+  ];
+  for (const [fcx, fcy, fcz, rad] of flockCenters) {
+    for (let b = 0; b < 9; b++) {
+      const seed = rand() * Math.PI * 2;
+      const r = rad + (rand() - 0.5) * 12;
+      const y = fcy + (rand() - 0.5) * 10;
+      const spd = 0.25 + rand() * 0.15;
+      addDynamicInstance(fcx, y, fcz, 1,  seed, 0.55, r, spd);
+      addDynamicInstance(fcx, y, fcz, 11, seed, 0.55, r, spd);
+      addDynamicInstance(fcx, y, fcz, 12, seed, 0.55, r, spd);
+    }
+  }
+}
+
+// ============================================================================
+// 9. OPTIMIZED CHUNKED HIDDEN-FACE MESHER + SMOOTH VOXEL AMBIENT OCCLUSION
+// ============================================================================
+const FACE_NORMALS = [
+  [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]
+];
+const FACE_CORNERS = [
+  [[1,0,0], [1,1,0], [1,1,1], [1,0,1]], // 0: +X
+  [[0,0,1], [0,1,1], [0,1,0], [0,0,0]], // 1: -X
+  [[0,1,1], [1,1,1], [1,1,0], [0,1,0]], // 2: +Y
+  [[0,0,0], [1,0,0], [1,0,1], [0,0,1]], // 3: -Y
+  [[1,0,1], [1,1,1], [0,1,1], [0,0,1]], // 4: +Z
+  [[0,0,0], [0,1,0], [1,1,0], [1,0,0]]  // 5: -Z
+];
+const FACE_AO_AXES = [
+  [[0,1,0], [0,0,1]],  // +X
+  [[0,1,0], [0,0,-1]], // -X
+  [[1,0,0], [0,0,-1]], // +Y
+  [[1,0,0], [0,0,1]],  // -Y
+  [[-1,0,0],[0,1,0]],  // +Z
+  [[1,0,0], [0,1,0]]   // -Z
+];
+
+function isOccluder(x, y, z) {
+  const m = getBlock(x, y, z);
+  return m !== MAT.AIR && m !== MAT.WATER && m !== MAT.WATER_FOAM;
+}
+
+function computeFaceAO(nx, ny, nz, fDir) {
+  const [T, B] = FACE_AO_AXES[fDir];
+  const corners = FACE_CORNERS[fDir];
+  const aoVals = [255, 255, 255, 255];
+
+  for (let c = 0; c < 4; c++) {
+    const cr = corners[c];
+    const u0 = (cr[0]*Math.abs(T[0]) + cr[1]*Math.abs(T[1]) + cr[2]*Math.abs(T[2])) ? 1 : -1;
+    const v0 = (cr[0]*Math.abs(B[0]) + cr[1]*Math.abs(B[1]) + cr[2]*Math.abs(B[2])) ? 1 : -1;
+    const dTx = Math.abs(T[0]) * u0, dTy = Math.abs(T[1]) * u0, dTz = Math.abs(T[2]) * u0;
+    const dBx = Math.abs(B[0]) * v0, dBy = Math.abs(B[1]) * v0, dBz = Math.abs(B[2]) * v0;
+
+    const side1 = isOccluder(nx + dTx, ny + dTy, nz + dTz) ? 1 : 0;
+    const side2 = isOccluder(nx + dBx, ny + dBy, nz + dBz) ? 1 : 0;
+    const corner = (side1 && side2) ? 1 : (isOccluder(nx + dTx + dBx, ny + dTy + dBy, nz + dTz + dBz) ? 1 : 0);
+    const occ = side1 + side2 + corner;
+    aoVals[c] = 255 - occ * 49;
+  }
+  return aoVals;
+}
+
+function packVertexMeta(normalIdx, aoByte, matId, animType, cornerIdx) {
+  return ((normalIdx & 7) |
+          ((aoByte & 255) << 3) |
+          ((matId & 255) << 11) |
+          ((animType & 15) << 19) |
+          ((cornerIdx & 3) << 23)) >>> 0;
+}
+
+class MeshBuilder {
+  constructor(initialFloats = 32768) {
+    this.f32 = new Float32Array(initialFloats);
+    this.u32 = new Uint32Array(this.f32.buffer);
+    this.len = 0;
+  }
+  ensure(extraFloats) {
+    if (this.len + extraFloats > this.f32.length) {
+      const next = new Float32Array(Math.max(this.f32.length * 2, this.len + extraFloats));
+      next.set(this.f32);
+      this.f32 = next;
+      this.u32 = new Uint32Array(this.f32.buffer);
+    }
+  }
+  pushQuad(v0, v1, v2, v3, normIdx, ao4, matId, animType) {
+    this.ensure(24);
+    const m0 = packVertexMeta(normIdx, ao4[0], matId, animType, 0);
+    const m1 = packVertexMeta(normIdx, ao4[1], matId, animType, 1);
+    const m2 = packVertexMeta(normIdx, ao4[2], matId, animType, 2);
+    const m3 = packVertexMeta(normIdx, ao4[3], matId, animType, 3);
+    let o = this.len;
+    const f = this.f32, u = this.u32;
+    if (ao4[0] + ao4[2] > ao4[1] + ao4[3]) {
+      f[o]=v0[0]; f[o+1]=v0[1]; f[o+2]=v0[2]; u[o+3]=m0; o+=4;
+      f[o]=v1[0]; f[o+1]=v1[1]; f[o+2]=v1[2]; u[o+3]=m1; o+=4;
+      f[o]=v2[0]; f[o+1]=v2[1]; f[o+2]=v2[2]; u[o+3]=m2; o+=4;
+      f[o]=v0[0]; f[o+1]=v0[1]; f[o+2]=v0[2]; u[o+3]=m0; o+=4;
+      f[o]=v2[0]; f[o+1]=v2[1]; f[o+2]=v2[2]; u[o+3]=m2; o+=4;
+      f[o]=v3[0]; f[o+1]=v3[1]; f[o+2]=v3[2]; u[o+3]=m3; o+=4;
+    } else {
+      f[o]=v1[0]; f[o+1]=v1[1]; f[o+2]=v1[2]; u[o+3]=m1; o+=4;
+      f[o]=v2[0]; f[o+1]=v2[1]; f[o+2]=v2[2]; u[o+3]=m2; o+=4;
+      f[o]=v3[0]; f[o+1]=v3[1]; f[o+2]=v3[2]; u[o+3]=m3; o+=4;
+      f[o]=v1[0]; f[o+1]=v1[1]; f[o+2]=v1[2]; u[o+3]=m1; o+=4;
+      f[o]=v3[0]; f[o+1]=v3[1]; f[o+2]=v3[2]; u[o+3]=m3; o+=4;
+      f[o]=v0[0]; f[o+1]=v0[1]; f[o+2]=v0[2]; u[o+3]=m0; o+=4;
+    }
+    this.len = o;
+  }
+  pushBox(x0, y0, z0, x1, y1, z1, matId, animType) {
+    const ao = [245, 245, 245, 245];
+    for (let f = 0; f < 6; f++) {
+      const c = FACE_CORNERS[f];
+      const v0 = [c[0][0] ? x1 : x0, c[0][1] ? y1 : y0, c[0][2] ? z1 : z0];
+      const v1 = [c[1][0] ? x1 : x0, c[1][1] ? y1 : y0, c[1][2] ? z1 : z0];
+      const v2 = [c[2][0] ? x1 : x0, c[2][1] ? y1 : y0, c[2][2] ? z1 : z0];
+      const v3 = [c[3][0] ? x1 : x0, c[3][1] ? y1 : y0, c[3][2] ? z1 : z0];
+      this.pushQuad(v0, v1, v2, v3, f, ao, matId, animType);
+    }
+  }
+  slice() {
+    return this.f32.slice(0, this.len);
+  }
+}
+
+const chunkData = [];
+let totalTriangles = 0;
+
+function meshChunk(cx, cz) {
+  const opaqueBuilder = new MeshBuilder(32768);
+  const waterBuilder = new MeshBuilder(8192);
+  const xStart = cx * CHUNK_SIZE, xEnd = xStart + CHUNK_SIZE;
+  const zStart = cz * CHUNK_SIZE, zEnd = zStart + CHUNK_SIZE;
+
+  for (let y = 0; y < WY; y++) {
+    for (let z = zStart; z < zEnd; z++) {
+      for (let x = xStart; x < xEnd; x++) {
+        const mat = getBlock(x, y, z);
+        if (mat === MAT.AIR) continue;
+        const isWater = (mat === MAT.WATER || mat === MAT.WATER_FOAM);
+        const anim = MAT_ANIM[mat];
+
+        for (let f = 0; f < 6; f++) {
+          const fn = FACE_NORMALS[f];
+          const nx = x + fn[0], ny = y + fn[1], nz = z + fn[2];
+          if (ny < 0) continue;
+
+          const nMat = getBlock(nx, ny, nz);
+          if (isWater) {
+            if (nMat !== MAT.AIR) continue;
+          } else {
+            if (nMat !== MAT.AIR && nMat !== MAT.WATER && nMat !== MAT.WATER_FOAM) continue;
+          }
+
+          const c = FACE_CORNERS[f];
+          const yTopAdjust = (isWater && y === WATER_Y && mat === MAT.WATER) ? -0.12 : 0.0;
+          const v0 = [x + c[0][0], y + c[0][1] + (c[0][1] ? yTopAdjust : 0), z + c[0][2]];
+          const v1 = [x + c[1][0], y + c[1][1] + (c[1][1] ? yTopAdjust : 0), z + c[1][2]];
+          const v2 = [x + c[2][0], y + c[2][1] + (c[2][1] ? yTopAdjust : 0), z + c[2][2]];
+          const v3 = [x + c[3][0], y + c[3][1] + (c[3][1] ? yTopAdjust : 0), z + c[3][2]];
+
+          if (isWater) {
+            waterBuilder.pushQuad(v0, v1, v2, v3, f, [255, 255, 255, 255], mat, anim);
+          } else {
+            const ao4 = computeFaceAO(nx, ny, nz, f);
+            opaqueBuilder.pushQuad(v0, v1, v2, v3, f, ao4, mat, anim);
+          }
+        }
+      }
+    }
+  }
+
+  const subs = chunkSubBoxes[cz * CX + cx];
+  for (let i = 0; i < subs.length; i++) {
+    const b = subs[i];
+    opaqueBuilder.pushBox(b.x0, b.y0, b.z0, b.x1, b.y1, b.z1, b.mat, b.anim);
+  }
+
+  const opaqueFloats = opaqueBuilder.slice();
+  const waterFloats = waterBuilder.slice();
+  const opaqueCount = opaqueFloats.length / 4;
+  const waterCount = waterFloats.length / 4;
+  totalTriangles += (opaqueCount + waterCount) / 3;
+
+  chunkData.push({ cx, cz, opaqueFloats, waterFloats, opaqueCount, waterCount, opaqueBuf: null, waterBuf: null });
+}
+
+// ============================================================================
+// 10. WGSL SHADERS (SHADOW PASS, SKY, VOXEL PBR+LIGHTING, WATER, PARTICLES, POST)
+// ============================================================================
+const WGSL_COMMON = `
+struct Globals {
+  viewProj: mat4x4<f32>,
+  invViewProj: mat4x4<f32>,
+  lightViewProj: mat4x4<f32>,
+  cameraPos: vec4<f32>,      // xyz: pos, w: time
+  sunDir: vec4<f32>,         // xyz: dir toward sun, w: shadowStrength
+  sunColor: vec4<f32>,       // rgb: sun color, w: ambientIntensity
+  skyZenith: vec4<f32>,      // rgb: zenith color, w: pointLightStrength
+  skyHorizon: vec4<f32>,     // rgb: horizon/fog color, w: fogDensity
+  params: vec4<f32>,         // x: bloomEnabled, y: nightFactor, z: lightCount, w: aspect
+};
+
+struct PointLight {
+  posRadius: vec4<f32>,      // xyz: pos, w: radius
+  colorFlicker: vec4<f32>,   // rgb: color, w: flickerAmount
+};
+
+struct MaterialDef {
+  topRough: vec4<f32>,       // rgb: top color, w: roughness
+  sideEmissive: vec4<f32>,   // rgb: side color, w: packed(emissive*100 + pattern)
+};
+
+@group(0) @binding(0) var<uniform> globals: Globals;
+@group(0) @binding(1) var<storage, read> materials: array<MaterialDef, 64>;
+@group(0) @binding(2) var<storage, read> pointLights: array<PointLight, 192>;
+@group(0) @binding(3) var shadowMap: texture_depth_2d;
+@group(0) @binding(4) var shadowSampler: sampler_comparison;
+
+fn hash31(p: vec3<f32>) -> f32 {
+  var p3 = fract(p * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+
+fn decodeNormal(idx: u32) -> vec3<f32> {
+  switch (idx) {
+    case 0u: { return vec3<f32>(1.0, 0.0, 0.0); }
+    case 1u: { return vec3<f32>(-1.0, 0.0, 0.0); }
+    case 2u: { return vec3<f32>(0.0, 1.0, 0.0); }
+    case 3u: { return vec3<f32>(0.0, -1.0, 0.0); }
+    case 4u: { return vec3<f32>(0.0, 0.0, 1.0); }
+    default: { return vec3<f32>(0.0, 0.0, -1.0); }
+  }
+}
+
+fn animateVoxelPos(pos: vec3<f32>, animType: u32, time: f32) -> vec3<f32> {
+  var p = pos;
+  if (animType == 1u) {
+    let w = sin(time * 2.1 + pos.x * 0.45 + pos.z * 0.35) * 0.08;
+    p.x += w;
+    p.z += cos(time * 1.7 + pos.z * 0.4) * 0.05;
+  } else if (animType == 2u) {
+    let wave = sin(time * 4.8 - pos.x * 1.3 + pos.z * 0.8) * 0.14;
+    p.z += wave;
+    p.y += cos(time * 3.6 - pos.x * 1.1) * 0.05;
+  } else if (animType == 3u) {
+    p.x += sin(time * 14.0 + pos.y * 5.0 + pos.z) * 0.04;
+    p.z += cos(time * 12.0 + pos.x * 5.0) * 0.04;
+    p.y += sin(time * 18.0 + pos.x + pos.z) * 0.04;
+  } else if (animType == 4u) {
+    p.y += sin(time * 2.5 + pos.x * 0.6 + pos.z * 0.6) * 0.06;
+  } else if (animType == 5u) {
+    p.y += sin(time * 2.6 + pos.x * 0.7 - pos.z * 0.9) * 0.055
+         + cos(time * 1.9 - pos.x * 0.5 + pos.z * 0.6) * 0.035;
+  }
+  return p;
+}
+
+fn computeAtmosphericSky(dir: vec3<f32>) -> vec3<f32> {
+  let up = clamp(dir.y, -0.2, 1.0);
+  let horizonT = pow(1.0 - max(up, 0.0), 2.6);
+  var col = mix(globals.skyZenith.rgb, globals.skyHorizon.rgb, horizonT);
+  let sunDot = max(dot(dir, globals.sunDir.xyz), 0.0);
+  col += globals.sunColor.rgb * (pow(sunDot, 8.0) * 0.25 + pow(sunDot, 64.0) * 0.55);
+  return col;
+}
+
+fn sampleShadowPCF(worldPos: vec3<f32>, normal: vec3<f32>) -> f32 {
+  let biasedPos = worldPos + normal * 0.18 + globals.sunDir.xyz * 0.12;
+  let lightClip = globals.lightViewProj * vec4<f32>(biasedPos, 1.0);
+  let ndc = lightClip.xyz / lightClip.w;
+  let uv = vec2<f32>(ndc.x * 0.5 + 0.5, -ndc.y * 0.5 + 0.5);
+  let depth = clamp(ndc.z, 0.0, 1.0);
+
+  let edgeFade = smoothstep(0.0, 0.06, uv.x) * smoothstep(1.0, 0.94, uv.x) *
+                 smoothstep(0.0, 0.06, uv.y) * smoothstep(1.0, 0.94, uv.y) *
+                 step(0.0, ndc.z) * step(ndc.z, 0.999);
+
+  let texel = 1.0 / 2048.0;
+  var sum = 0.0;
+  for (var y = -1; y <= 1; y++) {
+    for (var x = -1; x <= 1; x++) {
+      let offset = vec2<f32>(f32(x), f32(y)) * texel;
+      sum += textureSampleCompareLevel(shadowMap, shadowSampler, uv + offset, depth - 0.0015);
+    }
+  }
+  let rawShadow = sum / 9.0;
+  return mix(1.0, rawShadow, globals.sunDir.w * edgeFade);
+}
+`;
+
+const WGSL_SHADOW = WGSL_COMMON + `
+@vertex
+fn vsShadow(@location(0) pos: vec3<f32>, @location(1) meta: u32) -> @builtin(position) vec4<f32> {
+  let animType = (meta >> 19u) & 15u;
+  let wPos = animateVoxelPos(pos, animType, globals.cameraPos.w);
+  return globals.lightViewProj * vec4<f32>(wPos, 1.0);
+}
+`;
+
+const WGSL_SKY = WGSL_COMMON + `
+struct SkyOut {
+  @builtin(position) pos: vec4<f32>,
+  @location(0) rayDir: vec3<f32>,
+};
+
+@vertex
+fn vsSky(@builtin(vertex_index) vid: u32) -> SkyOut {
+  var pos = array<vec2<f32>, 3>(
+    vec2<f32>(-1.0, -1.0),
+    vec2<f32>( 3.0, -1.0),
+    vec2<f32>(-1.0,  3.0)
+  );
+  let p = pos[vid];
+  let worldFar = globals.invViewProj * vec4<f32>(p.x, p.y, 0.9999, 1.0);
+  var out: SkyOut;
+  out.pos = vec4<f32>(p.x, p.y, 0.9999, 1.0);
+  out.rayDir = worldFar.xyz / worldFar.w - globals.cameraPos.xyz;
+  return out;
+}
+
+@fragment
+fn fsSky(in: SkyOut) -> @location(0) vec4<f32> {
+  let dir = normalize(in.rayDir);
+  var col = computeAtmosphericSky(dir);
+
+  let sunDot = dot(dir, globals.sunDir.xyz);
+  let disk = smoothstep(0.9982, 0.9993, sunDot);
+  col += globals.sunColor.rgb * disk * 3.8;
+
+  if (globals.params.y > 0.05 && dir.y > 0.05) {
+    let starCell = floor(dir * 260.0);
+    let h = hash31(starCell);
+    if (h > 0.994) {
+      let twinkle = 0.6 + 0.4 * sin(globals.cameraPos.w * 3.5 + h * 80.0);
+      let star = (h - 0.994) * 166.0 * twinkle * smoothstep(0.05, 0.35, dir.y) * globals.params.y;
+      col += vec3<f32>(0.9, 0.95, 1.0) * star * 1.8;
+    }
+  }
+  return vec4<f32>(col, 1.0);
+}
+`;
+
+const WGSL_VOXEL = WGSL_COMMON + `
+struct VoxelOut {
+  @builtin(position) clipPos: vec4<f32>,
+  @location(0) worldPos: vec3<f32>,
+  @location(1) rawPos: vec3<f32>,
+  @location(2) @interpolate(flat) meta: u32,
+  @location(3) ao: f32,
+};
+
+@vertex
+fn vsVoxel(@location(0) pos: vec3<f32>, @location(1) meta: u32) -> VoxelOut {
+  let aoByte = (meta >> 3u) & 255u;
+  let animType = (meta >> 19u) & 15u;
+  let wPos = animateVoxelPos(pos, animType, globals.cameraPos.w);
+
+  var out: VoxelOut;
+  out.clipPos = globals.viewProj * vec4<f32>(wPos, 1.0);
+  out.worldPos = wPos;
+  out.rawPos = pos;
+  out.meta = meta;
+  out.ao = f32(aoByte) / 255.0;
+  return out;
+}
+
+@fragment
+fn fsVoxel(in: VoxelOut) -> @location(0) vec4<f32> {
+  let normIdx = in.meta & 7u;
+  let matId = (in.meta >> 11u) & 255u;
+  let normal = decodeNormal(normIdx);
+
+  let mat = materials[matId];
+  let isTop = normIdx == 2u;
+  var baseCol = select(mat.sideEmissive.rgb, mat.topRough.rgb, isTop);
+  let roughness = mat.topRough.w;
+  let packedEP = u32(mat.sideEmissive.w + 0.5);
+  let emissive = f32(packedEP / 10u) * 0.1;
+  let pattern = packedEP % 10u;
+
+  let blockCoord = floor(in.rawPos - normal * 0.02);
+  let blockHash = hash31(blockCoord);
+  baseCol *= (0.93 + blockHash * 0.14);
+
+  var uv2 = vec2<f32>(0.0);
+  if (normIdx <= 1u) {
+    uv2 = fract(in.rawPos.zy);
+  } else if (normIdx <= 3u) {
+    uv2 = fract(in.rawPos.xz);
+  } else {
+    uv2 = fract(in.rawPos.xy);
+  }
+  let px = vec2<i32>(floor(uv2 * 8.0));
+  let subHash = hash31(vec3<f32>(f32(px.x), f32(px.y), blockHash * 31.0));
+
+  if (pattern == 0u) {
+    baseCol *= (0.95 + subHash * 0.10);
+    if (!isTop && (matId == 2u || matId == 3u || matId == 4u) && px.y >= 6) {
+      baseCol = mat.topRough.rgb * (0.92 + subHash * 0.12);
+    }
+  } else if (pattern == 1u) {
+    let row = px.y / 4;
+    let brickX = (px.x + row * 4) % 8;
+    if (px.y % 4 == 0 || brickX == 0) {
+      baseCol *= 0.72;
+    } else {
+      baseCol *= (0.94 + subHash * 0.10);
+    }
+  } else if (pattern == 2u) {
+    let cHash = hash31(vec3<f32>(floor(uv2.x * 4.0), floor(uv2.y * 4.0), blockHash * 19.0));
+    baseCol *= (0.86 + cHash * 0.26);
+  } else if (pattern == 3u) {
+    let stripe = sin(uv2.y * 25.132) * 0.06;
+    baseCol *= (0.95 + stripe + subHash * 0.06);
+  } else if (pattern == 4u) {
+    if (px.y % 2 == 0) { baseCol *= 0.85; }
+    if ((px.x + (px.y / 2) * 2) % 4 == 0) { baseCol *= 0.90; }
+  } else if (pattern == 5u) {
+    if (px.x == 0 || px.x == 7 || px.y == 0 || px.y == 7 || px.x == 4 || px.y == 4) {
+      baseCol = vec3<f32>(0.22, 0.16, 0.12);
+    } else {
+      baseCol *= (1.05 + 0.15 * sin(globals.cameraPos.w * 2.5 + blockHash * 20.0));
+    }
+  } else if (pattern == 6u) {
+    baseCol *= (0.86 + subHash * 0.28);
+  } else if (pattern == 7u) {
+    let lavaPulse = 0.85 + 0.30 * sin(globals.cameraPos.w * 3.2 + in.worldPos.x * 0.8 + in.worldPos.z * 0.8 + subHash * 4.0);
+    baseCol *= lavaPulse;
+  }
+
+  let NdotL = max(dot(normal, globals.sunDir.xyz), 0.0);
+  let shadow = select(1.0, sampleShadowPCF(in.worldPos, normal), NdotL > 0.01);
+
+  let hemiT = normal.y * 0.5 + 0.5;
+  let hemiColor = mix(globals.skyHorizon.rgb * 0.55, globals.skyZenith.rgb * 0.9 + vec3<f32>(0.18), hemiT);
+  let ambient = hemiColor * globals.sunColor.w * in.ao;
+
+  let viewDir = normalize(globals.cameraPos.xyz - in.worldPos);
+  let halfVec = normalize(globals.sunDir.xyz + viewDir);
+  let specPow = mix(48.0, 6.0, roughness);
+  let spec = pow(max(dot(normal, halfVec), 0.0), specPow) * (1.0 - roughness * 0.85) * 0.35;
+  let directLight = globals.sunColor.rgb * (NdotL + spec) * shadow * mix(0.45, 1.0, in.ao);
+
+  var pointAccum = vec3<f32>(0.0);
+  let numLights = u32(globals.params.z);
+  for (var i = 0u; i < numLights; i++) {
+    let pl = pointLights[i];
+    let toLight = pl.posRadius.xyz - in.worldPos;
+    let distSq = dot(toLight, toLight);
+    let rad = pl.posRadius.w;
+    if (distSq < rad * rad) {
+      let dist = sqrt(distSq);
+      let L = toLight / max(dist, 0.001);
+      let atten = pow(clamp(1.0 - dist / rad, 0.0, 1.0), 2.0);
+      let flick = 1.0 + sin(globals.cameraPos.w * 11.0 + f32(i) * 2.3) * pl.colorFlicker.w * 0.18;
+      let pDiff = max(dot(normal, L), 0.0) * 0.75 + 0.25;
+      pointAccum += pl.colorFlicker.rgb * atten * pDiff * flick;
+    }
+  }
+  pointAccum *= globals.skyZenith.w * mix(0.4, 1.0, in.ao);
+
+  let isWindowBorder = (pattern == 5u) && (px.x == 0 || px.x == 7 || px.y == 0 || px.y == 7 || px.x == 4 || px.y == 4);
+  let emissiveTerm = select(baseCol * emissive, vec3<f32>(0.0), isWindowBorder);
+
+  var litColor = baseCol * (ambient + directLight + pointAccum) + emissiveTerm;
+
+  let camDist = length(in.worldPos - globals.cameraPos.xyz);
+  let distFog = 1.0 - exp(-pow(max(camDist - 35.0, 0.0) * globals.skyHorizon.w, 1.65));
+  let valleyMist = exp(-max(in.worldPos.y - 18.0, 0.0) * 0.14) * clamp(camDist / 160.0, 0.0, 0.28);
+  let fogFactor = clamp(distFog + valleyMist, 0.0, 0.92);
+  let skyFogCol = computeAtmosphericSky(-viewDir);
+  litColor = mix(litColor, skyFogCol, fogFactor);
+
+  return vec4<f32>(litColor, 1.0);
+}
+`;
+
+const WGSL_WATER = WGSL_COMMON + `
+struct WaterOut {
+  @builtin(position) clipPos: vec4<f32>,
+  @location(0) worldPos: vec3<f32>,
+  @location(1) rawPos: vec3<f32>,
+  @location(2) @interpolate(flat) meta: u32,
+};
+
+@vertex
+fn vsWater(@location(0) pos: vec3<f32>, @location(1) meta: u32) -> WaterOut {
+  let animType = (meta >> 19u) & 15u;
+  let wPos = animateVoxelPos(pos, animType, globals.cameraPos.w);
+  var out: WaterOut;
+  out.clipPos = globals.viewProj * vec4<f32>(wPos, 1.0);
+  out.worldPos = wPos;
+  out.rawPos = pos;
+  out.meta = meta;
+  return out;
+}
+
+@fragment
+fn fsWater(in: WaterOut) -> @location(0) vec4<f32> {
+  let normIdx = in.meta & 7u;
+  let matId = (in.meta >> 11u) & 255u;
+  let t = globals.cameraPos.w;
+
+  let baseN = decodeNormal(normIdx);
+  let waveX = cos(t * 2.8 + in.worldPos.x * 1.1 - in.worldPos.z * 0.9) * 0.09
+            + sin(t * 1.9 + in.worldPos.z * 1.5) * 0.05;
+  let waveZ = sin(t * 2.4 - in.worldPos.x * 0.8 + in.worldPos.z * 1.3) * 0.09;
+  let N = normalize(baseN + vec3<f32>(waveX, 0.0, waveZ));
+
+  let V = normalize(globals.cameraPos.xyz - in.worldPos);
+  let R = reflect(-V, N);
+  let fresnel = clamp(0.15 + 0.80 * pow(1.0 - max(dot(N, V), 0.0), 4.0), 0.0, 1.0);
+
+  let isFoam = (matId == 63u) || (normIdx != 2u && fract(in.rawPos.y + t * 2.2) > 0.65);
+  let waterAlb = select(vec3<f32>(0.09, 0.34, 0.48), vec3<f32>(0.78, 0.92, 1.0), isFoam);
+
+  let skyRefl = computeAtmosphericSky(vec3<f32>(R.x, abs(R.y), R.z));
+  let shadow = sampleShadowPCF(in.worldPos, vec3<f32>(0.0, 1.0, 0.0));
+  let H = normalize(globals.sunDir.xyz + V);
+  let sunSpec = pow(max(dot(N, H), 0.0), 96.0) * globals.sunColor.rgb * shadow * 2.4;
+
+  var ptLight = vec3<f32>(0.0);
+  let numLights = u32(globals.params.z);
+  for (var i = 0u; i < numLights; i++) {
+    let pl = pointLights[i];
+    let toL = pl.posRadius.xyz - in.worldPos;
+    let dSq = dot(toL, toL);
+    let rad = pl.posRadius.w * 1.25;
+    if (dSq < rad * rad) {
+      let d = sqrt(dSq);
+      let L = toL / max(d, 0.001);
+      let att = pow(1.0 - d / rad, 2.0);
+      let pH = normalize(L + V);
+      let pSpec = pow(max(dot(N, pH), 0.0), 28.0) * 1.3 + 0.25;
+      ptLight += pl.colorFlicker.rgb * att * pSpec;
+    }
+  }
+  ptLight *= globals.skyZenith.w;
+
+  let litWater = waterAlb * (globals.sunColor.rgb * max(dot(N, globals.sunDir.xyz), 0.2) * shadow + globals.skyZenith.rgb * 0.35);
+  var col = mix(litWater, skyRefl, select(fresnel * 0.68, 0.2, isFoam)) + sunSpec + ptLight;
+
+  let camDist = length(in.worldPos - globals.cameraPos.xyz);
+  let distFog = 1.0 - exp(-pow(max(camDist - 35.0, 0.0) * globals.skyHorizon.w, 1.65));
+  col = mix(col, computeAtmosphericSky(-V), clamp(distFog, 0.0, 0.92));
+
+  let alpha = select(mix(0.76, 0.94, fresnel), 0.92, isFoam);
+  return vec4<f32>(col, alpha);
+}
+`;
+
+const WGSL_DYNAMIC = WGSL_COMMON + `
+struct DynInstance {
+  originType: vec4<f32>,
+  params: vec4<f32>,
+};
+
+@group(1) @binding(0) var<storage, read> dynInstances: array<DynInstance>;
+
+struct DynOut {
+  @builtin(position) clipPos: vec4<f32>,
+  @location(0) worldPos: vec3<f32>,
+  @location(1) normal: vec3<f32>,
+  @location(2) color: vec4<f32>,
+};
+
+@vertex
+fn vsDynamic(
+  @location(0) localPos: vec3<f32>,
+  @location(1) meta: u32,
+  @builtin(instance_index) iid: u32
+) -> DynOut {
+  let inst = dynInstances[iid];
+  let iType = u32(inst.originType.w + 0.5);
+  let origin = inst.originType.xyz;
+  let seed = inst.params.x;
+  let scale = inst.params.y;
+  let radius = inst.params.z;
+  let speed = inst.params.w;
+  let t = globals.cameraPos.w;
+
+  let p = localPos - vec3<f32>(0.5);
+  let normal = decodeNormal(meta & 7u);
+  var worldPos = origin;
+  var col = vec4<f32>(1.0);
+
+  if (iType == 0u) {
+    let driftX = ((origin.x + t * speed) % 280.0 + 280.0) % 280.0 - 12.0;
+    let bobY = origin.y + sin(t * 0.6 + seed) * 0.5;
+    worldPos = vec3<f32>(driftX, bobY, origin.z) + p * vec3<f32>(scale * 1.4, scale * 0.55, scale * 1.1);
+    let shade = 0.85 + normal.y * 0.15;
+    col = vec4<f32>((globals.skyHorizon.rgb * 0.45 + globals.sunColor.rgb * 0.55) * shade, 1.0);
+  } else if (iType == 1u || iType == 11u || iType == 12u) {
+    let ang = t * speed + seed;
+    let center = origin + vec3<f32>(cos(ang) * radius, sin(t * 1.8 + seed) * 1.2, sin(ang) * radius);
+    let fwd = vec2<f32>(-sin(ang), cos(ang));
+    let right = vec2<f32>(fwd.y, -fwd.x);
+
+    var lp = p;
+    if (iType == 1u) {
+      lp *= vec3<f32>(0.45, 0.35, 1.25) * scale;
+      col = vec4<f32>(0.18, 0.16, 0.15, 1.0);
+    } else {
+      let side = select(-1.0, 1.0, iType == 12u);
+      let flap = sin(t * 11.5 + seed * 4.0) * 0.55;
+      lp = vec3<f32>((p.x + 0.55 * side) * 1.35 * scale, (p.y * 0.2 + abs(p.x + 0.5 * side) * flap) * scale, p.z * 0.65 * scale);
+      col = vec4<f32>(0.26, 0.23, 0.21, 1.0);
+    }
+    worldPos = center + vec3<f32>(right.x * lp.x + fwd.x * lp.z, lp.y, right.y * lp.x + fwd.y * lp.z);
+  } else if (iType == 2u) {
+    let life = fract(t * speed + seed);
+    let rise = life * (radius * 3.2);
+    let spread = life * radius;
+    let ang = seed * 6.28 + t * 0.5;
+    let curScale = scale * (0.6 + life * 1.6) * (1.0 - pow(life, 3.0));
+    worldPos = origin + vec3<f32>(cos(ang) * spread, rise, sin(ang) * spread) + p * curScale;
+    let cVal = mix(0.28, 0.48, life) * (0.4 + globals.sunColor.w * 0.8);
+    col = vec4<f32>(vec3<f32>(cVal), 1.0);
+  } else if (iType == 3u) {
+    let life = fract(t * speed + seed);
+    let ang = seed * 6.28 + t * 0.9;
+    let curScale = scale * (1.0 - life * 0.7);
+    worldPos = origin + vec3<f32>(cos(ang) * radius * life, life * 24.0, sin(ang) * radius * life) + p * curScale;
+    col = vec4<f32>(3.8, 1.2, 0.15, 2.0);
+  } else {
+    let life = fract(t * speed + seed);
+    let curScale = scale * sin(life * 3.14159);
+    worldPos = origin + vec3<f32>(sin(seed * 9.0 + t) * 1.5, life * 4.5, cos(seed * 7.0 + t) * 1.5) + p * curScale;
+    col = vec4<f32>(globals.skyHorizon.rgb * 0.7 + vec3<f32>(0.3), 1.0);
+  }
+
+  var out: DynOut;
+  out.clipPos = globals.viewProj * vec4<f32>(worldPos, 1.0);
+  out.worldPos = worldPos;
+  out.normal = normal;
+  out.color = col;
+  return out;
+}
+
+@fragment
+fn fsDynamic(in: DynOut) -> @location(0) vec4<f32> {
+  if (in.color.a > 1.5) {
+    return vec4<f32>(in.color.rgb, 1.0);
+  }
+  let V = normalize(globals.cameraPos.xyz - in.worldPos);
+  let camDist = length(in.worldPos - globals.cameraPos.xyz);
+  let distFog = 1.0 - exp(-pow(max(camDist - 40.0, 0.0) * globals.skyHorizon.w, 1.65));
+  let col = mix(in.color.rgb, computeAtmosphericSky(-V), clamp(distFog, 0.0, 0.90));
+  return vec4<f32>(col, 1.0);
+}
+`;
+
+const WGSL_POST = `
+struct PostParams {
+  data: vec4<f32>,
+};
+@group(0) @binding(0) var hdrTex: texture_2d<f32>;
+@group(0) @binding(1) var hdrSamp: sampler;
+@group(0) @binding(2) var<uniform> post: PostParams;
+
+struct VSOut {
+  @builtin(position) pos: vec4<f32>,
+  @location(0) uv: vec2<f32>,
+};
+
+@vertex
+fn vsPost(@builtin(vertex_index) vid: u32) -> VSOut {
+  var p = array<vec2<f32>, 3>(
+    vec2<f32>(-1.0, -1.0),
+    vec2<f32>( 3.0, -1.0),
+    vec2<f32>(-1.0,  3.0)
+  );
+  let xy = p[vid];
+  var out: VSOut;
+  out.pos = vec4<f32>(xy, 0.0, 1.0);
+  out.uv = vec2<f32>(xy.x * 0.5 + 0.5, -xy.y * 0.5 + 0.5);
+  return out;
+}
+
+fn acesToneMap(x: vec3<f32>) -> vec3<f32> {
+  let a = 2.51;
+  let b = 0.03;
+  let c = 2.43;
+  let d = 0.59;
+  let e = 0.14;
+  return clamp((x * (a * x + b)) / (x * (c * x + d) + e), vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
+fn sampleBright(uv: vec2<f32>) -> vec3<f32> {
+  let c = textureSampleLevel(hdrTex, hdrSamp, uv, 0.0).rgb;
+  let luma = dot(c, vec3<f32>(0.2126, 0.7152, 0.0722));
+  let knee = smoothstep(0.95, 1.9, luma);
+  return c * knee;
+}
+
+@fragment
+fn fsPost(in: VSOut) -> @location(0) vec4<f32> {
+  var hdr = textureSampleLevel(hdrTex, hdrSamp, in.uv, 0.0).rgb;
+
+  if (post.data.x > 0.5) {
+    let texel = vec2<f32>(post.data.y, post.data.z);
+    var bloom = vec3<f32>(0.0);
+    let radii = array<f32, 3>(2.0, 5.0, 10.0);
+    for (var r = 0u; r < 3u; r++) {
+      let d = texel * radii[r];
+      bloom += sampleBright(in.uv + vec2<f32>( d.x,  d.y));
+      bloom += sampleBright(in.uv + vec2<f32>(-d.x,  d.y));
+      bloom += sampleBright(in.uv + vec2<f32>( d.x, -d.y));
+      bloom += sampleBright(in.uv + vec2<f32>(-d.x, -d.y));
+      bloom += sampleBright(in.uv + vec2<f32>( d.x * 1.4, 0.0));
+      bloom += sampleBright(in.uv + vec2<f32>(-d.x * 1.4, 0.0));
+      bloom += sampleBright(in.uv + vec2<f32>( 0.0,  d.y * 1.4));
+      bloom += sampleBright(in.uv + vec2<f32>( 0.0, -d.y * 1.4));
+    }
+    hdr += (bloom / 24.0) * 0.42;
+  }
+
+  var ldr = acesToneMap(hdr * 1.06);
+  ldr = pow(ldr, vec3<f32>(1.0 / 2.2));
+
+  let centered = in.uv - vec2<f32>(0.5);
+  let vig = clamp(1.0 - dot(centered, centered) * 0.62, 0.0, 1.0);
+  ldr *= mix(0.75, 1.0, vig);
+
+  return vec4<f32>(ldr, 1.0);
+}
+`;
+
+// ============================================================================
+// 11. CAMERA CONTROLLER, LANDMARK PRESETS & TIME-OF-DAY ATMOSPHERE
+// ============================================================================
+const ATMOSPHERE_PRESETS = [
+  { // 0: Dawn
+    sunDir: [0.76, 0.32, 0.56],
+    sunColor: [1.35, 0.76, 0.46],
+    ambient: 0.42,
+    skyZenith: [0.18, 0.29, 0.52],
+    skyHorizon: [0.92, 0.56, 0.42],
+    fogDensity: 0.0046,
+    shadowStrength: 0.78,
+    pointLightStrength: 1.25,
+    nightFactor: 0.25
+  },
+  { // 1: Day
+    sunDir: [0.54, 0.75, 0.38],
+    sunColor: [1.32, 1.22, 1.04],
+    ambient: 0.56,
+    skyZenith: [0.22, 0.48, 0.84],
+    skyHorizon: [0.68, 0.84, 0.96],
+    fogDensity: 0.0036,
+    shadowStrength: 0.80,
+    pointLightStrength: 0.65,
+    nightFactor: 0.0
+  },
+  { // 2: Dusk
+    sunDir: [-0.74, 0.28, 0.61],
+    sunColor: [1.45, 0.55, 0.26],
+    ambient: 0.36,
+    skyZenith: [0.16, 0.18, 0.38],
+    skyHorizon: [0.90, 0.42, 0.28],
+    fogDensity: 0.0048,
+    shadowStrength: 0.82,
+    pointLightStrength: 1.55,
+    nightFactor: 0.45
+  },
+  { // 3: Night
+    sunDir: [-0.42, 0.68, -0.60],
+    sunColor: [0.24, 0.34, 0.56],
+    ambient: 0.22,
+    skyZenith: [0.03, 0.05, 0.11],
+    skyHorizon: [0.08, 0.13, 0.24],
+    fogDensity: 0.0042,
+    shadowStrength: 0.62,
+    pointLightStrength: 2.25,
+    nightFactor: 1.0
+  }
+];
+
+let currentAtmo = JSON.parse(JSON.stringify(ATMOSPHERE_PRESETS[1]));
+let targetAtmoIdx = 1;
+let bloomEnabled = true;
+
+const camera = {
+  mode: 'orbit',
+  pos: [128, 86, 224],
+  yaw: 0.0,
+  pitch: -0.45,
+  velY: 0,
+  onGround: false,
+  orbitTarget: [124, 32, 118],
+  orbitRadius: 118,
+  orbitAngle: 0.32,
+  orbitPitch: 0.46,
+  autoOrbit: true,
+  moveSpeed: 38.0
+};
+
+const LANDMARKS = {
+  overview:  { target: [124, 32, 118], radius: 118, angle: 0.32,  pitch: 0.46 },
+  castle:    { target: [64,  44, 112], radius: 56,  angle: 1.15,  pitch: 0.34 },
+  village:   { target: [175, 25, 123], radius: 44,  angle: -0.45, pitch: 0.40 },
+  bridge:    { target: [134, 24, 124], radius: 40,  angle: 0.25,  pitch: 0.32 },
+  waterfall: { target: [125, 32, 52],  radius: 42,  angle: 0.12,  pitch: 0.28 },
+  volcano:   { target: [204, 58, 54],  radius: 56,  angle: -0.65, pitch: 0.38 }
+};
+
+const keys = {};
+let isDragging = false;
+let isPointerLocked = false;
+let requestSnapPNG = false;
+
+function setCameraMode(newMode) {
+  if (camera.mode === 'orbit' && newMode !== 'orbit') {
+    const dx = camera.orbitTarget[0] - camera.pos[0];
+    const dy = camera.orbitTarget[1] - camera.pos[1];
+    const dz = camera.orbitTarget[2] - camera.pos[2];
+    camera.yaw = Math.atan2(dx, -dz);
+    camera.pitch = Math.atan2(dy, Math.hypot(dx, dz));
+  } else if (newMode === 'orbit' && camera.mode !== 'orbit') {
+    const fwdX = Math.sin(camera.yaw) * Math.cos(camera.pitch);
+    const fwdY = Math.sin(camera.pitch);
+    const fwdZ = -Math.cos(camera.yaw) * Math.cos(camera.pitch);
+    camera.orbitRadius = 58;
+    camera.orbitTarget = [
+      camera.pos[0] + fwdX * camera.orbitRadius,
+      Math.max(20, camera.pos[1] + fwdY * camera.orbitRadius),
+      camera.pos[2] + fwdZ * camera.orbitRadius
+    ];
+    camera.orbitAngle = Math.atan2(camera.pos[0] - camera.orbitTarget[0], camera.pos[2] - camera.orbitTarget[2]);
+    camera.orbitPitch = Math.max(0.08, Math.min(1.35, -camera.pitch));
+    camera.autoOrbit = true;
+  }
+  camera.mode = newMode;
+  document.getElementById('btn-orbit').classList.toggle('active', newMode === 'orbit');
+  document.getElementById('btn-fly').classList.toggle('active', newMode === 'fly');
+  document.getElementById('btn-walk').classList.toggle('active', newMode === 'walk');
+}
+
+function getSolidSurfaceY(x, z, currentY) {
+  const ix = Math.max(0, Math.min(WX - 1, Math.floor(x)));
+  const iz = Math.max(0, Math.min(WZ - 1, Math.floor(z)));
+  const maxCheckY = Math.min(WY - 2, Math.floor(currentY + 3));
+  for (let y = maxCheckY; y >= 1; y--) {
+    const m = getBlock(ix, y, iz);
+    if (m !== MAT.AIR && m !== MAT.WATER && m !== MAT.WATER_FOAM) {
+      return y + 1;
+    }
+  }
+  return WATER_Y + 1;
+}
+
+function updateCamera(dt) {
+  const fwd = (keys['KeyW'] || keys['ArrowUp'] ? 1 : 0) - (keys['KeyS'] || keys['ArrowDown'] ? 1 : 0);
+  const str = (keys['KeyD'] || keys['ArrowRight'] ? 1 : 0) - (keys['KeyA'] || keys['ArrowLeft'] ? 1 : 0);
+  const up  = (keys['Space'] || keys['KeyE'] ? 1 : 0) - (keys['KeyC'] || keys['KeyQ'] ? 1 : 0);
+  const boost = (keys['ShiftLeft'] || keys['ShiftRight']) ? 2.4 : 1.0;
+
+  if (camera.mode === 'orbit' && (fwd !== 0 || str !== 0 || up !== 0)) {
+    setCameraMode('fly');
+  }
+
+  if (camera.mode === 'orbit') {
+    if (camera.autoOrbit && !isDragging) {
+      camera.orbitAngle += dt * 0.11;
+    }
+    const rHoriz = Math.cos(camera.orbitPitch) * camera.orbitRadius;
+    camera.pos[0] = camera.orbitTarget[0] + Math.sin(camera.orbitAngle) * rHoriz;
+    camera.pos[1] = camera.orbitTarget[1] + Math.sin(camera.orbitPitch) * camera.orbitRadius;
+    camera.pos[2] = camera.orbitTarget[2] + Math.cos(camera.orbitAngle) * rHoriz;
+  } else if (camera.mode === 'fly') {
+    const spd = camera.moveSpeed * boost * dt;
+    const fx = Math.sin(camera.yaw) * Math.cos(camera.pitch);
+    const fy = Math.sin(camera.pitch);
+    const fz = -Math.cos(camera.yaw) * Math.cos(camera.pitch);
+    const rx = Math.cos(camera.yaw);
+    const rz = Math.sin(camera.yaw);
+
+    camera.pos[0] += (fx * fwd + rx * str) * spd;
+    camera.pos[1] += (fy * fwd + up) * spd;
+    camera.pos[2] += (fz * fwd + rz * str) * spd;
+    camera.pos[1] = Math.max(4, Math.min(165, camera.pos[1]));
+  } else if (camera.mode === 'walk') {
+    const spd = 14.0 * boost * dt;
+    const fx = Math.sin(camera.yaw);
+    const fz = -Math.cos(camera.yaw);
+    const rx = Math.cos(camera.yaw);
+    const rz = Math.sin(camera.yaw);
+
+    const nx = Math.max(4, Math.min(WX - 5, camera.pos[0] + (fx * fwd + rx * str) * spd));
+    const nz = Math.max(4, Math.min(WZ - 5, camera.pos[2] + (fz * fwd + rz * str) * spd));
+    const targetGround = getSolidSurfaceY(nx, nz, camera.pos[1]);
+    if (targetGround - (camera.pos[1] - 2.6) <= 2.2) {
+      camera.pos[0] = nx;
+      camera.pos[2] = nz;
+    }
+    if ((keys['Space'] || keys['KeyE']) && camera.onGround) {
+      camera.velY = 11.5;
+      camera.onGround = false;
+    }
+    camera.velY -= 28.0 * dt;
+    camera.pos[1] += camera.velY * dt;
+    const floorEyeY = getSolidSurfaceY(camera.pos[0], camera.pos[2], camera.pos[1]) + 2.6;
+    if (camera.pos[1] <= floorEyeY) {
+      camera.pos[1] = lerp(camera.pos[1], floorEyeY, Math.min(1, dt * 18));
+      camera.velY = 0;
+      camera.onGround = true;
+    }
+  }
+}
+
+function setupInputAndUI(canvas) {
+  window.addEventListener('keydown', (e) => {
+    keys[e.code] = true;
+    if (e.code === 'Digit1') selectTimeOfDay(0);
+    if (e.code === 'Digit2') selectTimeOfDay(1);
+    if (e.code === 'Digit3') selectTimeOfDay(2);
+    if (e.code === 'Digit4') selectTimeOfDay(3);
+    if (e.code === 'KeyO') setCameraMode('orbit');
+    if (e.code === 'KeyF') setCameraMode('fly');
+    if (e.code === 'KeyG') setCameraMode('walk');
+    if (e.code === 'KeyB') toggleBloom();
+    if (e.code === 'KeyH') toggleShowcase();
+  });
+  window.addEventListener('keyup', (e) => { keys[e.code] = false; });
+
+  canvas.addEventListener('mousedown', (e) => {
+    if (e.button === 0) isDragging = true;
+  });
+  window.addEventListener('mouseup', () => { isDragging = false; });
+  canvas.addEventListener('dblclick', () => {
+    if (!document.pointerLockElement) canvas.requestPointerLock();
+    else document.exitPointerLock();
+  });
+  document.addEventListener('pointerlockchange', () => {
+    isPointerLocked = (document.pointerLockElement === canvas);
+    document.getElementById('crosshair').classList.toggle('visible', isPointerLocked);
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (!isDragging && !isPointerLocked) return;
+    const dx = e.movementX || 0;
+    const dy = e.movementY || 0;
+    if (camera.mode === 'orbit') {
+      camera.autoOrbit = false;
+      camera.orbitAngle -= dx * 0.0055;
+      camera.orbitPitch = Math.max(0.08, Math.min(1.42, camera.orbitPitch + dy * 0.0055));
+    } else {
+      camera.yaw += dx * 0.0032;
+      camera.pitch = Math.max(-1.52, Math.min(1.52, camera.pitch - dy * 0.0032));
+    }
+  });
+
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    if (camera.mode === 'orbit') {
+      camera.orbitRadius = Math.max(18, Math.min(210, camera.orbitRadius + e.deltaY * 0.06));
+    } else {
+      camera.moveSpeed = Math.max(10, Math.min(110, camera.moveSpeed - e.deltaY * 0.03));
+    }
+  }, { passive: false });
+
+  document.querySelectorAll('[data-tod]').forEach((btn) => {
+    btn.addEventListener('click', () => selectTimeOfDay(parseInt(btn.dataset.tod, 10)));
+  });
+  document.getElementById('btn-orbit').addEventListener('click', () => setCameraMode('orbit'));
+  document.getElementById('btn-fly').addEventListener('click', () => setCameraMode('fly'));
+  document.getElementById('btn-walk').addEventListener('click', () => setCameraMode('walk'));
+  document.getElementById('btn-bloom').addEventListener('click', toggleBloom);
+  document.getElementById('btn-showcase').addEventListener('click', toggleShowcase);
+  document.getElementById('showcase-badge').addEventListener('click', toggleShowcase);
+  document.getElementById('btn-snap').addEventListener('click', () => { requestSnapPNG = true; });
+
+  document.querySelectorAll('[data-poi]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const poi = LANDMARKS[btn.dataset.poi];
+      if (!poi) return;
+      setCameraMode('orbit');
+      camera.orbitTarget = [...poi.target];
+      camera.orbitRadius = poi.radius;
+      camera.orbitAngle = poi.angle;
+      camera.orbitPitch = poi.pitch;
+      camera.autoOrbit = true;
+    });
+  });
+}
+
+function selectTimeOfDay(idx) {
+  targetAtmoIdx = idx;
+  document.querySelectorAll('[data-tod]').forEach((btn) => {
+    btn.classList.toggle('active', parseInt(btn.dataset.tod, 10) === idx);
+  });
+}
+
+function toggleBloom() {
+  bloomEnabled = !bloomEnabled;
+  document.getElementById('btn-bloom').classList.toggle('active', bloomEnabled);
+}
+
+function toggleShowcase() {
+  const hud = document.getElementById('hud');
+  const badge = document.getElementById('showcase-badge');
+  const hidden = hud.classList.toggle('showcase-hidden');
+  badge.classList.toggle('visible', hidden);
+}
+
+// ============================================================================
+// 12. PURE WEBGPU INITIALIZATION & RENDER PIPELINE
+// ============================================================================
+function setProgress(pct, text) {
+  document.getElementById('progress-bar').style.width = pct + '%';
+  document.getElementById('loader-status').textContent = text;
+}
+function nextFrame() {
+  return new Promise((resolve) => requestAnimationFrame(resolve));
+}
+
+async function initApplication() {
+  const canvas = document.getElementById('gpu-canvas');
+  setupInputAndUI(canvas);
+
+  if (!navigator.gpu) {
+    showError("WebGPU is not supported in this browser. Please open in Chrome 113+, Edge 113+, or Safari 18+ with WebGPU enabled.");
+    return;
+  }
+  const adapter = await navigator.gpu.requestAdapter();
+  if (!adapter) {
+    showError("Failed to acquire a WebGPU graphics adapter.");
+    return;
+  }
+  const device = await adapter.requestDevice();
+  const context = canvas.getContext('webgpu');
+  const presentationFormat = navigator.gpu.getPreferredCanvasFormat();
+
+  setProgress(16, "Sculpting valleys, cliffs, alpine waterfall & volcano...");
+  await nextFrame();
+  generateTerrain();
+
+  setProgress(38, "Constructing Grand Castle, Royal Keep, Chapel & Moat...");
+  await nextFrame();
+  buildGrandCastle();
+  buildRiverBridge();
+
+  setProgress(58, "Building Medieval Village, Marketplace, Watermill & Farms...");
+  await nextFrame();
+  buildMedievalVillage();
+  buildOutlyingLandmarks();
+
+  setProgress(76, "Planting forests, reeds, clouds & circling bird flocks...");
+  await nextFrame();
+  populateNature();
+
+  setProgress(90, "Meshing 256 voxel chunks with hidden-face culling & AO...");
+  await nextFrame();
+  for (let cz = 0; cz < CZ; cz++) {
+    for (let cx = 0; cx < CX; cx++) {
+      meshChunk(cx, cz);
+    }
+  }
+
+  setProgress(98, "Uploading WebGPU buffers & compiling WGSL shaders...");
+  await nextFrame();
+
+  for (const ch of chunkData) {
+    if (ch.opaqueCount > 0) {
+      ch.opaqueBuf = device.createBuffer({
+        size: ch.opaqueFloats.byteLength,
+        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+        mappedAtCreation: true
+      });
+      new Float32Array(ch.opaqueBuf.getMappedRange()).set(ch.opaqueFloats);
+      ch.opaqueBuf.unmap();
+      ch.opaqueFloats = null;
+    }
+    if (ch.waterCount > 0) {
+      ch.waterBuf = device.createBuffer({
+        size: ch.waterFloats.byteLength,
+        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+        mappedAtCreation: true
+      });
+      new Float32Array(ch.waterBuf.getMappedRange()).set(ch.waterFloats);
+      ch.waterBuf.unmap();
+      ch.waterFloats = null;
+    }
+  }
+
+  const unitCubeBuilder = new MeshBuilder(256);
+  unitCubeBuilder.pushBox(0, 0, 0, 1, 1, 1, 0, 0);
+  const unitCubeData = unitCubeBuilder.slice();
+  const unitCubeBuf = device.createBuffer({
+    size: unitCubeData.byteLength,
+    usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+    mappedAtCreation: true
+  });
+  new Float32Array(unitCubeBuf.getMappedRange()).set(unitCubeData);
+  unitCubeBuf.unmap();
+
+  const dynInstanceCount = dynamicInstances.length / 8;
+  const dynStorageBuf = device.createBuffer({
+    size: Math.max(32, dynamicInstances.length * 4),
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    mappedAtCreation: true
+  });
+  new Float32Array(dynStorageBuf.getMappedRange()).set(dynamicInstances);
+  dynStorageBuf.unmap();
+
+  const matStorageBuf = device.createBuffer({
+    size: MATERIAL_TABLE.byteLength,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    mappedAtCreation: true
+  });
+  new Float32Array(matStorageBuf.getMappedRange()).set(MATERIAL_TABLE);
+  matStorageBuf.unmap();
+
+  const lightFloatData = new Float32Array(MAX_LIGHTS * 8);
+  for (let i = 0; i < pointLights.length; i++) {
+    const L = pointLights[i];
+    const idx = i * 8;
+    lightFloatData[idx + 0] = L.x;
+    lightFloatData[idx + 1] = L.y;
+    lightFloatData[idx + 2] = L.z;
+    lightFloatData[idx + 3] = L.radius;
+    lightFloatData[idx + 4] = L.r;
+    lightFloatData[idx + 5] = L.g;
+    lightFloatData[idx + 6] = L.b;
+    lightFloatData[idx + 7] = L.flicker;
+  }
+  const lightStorageBuf = device.createBuffer({
+    size: lightFloatData.byteLength,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    mappedAtCreation: true
+  });
+  new Float32Array(lightStorageBuf.getMappedRange()).set(lightFloatData);
+  lightStorageBuf.unmap();
+
+  const globalsData = new Float32Array(72);
+  const globalsBuf = device.createBuffer({
+    size: globalsData.byteLength,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+  });
+  const postData = new Float32Array(4);
+  const postBuf = device.createBuffer({
+    size: 16,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+  });
+
+  const shadowTex = device.createTexture({
+    size: [2048, 2048],
+    format: 'depth32float',
+    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+  });
+  const shadowView = shadowTex.createView();
+  const shadowSampler = device.createSampler({
+    compare: 'less-equal',
+    magFilter: 'linear',
+    minFilter: 'linear'
+  });
+  const linearSampler = device.createSampler({
+    magFilter: 'linear',
+    minFilter: 'linear',
+    addressModeU: 'clamp-to-edge',
+    addressModeV: 'clamp-to-edge'
+  });
+
+  const vertexBufferLayout = [{
+    arrayStride: 16,
+    attributes: [
+      { shaderLocation: 0, offset: 0,  format: 'float32x3' },
+      { shaderLocation: 1, offset: 12, format: 'uint32' }
+    ]
+  }];
+
+  const sceneBGL = device.createBindGroupLayout({
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+      { binding: 1, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
+      { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
+      { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'depth' } },
+      { binding: 4, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'comparison' } }
+    ]
+  });
+  const dynBGL = device.createBindGroupLayout({
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } }
+    ]
+  });
+  const postBGL = device.createBindGroupLayout({
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
+      { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
+      { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } }
+    ]
+  });
+
+  const sceneBindGroup = device.createBindGroup({
+    layout: sceneBGL,
+    entries: [
+      { binding: 0, resource: { buffer: globalsBuf } },
+      { binding: 1, resource: { buffer: matStorageBuf } },
+      { binding: 2, resource: { buffer: lightStorageBuf } },
+      { binding: 3, resource: shadowView },
+      { binding: 4, resource: shadowSampler }
+    ]
+  });
+  const dynBindGroup = device.createBindGroup({
+    layout: dynBGL,
+    entries: [{ binding: 0, resource: { buffer: dynStorageBuf } }]
+  });
+
+  const shadowModule = device.createShaderModule({ code: WGSL_SHADOW });
+  const skyModule    = device.createShaderModule({ code: WGSL_SKY });
+  const voxelModule  = device.createShaderModule({ code: WGSL_VOXEL });
+  const waterModule  = device.createShaderModule({ code: WGSL_WATER });
+  const dynModule    = device.createShaderModule({ code: WGSL_DYNAMIC });
+  const postModule   = device.createShaderModule({ code: WGSL_POST });
+
+  const scenePipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [sceneBGL] });
+  const dynPipelineLayout   = device.createPipelineLayout({ bindGroupLayouts: [sceneBGL, dynBGL] });
+  const postPipelineLayout  = device.createPipelineLayout({ bindGroupLayouts: [postBGL] });
+
+  const shadowPipeline = device.createRenderPipeline({
+    layout: scenePipelineLayout,
+    vertex: { module: shadowModule, entryPoint: 'vsShadow', buffers: vertexBufferLayout },
+    primitive: { topology: 'triangle-list', cullMode: 'back' },
+    depthStencil: { format: 'depth32float', depthWriteEnabled: true, depthCompare: 'less' }
+  });
+
+  const skyPipeline = device.createRenderPipeline({
+    layout: scenePipelineLayout,
+    vertex: { module: skyModule, entryPoint: 'vsSky' },
+    fragment: { module: skyModule, entryPoint: 'fsSky', targets: [{ format: 'rgba16float' }] },
+    primitive: { topology: 'triangle-list' },
+    depthStencil: { format: 'depth32float', depthWriteEnabled: false, depthCompare: 'less-equal' }
+  });
+
+  const voxelPipeline = device.createRenderPipeline({
+    layout: scenePipelineLayout,
+    vertex: { module: voxelModule, entryPoint: 'vsVoxel', buffers: vertexBufferLayout },
+    fragment: { module: voxelModule, entryPoint: 'fsVoxel', targets: [{ format: 'rgba16float' }] },
+    primitive: { topology: 'triangle-list', cullMode: 'back' },
+    depthStencil: { format: 'depth32float', depthWriteEnabled: true, depthCompare: 'less' }
+  });
+
+  const dynPipeline = device.createRenderPipeline({
+    layout: dynPipelineLayout,
+    vertex: { module: dynModule, entryPoint: 'vsDynamic', buffers: vertexBufferLayout },
+    fragment: { module: dynModule, entryPoint: 'fsDynamic', targets: [{ format: 'rgba16float' }] },
+    primitive: { topology: 'triangle-list', cullMode: 'back' },
+    depthStencil: { format: 'depth32float', depthWriteEnabled: true, depthCompare: 'less' }
+  });
+
+  const waterPipeline = device.createRenderPipeline({
+    layout: scenePipelineLayout,
+    vertex: { module: waterModule, entryPoint: 'vsWater', buffers: vertexBufferLayout },
+    fragment: {
+      module: waterModule,
+      entryPoint: 'fsWater',
+      targets: [{
+        format: 'rgba16float',
+        blend: {
+          color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+          alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' }
+        }
+      }]
+    },
+    primitive: { topology: 'triangle-list', cullMode: 'none' },
+    depthStencil: { format: 'depth32float', depthWriteEnabled: false, depthCompare: 'less' }
+  });
+
+  const postPipeline = device.createRenderPipeline({
+    layout: postPipelineLayout,
+    vertex: { module: postModule, entryPoint: 'vsPost' },
+    fragment: { module: postModule, entryPoint: 'fsPost', targets: [{ format: presentationFormat }] },
+    primitive: { topology: 'triangle-list' }
+  });
+
+  let hdrTex = null, depthTex = null, hdrView = null, depthView = null, postBindGroup = null;
+  let canvasW = 0, canvasH = 0;
+
+  function checkResize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2.0);
+    const w = Math.max(64, Math.floor(window.innerWidth * dpr));
+    const h = Math.max(64, Math.floor(window.innerHeight * dpr));
+    if (w === canvasW && h === canvasH) return;
+    canvasW = w; canvasH = h;
+    canvas.width = w; canvas.height = h;
+    context.configure({ device, format: presentationFormat, alphaMode: 'opaque' });
+
+    if (hdrTex) hdrTex.destroy();
+    if (depthTex) depthTex.destroy();
+
+    hdrTex = device.createTexture({
+      size: [w, h],
+      format: 'rgba16float',
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+    });
+    depthTex = device.createTexture({
+      size: [w, h],
+      format: 'depth32float',
+      usage: GPUTextureUsage.RENDER_ATTACHMENT
+    });
+    hdrView = hdrTex.createView();
+    depthView = depthTex.createView();
+
+    postBindGroup = device.createBindGroup({
+      layout: postBGL,
+      entries: [
+        { binding: 0, resource: hdrView },
+        { binding: 1, resource: linearSampler },
+        { binding: 2, resource: { buffer: postBuf } }
+      ]
+    });
+  }
+  checkResize();
+  window.addEventListener('resize', checkResize);
+
+  document.getElementById('loader').classList.add('hidden');
+
+  const matProj = Mat4.create();
+  const matView = Mat4.create();
+  const matViewProj = Mat4.create();
+  const matInvViewProj = Mat4.create();
+  const matLightProj = Mat4.create();
+  const matLightView = Mat4.create();
+  const matLightVP = Mat4.create();
+
+  let lastTime = performance.now();
+  let frameCount = 0, fpsTimer = 0, currentFps = 60;
+
+  function renderFrame(now) {
+    const dt = Math.min(0.05, (now - lastTime) * 0.001);
+    lastTime = now;
+    const timeSec = now * 0.001;
+
+    frameCount++;
+    fpsTimer += dt;
+    if (fpsTimer >= 0.5) {
+      currentFps = Math.round(frameCount / fpsTimer);
+      frameCount = 0;
+      fpsTimer = 0;
+      document.getElementById('stats-text').textContent =
+        `${currentFps} FPS • ${(totalTriangles / 1000).toFixed(1)}k Tris • ${pointLights.length} Dynamic Lights • Pos (${Math.round(camera.pos[0])}, ${Math.round(camera.pos[1])}, ${Math.round(camera.pos[2])})`;
+    }
+
+    const tgt = ATMOSPHERE_PRESETS[targetAtmoIdx];
+    const sRate = Math.min(1.0, dt * 3.2);
+    for (let i = 0; i < 3; i++) {
+      currentAtmo.sunDir[i]     = lerp(currentAtmo.sunDir[i], tgt.sunDir[i], sRate);
+      currentAtmo.sunColor[i]   = lerp(currentAtmo.sunColor[i], tgt.sunColor[i], sRate);
+      currentAtmo.skyZenith[i]  = lerp(currentAtmo.skyZenith[i], tgt.skyZenith[i], sRate);
+      currentAtmo.skyHorizon[i] = lerp(currentAtmo.skyHorizon[i], tgt.skyHorizon[i], sRate);
+    }
+    const sLen = Math.hypot(currentAtmo.sunDir[0], currentAtmo.sunDir[1], currentAtmo.sunDir[2]) || 1;
+    const sdx = currentAtmo.sunDir[0] / sLen, sdy = currentAtmo.sunDir[1] / sLen, sdz = currentAtmo.sunDir[2] / sLen;
+    currentAtmo.ambient            = lerp(currentAtmo.ambient, tgt.ambient, sRate);
+    currentAtmo.fogDensity         = lerp(currentAtmo.fogDensity, tgt.fogDensity, sRate);
+    currentAtmo.shadowStrength     = lerp(currentAtmo.shadowStrength, tgt.shadowStrength, sRate);
+    currentAtmo.pointLightStrength = lerp(currentAtmo.pointLightStrength, tgt.pointLightStrength, sRate);
+    currentAtmo.nightFactor        = lerp(currentAtmo.nightFactor, tgt.nightFactor, sRate);
+
+    updateCamera(dt);
+    const aspect = canvasW / canvasH;
+    Mat4.perspective(matProj, 55 * Math.PI / 180, aspect, 0.5, 480.0);
+
+    if (camera.mode === 'orbit') {
+      Mat4.lookAt(matView, camera.pos, camera.orbitTarget, [0, 1, 0]);
+    } else {
+      const lookTarget = [
+        camera.pos[0] + Math.sin(camera.yaw) * Math.cos(camera.pitch),
+        camera.pos[1] + Math.sin(camera.pitch),
+        camera.pos[2] - Math.cos(camera.yaw) * Math.cos(camera.pitch)
+      ];
+      Mat4.lookAt(matView, camera.pos, lookTarget, [0, 1, 0]);
+    }
+    Mat4.multiply(matViewProj, matProj, matView);
+    Mat4.invert(matInvViewProj, matViewProj);
+
+    const sceneCenter = [128, 30, 128];
+    const lightEye = [sceneCenter[0] + sdx * 160, sceneCenter[1] + sdy * 160, sceneCenter[2] + sdz * 160];
+    Mat4.ortho(matLightProj, -138, 138, -138, 138, 10, 340);
+    Mat4.lookAt(matLightView, lightEye, sceneCenter, [0, 1, 0]);
+    Mat4.multiply(matLightVP, matLightProj, matLightView);
+
+    globalsData.set(matViewProj, 0);
+    globalsData.set(matInvViewProj, 16);
+    globalsData.set(matLightVP, 32);
+    globalsData[48] = camera.pos[0]; globalsData[49] = camera.pos[1]; globalsData[50] = camera.pos[2]; globalsData[51] = timeSec;
+    globalsData[52] = sdx; globalsData[53] = sdy; globalsData[54] = sdz; globalsData[55] = currentAtmo.shadowStrength;
+    globalsData[56] = currentAtmo.sunColor[0]; globalsData[57] = currentAtmo.sunColor[1]; globalsData[58] = currentAtmo.sunColor[2]; globalsData[59] = currentAtmo.ambient;
+    globalsData[60] = currentAtmo.skyZenith[0]; globalsData[61] = currentAtmo.skyZenith[1]; globalsData[62] = currentAtmo.skyZenith[2]; globalsData[63] = currentAtmo.pointLightStrength;
+    globalsData[64] = currentAtmo.skyHorizon[0]; globalsData[65] = currentAtmo.skyHorizon[1]; globalsData[66] = currentAtmo.skyHorizon[2]; globalsData[67] = currentAtmo.fogDensity;
+    globalsData[68] = bloomEnabled ? 1.0 : 0.0;
+    globalsData[69] = currentAtmo.nightFactor;
+    globalsData[70] = pointLights.length;
+    globalsData[71] = aspect;
+    device.queue.writeBuffer(globalsBuf, 0, globalsData);
+
+    postData[0] = bloomEnabled ? 1.0 : 0.0;
+    postData[1] = 1.0 / canvasW;
+    postData[2] = 1.0 / canvasH;
+    postData[3] = timeSec;
+    device.queue.writeBuffer(postBuf, 0, postData);
+
+    const encoder = device.createCommandEncoder();
+
+    // 1. Directional Shadow Map Pass
+    const shadowPass = encoder.beginRenderPass({
+      colorAttachments: [],
+      depthStencilAttachment: {
+        view: shadowView,
+        depthClearValue: 1.0,
+        depthLoadOp: 'clear',
+        depthStoreOp: 'store'
+      }
+    });
+    shadowPass.setPipeline(shadowPipeline);
+    shadowPass.setBindGroup(0, sceneBindGroup);
+    for (let i = 0; i < chunkData.length; i++) {
+      const ch = chunkData[i];
+      if (ch.opaqueBuf) {
+        shadowPass.setVertexBuffer(0, ch.opaqueBuf);
+        shadowPass.draw(ch.opaqueCount);
+      }
+    }
+    shadowPass.end();
+
+    // 2. Main HDR Scene Pass
+    const scenePass = encoder.beginRenderPass({
+      colorAttachments: [{
+        view: hdrView,
+        clearValue: { r: 0.05, g: 0.08, b: 0.14, a: 1.0 },
+        loadOp: 'clear',
+        storeOp: 'store'
+      }],
+      depthStencilAttachment: {
+        view: depthView,
+        depthClearValue: 1.0,
+        depthLoadOp: 'clear',
+        depthStoreOp: 'store'
+      }
+    });
+
+    scenePass.setPipeline(skyPipeline);
+    scenePass.setBindGroup(0, sceneBindGroup);
+    scenePass.draw(3);
+
+    scenePass.setPipeline(voxelPipeline);
+    scenePass.setBindGroup(0, sceneBindGroup);
+    for (let i = 0; i < chunkData.length; i++) {
+      const ch = chunkData[i];
+      if (ch.opaqueBuf) {
+        scenePass.setVertexBuffer(0, ch.opaqueBuf);
+        scenePass.draw(ch.opaqueCount);
+      }
+    }
+
+    if (dynInstanceCount > 0) {
+      scenePass.setPipeline(dynPipeline);
+      scenePass.setBindGroup(0, sceneBindGroup);
+      scenePass.setBindGroup(1, dynBindGroup);
+      scenePass.setVertexBuffer(0, unitCubeBuf);
+      scenePass.draw(36, dynInstanceCount);
+    }
+
+    scenePass.setPipeline(waterPipeline);
+    scenePass.setBindGroup(0, sceneBindGroup);
+    for (let i = 0; i < chunkData.length; i++) {
+      const ch = chunkData[i];
+      if (ch.waterBuf) {
+        scenePass.setVertexBuffer(0, ch.waterBuf);
+        scenePass.draw(ch.waterCount);
+      }
+    }
+    scenePass.end();
+
+    // 3. Post-Processing Pass
+    const swapView = context.getCurrentTexture().createView();
+    const postPass = encoder.beginRenderPass({
+      colorAttachments: [{
+        view: swapView,
+        clearValue: { r: 0, g: 0, b: 0, a: 1 },
+        loadOp: 'clear',
+        storeOp: 'store'
+      }]
+    });
+    postPass.setPipeline(postPipeline);
+    postPass.setBindGroup(0, postBindGroup);
+    postPass.draw(3);
+    postPass.end();
+
+    device.queue.submit([encoder.finish()]);
+
+    if (requestSnapPNG) {
+      requestSnapPNG = false;
+      canvas.toBlob((blob) => {
+        if (!blob) return;
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.download = `crown-of-embervale-${Date.now()}.png`;
+        link.href = url;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }, 'image/png');
+    }
+
+    requestAnimationFrame(renderFrame);
+  }
+
+  requestAnimationFrame(renderFrame);
+}
+
+function showError(msg) {
+  const errBox = document.getElementById('error-box');
+  errBox.style.display = 'block';
+  errBox.textContent = msg;
+  document.getElementById('loader-status').textContent = 'WebGPU Initialization Halted';
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+  initApplication().catch((err) => {
+    console.error(err);
+    showError("Unexpected error initializing WebGPU: " + err.message);
+  });
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,2779 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>ZEN GO 3D — Kaya Goban &amp; Monte Carlo Tree Search AI</title>
+<style>
+  :root {
+    --bg-deep: #0d0f12;
+    --glass-bg: rgba(18, 21, 26, 0.78);
+    --glass-border: rgba(212, 175, 106, 0.28);
+    --gold-primary: #e0b973;
+    --gold-bright: #f7d794;
+    --accent-jade: #38ada9;
+    --accent-crimson: #eb4d4b;
+    --text-main: #f1f2f6;
+    --text-muted: #a4b0be;
+  }
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: radial-gradient(circle at center, #1e2229 0%, #0b0d10 100%);
+    font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+    color: var(--text-main);
+  }
+
+  #canvas-container {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    cursor: grab;
+  }
+  #canvas-container:active {
+    cursor: grabbing;
+  }
+
+  /* HUD Layout */
+  #hud {
+    position: fixed;
+    inset: 0;
+    z-index: 2;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 16px 20px;
+  }
+
+  .glass-panel {
+    background: var(--glass-bg);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--glass-border);
+    border-radius: 14px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    pointer-events: auto;
+  }
+
+  /* Top Navigation & Settings Bar */
+  .top-bar {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 18px;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .brand-logo {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 30% 30%, #444, #050505);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.6), 0 0 0 2px var(--gold-primary);
+    position: relative;
+  }
+  .brand-logo::after {
+    content: "";
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 30% 30%, #fff, #dcdde1);
+    bottom: -3px;
+    right: -3px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+  }
+
+  .brand-title {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    color: var(--gold-bright);
+    text-transform: uppercase;
+  }
+  .brand-sub {
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 0.5px;
+  }
+
+  .controls-group {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .seg-control {
+    display: flex;
+    background: rgba(0, 0, 0, 0.35);
+    border-radius: 8px;
+    padding: 3px;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+  }
+
+  .seg-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    align-self: center;
+    padding: 0 8px 0 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+  }
+
+  .seg-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 5px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.18s ease;
+  }
+
+  .seg-btn:hover {
+    color: #fff;
+  }
+
+  .seg-btn.active {
+    background: linear-gradient(135deg, #d4af6a, #b38738);
+    color: #111;
+    box-shadow: 0 2px 8px rgba(212, 175, 106, 0.35);
+  }
+
+  .icon-btn {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: var(--text-main);
+    padding: 6px 11px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.18s ease;
+  }
+  .icon-btn:hover {
+    background: rgba(212, 175, 106, 0.2);
+    border-color: var(--gold-primary);
+  }
+  .icon-btn.active {
+    background: rgba(56, 173, 169, 0.28);
+    border-color: var(--accent-jade);
+    color: #78e08f;
+  }
+
+  /* Middle Section: Player Cards & MCTS Telemetry */
+  .middle-hud {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    margin-top: 8px;
+    margin-bottom: auto;
+    pointer-events: none;
+  }
+
+  .side-column {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: 260px;
+  }
+
+  .player-card {
+    padding: 14px 16px;
+    transition: all 0.25s ease;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .player-card.active-turn {
+    border-color: var(--gold-bright);
+    box-shadow: 0 0 22px rgba(224, 185, 115, 0.28), inset 0 0 12px rgba(224, 185, 115, 0.08);
+  }
+
+  .player-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+
+  .player-identity {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .stone-badge {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .stone-badge.black {
+    background: radial-gradient(circle at 32% 32%, #4b4b4b, #080808);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.8), inset 0 1px 2px rgba(255,255,255,0.2);
+  }
+  .stone-badge.white {
+    background: radial-gradient(circle at 32% 32%, #ffffff, #cfd4da);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.6), inset 0 -1px 2px rgba(0,0,0,0.2);
+  }
+
+  .player-name {
+    font-size: 15px;
+    font-weight: 700;
+    color: #fff;
+  }
+  .player-role {
+    font-size: 11px;
+    color: var(--gold-primary);
+  }
+
+  .turn-pill {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    padding: 3px 8px;
+    border-radius: 20px;
+    background: rgba(224, 185, 115, 0.2);
+    color: var(--gold-bright);
+    border: 1px solid rgba(224, 185, 115, 0.4);
+    opacity: 0;
+    transform: scale(0.9);
+    transition: all 0.2s ease;
+  }
+  .player-card.active-turn .turn-pill {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+    background: rgba(0, 0, 0, 0.3);
+    padding: 8px;
+    border-radius: 8px;
+    text-align: center;
+  }
+
+  .stat-item {
+    display: flex;
+    flex-direction: column;
+  }
+  .stat-val {
+    font-size: 16px;
+    font-weight: 700;
+    color: #fff;
+  }
+  .stat-lbl {
+    font-size: 10px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+  }
+
+  /* Evaluation & MCTS Thinking Panel */
+  .mcts-panel {
+    padding: 12px 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .eval-header {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--text-muted);
+    font-weight: 600;
+  }
+
+  .eval-bar-outer {
+    width: 100%;
+    height: 10px;
+    background: #dcdde1;
+    border-radius: 5px;
+    overflow: hidden;
+    display: flex;
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.5);
+  }
+
+  #eval-bar-black {
+    width: 50%;
+    height: 100%;
+    background: linear-gradient(90deg, #111, #333);
+    transition: width 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .mcts-status {
+    font-size: 11px;
+    color: var(--gold-bright);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 16px;
+  }
+
+  .spinner {
+    width: 12px;
+    height: 12px;
+    border: 2px solid rgba(224, 185, 115, 0.3);
+    border-top-color: var(--gold-bright);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    display: none;
+  }
+  .spinner.visible {
+    display: inline-block;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  /* Status Banner Center */
+  #status-banner {
+    align-self: center;
+    padding: 8px 18px;
+    border-radius: 30px;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    color: var(--gold-bright);
+    text-align: center;
+    transition: all 0.25s ease;
+    pointer-events: none;
+  }
+
+  /* Bottom Action Bar */
+  .bottom-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .action-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 12px;
+    margin: 0 auto;
+  }
+
+  .act-btn {
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(212, 175, 106, 0.3);
+    color: var(--text-main);
+    padding: 9px 16px;
+    border-radius: 9px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    transition: all 0.18s ease;
+  }
+
+  .act-btn:hover:not(:disabled) {
+    background: rgba(212, 175, 106, 0.22);
+    border-color: var(--gold-bright);
+    transform: translateY(-1px);
+  }
+  .act-btn:active:not(:disabled) {
+    transform: translateY(0);
+  }
+  .act-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .act-btn.primary {
+    background: linear-gradient(135deg, #d4af6a, #9e7329);
+    color: #111;
+    border-color: var(--gold-bright);
+  }
+  .act-btn.primary:hover:not(:disabled) {
+    filter: brightness(1.1);
+  }
+
+  .act-btn.danger:hover:not(:disabled) {
+    background: rgba(235, 77, 75, 0.25);
+    border-color: var(--accent-crimson);
+    color: #ff7979;
+  }
+
+  /* Modal Overlay (Game Over / Score Breakdown) */
+  #modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    background: rgba(5, 7, 10, 0.76);
+    backdrop-filter: blur(8px);
+    display: none;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+  }
+
+  .modal-card {
+    max-width: 480px;
+    width: 100%;
+    padding: 26px 30px;
+    text-align: center;
+    border: 1px solid var(--gold-primary);
+  }
+
+  .modal-title {
+    font-size: 24px;
+    font-weight: 800;
+    color: var(--gold-bright);
+    letter-spacing: 1px;
+    margin-bottom: 6px;
+  }
+
+  .modal-subtitle {
+    font-size: 14px;
+    color: var(--text-muted);
+    margin-bottom: 20px;
+  }
+
+  .score-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 22px;
+    font-size: 13px;
+  }
+
+  .score-table th, .score-table td {
+    padding: 9px 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+  .score-table th {
+    color: var(--gold-primary);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 11px;
+  }
+  .score-table tr.total-row td {
+    font-size: 16px;
+    font-weight: 800;
+    color: var(--gold-bright);
+    border-top: 1px solid var(--gold-primary);
+    border-bottom: none;
+  }
+
+  .modal-actions {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+  }
+
+  /* Responsive adjustments for Mobile/Tablet */
+  @media (max-width: 820px) {
+    #hud {
+      padding: 10px;
+    }
+    .top-bar {
+      padding: 8px 12px;
+      gap: 8px;
+    }
+    .brand-sub {
+      display: none;
+    }
+    .middle-hud {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .side-column {
+      width: 100%;
+      flex-direction: row;
+      justify-content: space-between;
+    }
+    .player-card {
+      flex: 1;
+      padding: 10px;
+    }
+    .mcts-panel {
+      display: none;
+    }
+    .act-btn {
+      padding: 8px 11px;
+      font-size: 12px;
+    }
+  }
+</style>
+</head>
+<body>
+
+<div id="canvas-container"></div>
+
+<!-- HUD Overlay -->
+<div id="hud">
+  <!-- Top Bar -->
+  <div class="top-bar glass-panel">
+    <div class="brand">
+      <div class="brand-logo"></div>
+      <div>
+        <div class="brand-title">Yūgen Go 3D</div>
+        <div class="brand-sub">Kaya Goban &bull; MCTS Neural-Heuristic Engine</div>
+      </div>
+    </div>
+
+    <div class="controls-group">
+      <!-- Board Size -->
+      <div class="seg-control" id="size-selector">
+        <span class="seg-label">Board</span>
+        <button class="seg-btn active" data-size="9">9&times;9</button>
+        <button class="seg-btn" data-size="13">13&times;13</button>
+        <button class="seg-btn" data-size="19">19&times;19</button>
+      </div>
+
+      <!-- AI Difficulty -->
+      <div class="seg-control" id="diff-selector">
+        <span class="seg-label">MCTS AI</span>
+        <button class="seg-btn" data-diff="easy">Easy</button>
+        <button class="seg-btn active" data-diff="medium">Medium</button>
+        <button class="seg-btn" data-diff="hard">Hard</button>
+      </div>
+
+      <!-- Player Stone Color -->
+      <div class="seg-control" id="color-selector">
+        <span class="seg-label">Play As</span>
+        <button class="seg-btn active" data-color="1">Black</button>
+        <button class="seg-btn" data-color="2">White</button>
+      </div>
+
+      <!-- Camera & Audio Toggles -->
+      <button class="icon-btn" id="cam-preset-btn" title="Cycle Camera Angle">
+        <span>🎥</span> <span id="cam-label">3D Perspective</span>
+      </button>
+      <button class="icon-btn" id="sound-toggle-btn" title="Toggle Acoustic Sound">
+        <span id="sound-icon">🔊</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Middle HUD: Player Cards & MCTS Evaluation -->
+  <div class="middle-hud">
+    <div class="side-column">
+      <!-- Black Player Card -->
+      <div class="player-card glass-panel active-turn" id="card-black">
+        <div class="player-header">
+          <div class="player-identity">
+            <div class="stone-badge black"></div>
+            <div>
+              <div class="player-name" id="name-black">Player (Black)</div>
+              <div class="player-role" id="role-black">Sente &bull; First Move</div>
+            </div>
+          </div>
+          <div class="turn-pill" id="pill-black">To Play</div>
+        </div>
+        <div class="stats-grid">
+          <div class="stat-item">
+            <span class="stat-val" id="cap-black">0</span>
+            <span class="stat-lbl">Captures</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-val" id="terr-black">0</span>
+            <span class="stat-lbl">Territory</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-val" id="score-black">0.0</span>
+            <span class="stat-lbl">Est. Score</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- White Player Card -->
+      <div class="player-card glass-panel" id="card-white">
+        <div class="player-header">
+          <div class="player-identity">
+            <div class="stone-badge white"></div>
+            <div>
+              <div class="player-name" id="name-white">MCTS AI (White)</div>
+              <div class="player-role" id="role-white">Komi +6.5</div>
+            </div>
+          </div>
+          <div class="turn-pill" id="pill-white">Thinking</div>
+        </div>
+        <div class="stats-grid">
+          <div class="stat-item">
+            <span class="stat-val" id="cap-white">0</span>
+            <span class="stat-lbl">Captures</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-val" id="terr-white">0</span>
+            <span class="stat-lbl">Territory</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-val" id="score-white">6.5</span>
+            <span class="stat-lbl">Est. Score</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- MCTS AI Telemetry & Winrate Bar -->
+      <div class="mcts-panel glass-panel">
+        <div class="eval-header">
+          <span>BLACK <span id="winrate-black">50%</span></span>
+          <span>MCTS EVAL</span>
+          <span><span id="winrate-white">50%</span> WHITE</span>
+        </div>
+        <div class="eval-bar-outer">
+          <div id="eval-bar-black"></div>
+        </div>
+        <div class="mcts-status">
+          <span id="mcts-telemetry">Ready &bull; Move #1</span>
+          <div class="spinner" id="ai-spinner"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="glass-panel" id="status-banner">
+      Black to play &bull; Click any intersection to place a stone
+    </div>
+  </div>
+
+  <!-- Bottom Action Bar -->
+  <div class="bottom-bar">
+    <div class="action-buttons glass-panel">
+      <button class="act-btn" id="btn-pass" title="Pass your turn (2 consecutive passes end the game)">
+        <span>⏭️</span> Pass Turn
+      </button>
+      <button class="act-btn" id="btn-undo" title="Take back your last move">
+        <span>↩️</span> Undo
+      </button>
+      <button class="act-btn" id="btn-hint" title="Run MCTS to highlight the strongest tactical move">
+        <span>✨</span> AI Hint
+      </button>
+      <button class="act-btn" id="btn-territory" title="Toggle real-time 3D Territory &amp; Influence map">
+        <span>🗺️</span> Territory Map
+      </button>
+      <button class="act-btn" id="btn-score" title="Finish and compute final territory score">
+        <span>⚖️</span> Score Game
+      </button>
+      <button class="act-btn primary" id="btn-newgame" title="Start a fresh game">
+        <span>🔄</span> New Game
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Game Over / Score Modal -->
+<div id="modal-overlay">
+  <div class="modal-card glass-panel">
+    <div class="modal-title" id="modal-winner">BLACK WINS BY 4.5 PTS</div>
+    <div class="modal-subtitle" id="modal-reason">Final Area &amp; Territory Breakdown</div>
+
+    <table class="score-table">
+      <thead>
+        <tr>
+          <th>Metric</th>
+          <th>⚫ Black</th>
+          <th>⚪ White</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Controlled Territory</td>
+          <td id="m-terr-b">0</td>
+          <td id="m-terr-w">0</td>
+        </tr>
+        <tr>
+          <td>Living Stones on Board</td>
+          <td id="m-stones-b">0</td>
+          <td id="m-stones-w">0</td>
+        </tr>
+        <tr>
+          <td>Captured Prisoners</td>
+          <td id="m-caps-b">0</td>
+          <td id="m-caps-w">0</td>
+        </tr>
+        <tr>
+          <td>Komi Compensation</td>
+          <td>0.0</td>
+          <td>+6.5</td>
+        </tr>
+        <tr class="total-row">
+          <td>Final Score</td>
+          <td id="m-total-b">0.0</td>
+          <td id="m-total-w">6.5</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="modal-actions">
+      <button class="act-btn" id="modal-inspect-btn">Inspect 3D Board</button>
+      <button class="act-btn primary" id="modal-playagain-btn">Play New Game</button>
+    </div>
+  </div>
+</div>
+
+<!-- Three.js & OrbitControls CDN -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+<script>
+(() => {
+  'use strict';
+
+  // ============================================================================
+  // 1. ACOUSTIC SOUND SYNTHESIZER (Web Audio API - Kaya Wood & Slate Clack)
+  // ============================================================================
+  class GoAudioEngine {
+    constructor() {
+      this.ctx = null;
+      this.enabled = true;
+    }
+
+    init() {
+      if (!this.ctx) {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (AudioCtx) this.ctx = new AudioCtx();
+      }
+      if (this.ctx && this.ctx.state === 'suspended') {
+        this.ctx.resume();
+      }
+    }
+
+    toggle() {
+      this.enabled = !this.enabled;
+      return this.enabled;
+    }
+
+    // Authentic "Pachi" snap of a slate/clamshell stone striking a hollow Kaya wood Goban
+    playStoneSnap(isWhite = false) {
+      if (!this.enabled) return;
+      this.init();
+      if (!this.ctx) return;
+
+      const now = this.ctx.currentTime;
+      const pitchShift = 0.94 + Math.random() * 0.12;
+
+      // 1. High-frequency shell/slate click transient
+      const clickOsc = this.ctx.createOscillator();
+      const clickGain = this.ctx.createGain();
+      clickOsc.type = 'triangle';
+      clickOsc.frequency.setValueAtTime((isWhite ? 2450 : 2100) * pitchShift, now);
+      clickOsc.frequency.exponentialRampToValueAtTime(380, now + 0.028);
+
+      clickGain.gain.setValueAtTime(0.45, now);
+      clickGain.gain.exponentialRampToValueAtTime(0.001, now + 0.03);
+      clickOsc.connect(clickGain);
+      clickGain.connect(this.ctx.destination);
+      clickOsc.start(now);
+      clickOsc.stop(now + 0.032);
+
+      // 2. Hollow Kaya-wood resonant body thump
+      const bodyOsc = this.ctx.createOscillator();
+      const bodyGain = this.ctx.createGain();
+      bodyOsc.type = 'sine';
+      bodyOsc.frequency.setValueAtTime(195 * pitchShift, now);
+      bodyOsc.frequency.exponentialRampToValueAtTime(92, now + 0.095);
+
+      bodyGain.gain.setValueAtTime(0.55, now);
+      bodyGain.gain.exponentialRampToValueAtTime(0.001, now + 0.11);
+      bodyOsc.connect(bodyGain);
+      bodyGain.connect(this.ctx.destination);
+      bodyOsc.start(now);
+      bodyOsc.stop(now + 0.12);
+
+      // 3. Crisp noise burst for surface contact texture
+      const bufSize = Math.floor(this.ctx.sampleRate * 0.018);
+      const noiseBuf = this.ctx.createBuffer(1, bufSize, this.ctx.sampleRate);
+      const data = noiseBuf.getChannelData(0);
+      for (let i = 0; i < bufSize; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufSize * 0.3));
+      }
+      const noise = this.ctx.createBufferSource();
+      noise.buffer = noiseBuf;
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.value = 1750 * pitchShift;
+      filter.Q.value = 2.2;
+      const noiseGain = this.ctx.createGain();
+      noiseGain.gain.value = 0.35;
+
+      noise.connect(filter);
+      filter.connect(noiseGain);
+      noiseGain.connect(this.ctx.destination);
+      noise.start(now);
+    }
+
+    playCapture(count = 1) {
+      if (!this.enabled) return;
+      this.init();
+      if (!this.ctx) return;
+      const drops = Math.min(count, 5);
+      for (let i = 0; i < drops; i++) {
+        setTimeout(() => {
+          if (!this.enabled || !this.ctx) return;
+          const now = this.ctx.currentTime;
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(620 + Math.random() * 280, now);
+          osc.frequency.exponentialRampToValueAtTime(240, now + 0.045);
+          gain.gain.setValueAtTime(0.2, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start(now);
+          osc.stop(now + 0.055);
+        }, i * 65);
+      }
+    }
+
+    playPassChime() {
+      if (!this.enabled) return;
+      this.init();
+      if (!this.ctx) return;
+      const now = this.ctx.currentTime;
+      [528, 792].forEach((freq, idx) => {
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, now + idx * 0.06);
+        gain.gain.setValueAtTime(0.16, now + idx * 0.06);
+        gain.gain.exponentialRampToValueAtTime(0.0008, now + 0.75);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now + idx * 0.06);
+        osc.stop(now + 0.8);
+      });
+    }
+
+    playError() {
+      if (!this.enabled) return;
+      this.init();
+      if (!this.ctx) return;
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(150, now);
+      osc.frequency.linearRampToValueAtTime(115, now + 0.14);
+      gain.gain.setValueAtTime(0.12, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.17);
+    }
+
+    playVictory() {
+      if (!this.enabled) return;
+      this.init();
+      if (!this.ctx) return;
+      const notes = [440, 554.37, 659.25, 880];
+      notes.forEach((f, i) => {
+        const now = this.ctx.currentTime + i * 0.11;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(f, now);
+        gain.gain.setValueAtTime(0.2, now);
+        gain.gain.exponentialRampToValueAtTime(0.0008, now + 0.9);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.95);
+      });
+    }
+  }
+
+  const sound = new GoAudioEngine();
+
+  // ============================================================================
+  // 2. SHARED GO RULES & MCTS AI ENGINE (Used in Main Thread & Web Worker)
+  // ============================================================================
+  // We encapsulate the fast Go rules & Monte Carlo Tree Search inside a factory
+  // function so it can be stringified into a dedicated Web Worker AND run locally.
+  function createGoEngineModule() {
+    const EMPTY = 0;
+    const BLACK = 1;
+    const WHITE = 2;
+    const PASS_MOVE = -1;
+
+    // Precompute neighbor lookup tables per board size
+    const neighborCache = {};
+    const diagCache = {};
+
+    function getNeighbors(size) {
+      if (neighborCache[size]) return neighborCache[size];
+      const n = new Array(size * size);
+      const d = new Array(size * size);
+      for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+          const idx = y * size + x;
+          const orth = [];
+          if (x > 0) orth.push(idx - 1);
+          if (x < size - 1) orth.push(idx + 1);
+          if (y > 0) orth.push(idx - size);
+          if (y < size - 1) orth.push(idx + size);
+          n[idx] = new Int16Array(orth);
+
+          const diag = [];
+          if (x > 0 && y > 0) diag.push(idx - size - 1);
+          if (x < size - 1 && y > 0) diag.push(idx - size + 1);
+          if (x > 0 && y < size - 1) diag.push(idx + size - 1);
+          if (x < size - 1 && y < size - 1) diag.push(idx + size + 1);
+          d[idx] = new Int16Array(diag);
+        }
+      }
+      neighborCache[size] = n;
+      diagCache[size] = d;
+      return n;
+    }
+
+    // Fast group & liberty flood-fill using reusable typed arrays
+    const visitedStamp = new Int32Array(361);
+    const libStamp = new Int32Array(361);
+    let currentStamp = 1;
+    const stack = new Int16Array(361);
+
+    function getGroupInfo(board, size, startIdx) {
+      const color = board[startIdx];
+      const nbrs = getNeighbors(size);
+      currentStamp = (currentStamp + 1) | 0;
+      const stamp = currentStamp;
+
+      const stones = [];
+      let liberties = 0;
+      let lastLib = -1;
+
+      let sp = 0;
+      stack[sp++] = startIdx;
+      visitedStamp[startIdx] = stamp;
+
+      while (sp > 0) {
+        const curr = stack[--sp];
+        stones.push(curr);
+        const adj = nbrs[curr];
+        for (let i = 0; i < adj.length; i++) {
+          const nb = adj[i];
+          const v = board[nb];
+          if (v === EMPTY) {
+            if (libStamp[nb] !== stamp) {
+              libStamp[nb] = stamp;
+              liberties++;
+              lastLib = nb;
+            }
+          } else if (v === color && visitedStamp[nb] !== stamp) {
+            visitedStamp[nb] = stamp;
+            stack[sp++] = nb;
+          }
+        }
+      }
+      return { stones, liberties, lastLib };
+    }
+
+    // Ultra-fast liberty count check (returns 0, 1, 2, or 3+ capped for rollout speed)
+    function countLibertiesCapped(board, size, startIdx, cap = 3) {
+      const color = board[startIdx];
+      const nbrs = getNeighbors(size);
+      currentStamp = (currentStamp + 1) | 0;
+      const stamp = currentStamp;
+
+      let liberties = 0;
+      let sp = 0;
+      stack[sp++] = startIdx;
+      visitedStamp[startIdx] = stamp;
+
+      while (sp > 0) {
+        const curr = stack[--sp];
+        const adj = nbrs[curr];
+        for (let i = 0; i < adj.length; i++) {
+          const nb = adj[i];
+          const v = board[nb];
+          if (v === EMPTY) {
+            if (libStamp[nb] !== stamp) {
+              libStamp[nb] = stamp;
+              liberties++;
+              if (liberties >= cap) return liberties;
+            }
+          } else if (v === color && visitedStamp[nb] !== stamp) {
+            visitedStamp[nb] = stamp;
+            stack[sp++] = nb;
+          }
+        }
+      }
+      return liberties;
+    }
+
+    // Attempt to play a move on a board state; returns { valid, newBoard, captured, nextKo, reason }
+    function attemptMove(board, size, idx, color, koPoint) {
+      if (idx === PASS_MOVE) {
+        return {
+          valid: true,
+          newBoard: new Int8Array(board),
+          captured: [],
+          nextKo: -1
+        };
+      }
+      if (idx < 0 || idx >= size * size || board[idx] !== EMPTY) {
+        return { valid: false, reason: 'Occupied intersection' };
+      }
+      if (idx === koPoint) {
+        return { valid: false, reason: 'Illegal by Ko rule (cannot immediately recapture)' };
+      }
+
+      const opp = color === BLACK ? WHITE : BLACK;
+      const newBoard = new Int8Array(board);
+      newBoard[idx] = color;
+
+      const nbrs = getNeighbors(size);
+      const adj = nbrs[idx];
+      const captured = [];
+
+      // Check adjacent opponent groups for captures
+      for (let i = 0; i < adj.length; i++) {
+        const nb = adj[i];
+        if (newBoard[nb] === opp) {
+          const grp = getGroupInfo(newBoard, size, nb);
+          if (grp.liberties === 0) {
+            for (let j = 0; j < grp.stones.length; j++) {
+              const s = grp.stones[j];
+              newBoard[s] = EMPTY;
+              captured.push(s);
+            }
+          }
+        }
+      }
+
+      // Check own group liberties for suicide rule
+      const ownGrp = getGroupInfo(newBoard, size, idx);
+      if (ownGrp.liberties === 0) {
+        return { valid: false, reason: 'Illegal suicide move (zero liberties)' };
+      }
+
+      // Determine if this move creates a simple Ko point
+      let nextKo = -1;
+      if (captured.length === 1 && ownGrp.stones.length === 1 && ownGrp.liberties === 1) {
+        nextKo = captured[0];
+      }
+
+      return {
+        valid: true,
+        newBoard,
+        captured,
+        nextKo
+      };
+    }
+
+    // Fast in-place move execution for MCTS simulation rollouts (returns nextKo or -2 if invalid)
+    function playMoveInPlace(board, size, idx, color, koPoint) {
+      if (idx === PASS_MOVE) return -1;
+      if (board[idx] !== EMPTY || idx === koPoint) return -2;
+
+      const opp = color === BLACK ? WHITE : BLACK;
+      const nbrs = getNeighbors(size);
+      const adj = nbrs[idx];
+
+      // Quick pre-check: does intersection have an empty neighbor?
+      let hasEmptyNbr = false;
+      for (let i = 0; i < adj.length; i++) {
+        if (board[adj[i]] === EMPTY) {
+          hasEmptyNbr = true;
+          break;
+        }
+      }
+
+      board[idx] = color;
+      let capturedCount = 0;
+      let singleCapIdx = -1;
+
+      for (let i = 0; i < adj.length; i++) {
+        const nb = adj[i];
+        if (board[nb] === opp) {
+          if (countLibertiesCapped(board, size, nb, 1) === 0) {
+            const grp = getGroupInfo(board, size, nb);
+            for (let j = 0; j < grp.stones.length; j++) {
+              board[grp.stones[j]] = EMPTY;
+              capturedCount++;
+              singleCapIdx = grp.stones[j];
+            }
+          }
+        }
+      }
+
+      if (!hasEmptyNbr && capturedCount === 0) {
+        if (countLibertiesCapped(board, size, idx, 1) === 0) {
+          board[idx] = EMPTY; // Revert suicide
+          return -2;
+        }
+      }
+
+      if (capturedCount === 1) {
+        const ownGrp = getGroupInfo(board, size, idx);
+        if (ownGrp.stones.length === 1 && ownGrp.liberties === 1) {
+          return singleCapIdx;
+        }
+      }
+      return -1;
+    }
+
+    // Check if an empty point is a true eye for `color` (so MCTS rollouts never fill their own eyes)
+    function isTrueEye(board, size, idx, color) {
+      const nbrs = getNeighbors(size)[idx];
+      for (let i = 0; i < nbrs.length; i++) {
+        if (board[nbrs[i]] !== color) return false;
+      }
+      const diags = diagCache[size][idx];
+      let oppDiags = 0;
+      const opp = color === BLACK ? WHITE : BLACK;
+      for (let i = 0; i < diags.length; i++) {
+        if (board[diags[i]] === opp) oppDiags++;
+      }
+      // On corner/edge (diags.length < 4), 0 opponent diagonals allowed; in center, at most 1
+      if (diags.length < 4) return oppDiags === 0;
+      return oppDiags <= 1;
+    }
+
+    // Comprehensive Territory & Area Scoring (Chinese + Japanese Territory Map)
+    function evaluateBoardTerritory(board, size, capturesBlack = 0, capturesWhite = 0, komi = 6.5) {
+      const N = size * size;
+      const territoryMap = new Int8Array(N); // 0: neutral/dame, 1: Black territory, 2: White territory
+      const visited = new Uint8Array(N);
+      const nbrs = getNeighbors(size);
+
+      let blackTerritory = 0;
+      let whiteTerritory = 0;
+      let blackStones = 0;
+      let whiteStones = 0;
+
+      for (let i = 0; i < N; i++) {
+        if (board[i] === BLACK) blackStones++;
+        else if (board[i] === WHITE) whiteStones++;
+        else if (!visited[i]) {
+          // Flood fill empty region
+          const region = [];
+          let touchesBlack = false;
+          let touchesWhite = false;
+          const q = [i];
+          visited[i] = 1;
+
+          while (q.length > 0) {
+            const curr = q.pop();
+            region.push(curr);
+            const adj = nbrs[curr];
+            for (let k = 0; k < adj.length; k++) {
+              const nb = adj[k];
+              const v = board[nb];
+              if (v === EMPTY) {
+                if (!visited[nb]) {
+                  visited[nb] = 1;
+                  q.push(nb);
+                }
+              } else if (v === BLACK) {
+                touchesBlack = true;
+              } else if (v === WHITE) {
+                touchesWhite = true;
+              }
+            }
+          }
+
+          if (touchesBlack && !touchesWhite) {
+            blackTerritory += region.length;
+            for (let r = 0; r < region.length; r++) territoryMap[region[r]] = BLACK;
+          } else if (touchesWhite && !touchesBlack) {
+            whiteTerritory += region.length;
+            for (let r = 0; r < region.length; r++) territoryMap[region[r]] = WHITE;
+          }
+        }
+      }
+
+      // Standard Area Score + Prisoner Bonus
+      const blackTotal = blackTerritory + blackStones + capturesBlack;
+      const whiteTotal = whiteTerritory + whiteStones + capturesWhite + komi;
+
+      return {
+        blackTerritory,
+        whiteTerritory,
+        blackStones,
+        whiteStones,
+        capturesBlack,
+        capturesWhite,
+        komi,
+        blackTotal,
+        whiteTotal,
+        territoryMap
+      };
+    }
+
+    // Fast rollout score for MCTS terminal states
+    function fastRolloutWinner(board, size, komi = 6.5) {
+      const N = size * size;
+      const nbrs = getNeighbors(size);
+      let bScore = 0;
+      let wScore = komi;
+
+      for (let i = 0; i < N; i++) {
+        const v = board[i];
+        if (v === BLACK) {
+          bScore++;
+        } else if (v === WHITE) {
+          wScore++;
+        } else {
+          // Single-point eye/territory check
+          const adj = nbrs[i];
+          let b = 0, w = 0;
+          for (let k = 0; k < adj.length; k++) {
+            const av = board[adj[k]];
+            if (av === BLACK) b++;
+            else if (av === WHITE) w++;
+          }
+          if (b > 0 && w === 0) bScore++;
+          else if (w > 0 && b === 0) wScore++;
+        }
+      }
+      return bScore > wScore ? BLACK : WHITE;
+    }
+
+    // Tactical Prior Weighting for MCTS Tree Expansion (PUCT / Prior Heuristic)
+    function computeCandidatePriors(board, size, color, koPoint, lastMove) {
+      const opp = color === BLACK ? WHITE : BLACK;
+      const N = size * size;
+      const nbrs = getNeighbors(size);
+      const candidates = [];
+
+      // Count total stones to know if we are in Fuseki (opening)
+      let stoneCount = 0;
+      for (let i = 0; i < N; i++) {
+        if (board[i] !== EMPTY) stoneCount++;
+      }
+
+      // Identify groups currently in Atari (1 liberty)
+      const urgentSavePoints = new Set();
+      const urgentCapturePoints = new Set();
+      const checkedGroups = new Uint8Array(N);
+
+      for (let i = 0; i < N; i++) {
+        if (board[i] !== EMPTY && !checkedGroups[i]) {
+          const grp = getGroupInfo(board, size, i);
+          for (let s = 0; s < grp.stones.length; s++) checkedGroups[grp.stones[s]] = 1;
+          if (grp.liberties === 1) {
+            if (board[i] === opp) {
+              urgentCapturePoints.add(grp.lastLib);
+            } else if (board[i] === color) {
+              urgentSavePoints.add(grp.lastLib);
+              // Also check if capturing an adjacent opponent stone in atari saves our group
+              for (let s = 0; s < grp.stones.length; s++) {
+                const adj = nbrs[grp.stones[s]];
+                for (let k = 0; k < adj.length; k++) {
+                  const nb = adj[k];
+                  if (board[nb] === opp) {
+                    const oppGrp = getGroupInfo(board, size, nb);
+                    if (oppGrp.liberties === 1) urgentCapturePoints.add(oppGrp.lastLib);
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      const lastX = lastMove >= 0 ? (lastMove % size) : -1;
+      const lastY = lastMove >= 0 ? Math.floor(lastMove / size) : -1;
+
+      for (let idx = 0; idx < N; idx++) {
+        if (board[idx] !== EMPTY || idx === koPoint) continue;
+        if (isTrueEye(board, size, idx, color)) continue;
+
+        // Test legality & tactical consequence
+        const testBoard = new Int8Array(board);
+        const resKo = playMoveInPlace(testBoard, size, idx, color, koPoint);
+        if (resKo === -2) continue; // Illegal suicide/ko
+
+        const newLibs = countLibertiesCapped(testBoard, size, idx, 3);
+        const x = idx % size;
+        const y = Math.floor(idx / size);
+        const edgeDistX = Math.min(x, size - 1 - x);
+        const edgeDistY = Math.min(y, size - 1 - y);
+        const minEdge = Math.min(edgeDistX, edgeDistY);
+
+        let weight = 1.0;
+
+        // 1. Capturing opponent stones in Atari
+        if (urgentCapturePoints.has(idx)) {
+          weight += 14.0;
+        }
+
+        // 2. Saving own group in Atari (only if resulting group has >= 2 liberties!)
+        if (urgentSavePoints.has(idx) && newLibs >= 2) {
+          weight += 12.0;
+        }
+
+        // 3. Avoid self-atari unless it captures something
+        if (newLibs === 1 && !urgentCapturePoints.has(idx)) {
+          weight *= 0.08;
+        }
+
+        // 4. Local tactical proximity to last move (Hane, Kosumi, Nobi, Block)
+        if (lastMove >= 0) {
+          const dist = Math.abs(x - lastX) + Math.abs(y - lastY);
+          const cheb = Math.max(Math.abs(x - lastX), Math.abs(y - lastY));
+          if (dist === 1) weight += 4.2;
+          else if (cheb === 1) weight += 3.0;
+          else if (dist <= 3) weight += 1.6;
+        }
+
+        // 5. Putting opponent neighbors into Atari
+        const adj = nbrs[idx];
+        let touchesStone = false;
+        for (let k = 0; k < adj.length; k++) {
+          const nb = adj[k];
+          if (board[nb] !== EMPTY) touchesStone = true;
+          if (testBoard[nb] === opp && countLibertiesCapped(testBoard, size, nb, 2) === 1) {
+            weight += 5.5;
+          }
+        }
+
+        // 6. Fuseki / Positional geometry (3rd & 4th line preference, avoid 1st line early)
+        if (minEdge === 0 && stoneCount < N * 0.45 && !touchesStone) {
+          weight *= 0.12;
+        } else if ((edgeDistX === 2 || edgeDistX === 3) && (edgeDistY === 2 || edgeDistY === 3)) {
+          weight += 2.6; // Hoshi / Komoku corner & side star points
+        } else if (minEdge === 2 || minEdge === 3) {
+          weight += 1.4;
+        }
+
+        candidates.push({ move: idx, prior: weight });
+      }
+
+      // Sort descending by prior weight
+      candidates.sort((a, b) => b.prior - a.prior);
+
+      // Normalize priors
+      let sum = 0;
+      for (let i = 0; i < candidates.length; i++) sum += candidates[i].prior;
+      if (sum > 0) {
+        for (let i = 0; i < candidates.length; i++) candidates[i].prior /= sum;
+      }
+
+      return candidates;
+    }
+
+    // MCTS Tree Node
+    class MCTSNode {
+      constructor(move, parent, colorJustMoved, prior = 0.05) {
+        this.move = move;
+        this.parent = parent;
+        this.colorJustMoved = colorJustMoved;
+        this.prior = prior;
+        this.visits = 0;
+        this.wins = 0;
+        this.children = [];
+        this.untried = null;
+      }
+    }
+
+    // Smart Playout Policy for MCTS Simulation Phase
+    function runSmartRollout(startBoard, size, startTurn, startKo, lastMove, komi) {
+      const simBoard = new Int8Array(startBoard);
+      let turn = startTurn;
+      let ko = startKo;
+      let prevMove = lastMove;
+      let passes = 0;
+      const N = size * size;
+      const maxSteps = Math.floor(N * 1.35);
+      const nbrs = getNeighbors(size);
+
+      // Maintain list of empty intersections for fast sampling
+      const empties = [];
+      for (let i = 0; i < N; i++) {
+        if (simBoard[i] === EMPTY) empties.push(i);
+      }
+
+      for (let step = 0; step < maxSteps && passes < 2; step++) {
+        let chosenMove = PASS_MOVE;
+
+        // 1. Tactical check around previous move (local response / atari save / capture)
+        if (prevMove >= 0 && Math.random() < 0.72) {
+          const adj = nbrs[prevMove];
+          for (let i = 0; i < adj.length; i++) {
+            const nb = adj[i];
+            if (simBoard[nb] === EMPTY && nb !== ko && !isTrueEye(simBoard, size, nb, turn)) {
+              const nextKo = playMoveInPlace(simBoard, size, nb, turn, ko);
+              if (nextKo !== -2) {
+                if (countLibertiesCapped(simBoard, size, nb, 2) >= 2) {
+                  chosenMove = nb;
+                  ko = nextKo;
+                  break;
+                } else {
+                  // Revert self-atari in rollout unless forced
+                  simBoard[nb] = EMPTY;
+                }
+              }
+            }
+          }
+        }
+
+        // 2. Otherwise sample from empty intersections
+        if (chosenMove === PASS_MOVE && empties.length > 0) {
+          const trials = Math.min(empties.length, 14);
+          for (let t = 0; t < trials; t++) {
+            const rIdx = (Math.random() * empties.length) | 0;
+            const m = empties[rIdx];
+            if (simBoard[m] !== EMPTY) {
+              empties[rIdx] = empties[empties.length - 1];
+              empties.pop();
+              continue;
+            }
+            if (m === ko || isTrueEye(simBoard, size, m, turn)) continue;
+
+            const nextKo = playMoveInPlace(simBoard, size, m, turn, ko);
+            if (nextKo !== -2) {
+              chosenMove = m;
+              ko = nextKo;
+              empties[rIdx] = empties[empties.length - 1];
+              empties.pop();
+              break;
+            }
+          }
+        }
+
+        if (chosenMove === PASS_MOVE) {
+          passes++;
+          ko = -1;
+        } else {
+          passes = 0;
+          prevMove = chosenMove;
+        }
+        turn = turn === BLACK ? WHITE : BLACK;
+      }
+
+      return fastRolloutWinner(simBoard, size, komi);
+    }
+
+    // Main MCTS Search Runner
+    function runMCTSSearch(config, onProgress) {
+      const { board, size, aiColor, koPoint, lastMove, difficulty, komi = 6.5 } = config;
+      const oppColor = aiColor === BLACK ? WHITE : BLACK;
+
+      // Difficulty parameters
+      const diffSettings = {
+        easy:   { maxIter: 260,  maxTimeMs: 280,  cPuct: 1.85, topK: 14, noise: 0.22 },
+        medium: { maxIter: 1350, maxTimeMs: 680,  cPuct: 1.35, topK: 28, noise: 0.05 },
+        hard:   { maxIter: 4200, maxTimeMs: 1250, cPuct: 1.15, topK: 48, noise: 0.0  }
+      };
+      const params = diffSettings[difficulty] || diffSettings.medium;
+
+      const rootPriors = computeCandidatePriors(board, size, aiColor, koPoint, lastMove);
+      if (rootPriors.length === 0) {
+        return { move: PASS_MOVE, winRate: 0.5, iterations: 0, topCandidates: [] };
+      }
+
+      // Check if passing is preferable at game end (when only neutral dame or negative moves remain)
+      const currentEval = evaluateBoardTerritory(board, size, 0, 0, komi);
+      const occupiedRatio = (currentEval.blackStones + currentEval.whiteStones) / (size * size);
+      if (lastMove === PASS_MOVE && occupiedRatio > 0.55) {
+        const aiAhead = aiColor === BLACK
+          ? (currentEval.blackTotal > currentEval.whiteTotal + 2)
+          : (currentEval.whiteTotal > currentEval.blackTotal + 2);
+        if (aiAhead && rootPriors[0].prior < 0.12) {
+          return { move: PASS_MOVE, winRate: 0.85, iterations: 100, topCandidates: [] };
+        }
+      }
+
+      const root = new MCTSNode(null, null, oppColor, 1.0);
+      root.untried = rootPriors.slice(0, params.topK);
+
+      const startTime = Date.now();
+      let iter = 0;
+
+      while (iter < params.maxIter) {
+        if ((iter & 63) === 0 && (Date.now() - startTime) > params.maxTimeMs) break;
+        iter++;
+
+        let node = root;
+        const simBoard = new Int8Array(board);
+        let simTurn = aiColor;
+        let simKo = koPoint;
+        let simLast = lastMove;
+
+        // 1. SELECTION (PUCT: Exploitation + Prior-guided Exploration)
+        while (node.untried.length === 0 && node.children.length > 0) {
+          let bestChild = null;
+          let bestScore = -1e9;
+          const sqrtParent = Math.sqrt(node.visits + 1);
+
+          for (let i = 0; i < node.children.length; i++) {
+            const ch = node.children[i];
+            const q = ch.wins / (ch.visits + 1e-5);
+            const u = params.cPuct * (0.4 + ch.prior * 2.5) * (sqrtParent / (1 + ch.visits));
+            const score = q + u;
+            if (score > bestScore) {
+              bestScore = score;
+              bestChild = ch;
+            }
+          }
+          node = bestChild;
+          simKo = playMoveInPlace(simBoard, size, node.move, simTurn, simKo);
+          simLast = node.move;
+          simTurn = simTurn === BLACK ? WHITE : BLACK;
+        }
+
+        // 2. EXPANSION
+        if (node.untried.length > 0) {
+          const cand = node.untried.shift();
+          const nextKo = playMoveInPlace(simBoard, size, cand.move, simTurn, simKo);
+          if (nextKo !== -2) {
+            const child = new MCTSNode(cand.move, node, simTurn, cand.prior);
+            const nextTurn = simTurn === BLACK ? WHITE : BLACK;
+            // Lazy child candidate generation on deeper visits
+            const childCands = computeCandidatePriors(simBoard, size, nextTurn, nextKo, cand.move);
+            child.untried = childCands.slice(0, Math.max(10, Math.floor(params.topK * 0.6)));
+            node.children.push(child);
+            node = child;
+            simKo = nextKo;
+            simLast = cand.move;
+            simTurn = nextTurn;
+          }
+        }
+
+        // 3. SIMULATION (Smart Playout)
+        const winner = runSmartRollout(simBoard, size, simTurn, simKo, simLast, komi);
+
+        // 4. BACKPROPAGATION
+        let curr = node;
+        while (curr !== null) {
+          curr.visits++;
+          if (curr.colorJustMoved === winner) {
+            curr.wins += 1.0;
+          }
+          curr = curr.parent;
+        }
+
+        // Stream live MCTS candidate telemetry back to UI every 250 playouts
+        if (onProgress && (iter % 250 === 0)) {
+          const sorted = root.children.slice().sort((a, b) => b.visits - a.visits);
+          const best = sorted[0];
+          onProgress({
+            iterations: iter,
+            winRate: best ? (best.wins / Math.max(1, best.visits)) : 0.5,
+            topCandidates: sorted.slice(0, 4).map(c => ({
+              move: c.move,
+              visits: c.visits,
+              winRate: c.wins / Math.max(1, c.visits)
+            }))
+          });
+        }
+      }
+
+      // Select robust child (most visits + slight winrate tiebreak; with optional noise on Easy)
+      const sortedChildren = root.children.slice().sort((a, b) => {
+        const scoreB = b.visits + b.wins * 0.25;
+        const scoreA = a.visits + a.wins * 0.25;
+        return scoreB - scoreA;
+      });
+
+      if (sortedChildren.length === 0) {
+        return { move: PASS_MOVE, winRate: 0.5, iterations: iter, topCandidates: [] };
+      }
+
+      let chosen = sortedChildren[0];
+      if (params.noise > 0 && sortedChildren.length > 1 && Math.random() < params.noise) {
+        chosen = sortedChildren[1];
+      }
+
+      const aiWinRate = chosen.wins / Math.max(1, chosen.visits);
+      return {
+        move: chosen.move,
+        winRate: aiWinRate,
+        iterations: iter,
+        topCandidates: sortedChildren.slice(0, 4).map(c => ({
+          move: c.move,
+          visits: c.visits,
+          winRate: c.wins / Math.max(1, c.visits)
+        }))
+      };
+    }
+
+    return {
+      EMPTY, BLACK, WHITE, PASS_MOVE,
+      attemptMove,
+      evaluateBoardTerritory,
+      runMCTSSearch
+    };
+  }
+
+  const GoEngine = createGoEngineModule();
+
+  // Create Inline Web Worker for non-blocking 60FPS MCTS AI Search
+  let aiWorker = null;
+  try {
+    const workerCode = `
+      const Engine = (${createGoEngineModule.toString()})();
+      self.onmessage = function(e) {
+        const { id, config } = e.data;
+        const result = Engine.runMCTSSearch(config, (progress) => {
+          self.postMessage({ id, type: 'progress', data: progress });
+        });
+        self.postMessage({ id, type: 'done', data: result });
+      };
+    `;
+    const blob = new Blob([workerCode], { type: 'application/javascript' });
+    aiWorker = new Worker(URL.createObjectURL(blob));
+  } catch (err) {
+    console.warn('Inline Web Worker fallback to async main thread:', err);
+  }
+
+  // ============================================================================
+  // 3. THREE.JS 3D SCENE, KAYA GOBAN, BOWLS, LIGHTING & PROCEDURAL TEXTURES
+  // ============================================================================
+  const container = document.getElementById('canvas-container');
+  const scene = new THREE.Scene();
+  scene.fog = new THREE.FogExp2(0x0d0f12, 0.015);
+
+  const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.5, 160);
+  camera.position.set(0, 21, 18.5);
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.08;
+  container.appendChild(renderer.domElement);
+
+  const controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.06;
+  controls.maxPolarAngle = Math.PI / 2 - 0.04;
+  controls.minDistance = 9;
+  controls.maxDistance = 42;
+  controls.target.set(0, 0.5, 0);
+
+  // Studio & Zen Room Lighting
+  const hemiLight = new THREE.HemisphereLight(0xfff4e0, 0x1e242b, 0.65);
+  scene.add(hemiLight);
+
+  const mainLight = new THREE.DirectionalLight(0xfff0d4, 1.15);
+  mainLight.position.set(12, 26, 14);
+  mainLight.castShadow = true;
+  mainLight.shadow.mapSize.width = 2048;
+  mainLight.shadow.mapSize.height = 2048;
+  mainLight.shadow.camera.near = 5;
+  mainLight.shadow.camera.far = 65;
+  const d = 15;
+  mainLight.shadow.camera.left = -d;
+  mainLight.shadow.camera.right = d;
+  mainLight.shadow.camera.top = d;
+  mainLight.shadow.camera.bottom = -d;
+  mainLight.shadow.bias = -0.0005;
+  scene.add(mainLight);
+
+  const rimLight = new THREE.DirectionalLight(0x9bb8ff, 0.42);
+  rimLight.position.set(-16, 14, -15);
+  scene.add(rimLight);
+
+  // Procedural Kaya Wood Top Texture with Crisp Lacquer Grid, Hoshi & Coordinates
+  const BOARD_PHYSICAL_SIZE = 15.0; // 3D world units width/depth of the Goban top
+  const BOARD_THICKNESS = 1.85;
+  const GRID_SPAN = 12.6; // Playable grid width on the 15.0 board
+
+  function generateGobanTopTexture(boardSize) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 2048;
+    canvas.height = 2048;
+    const ctx = canvas.getContext('2d');
+
+    // 1. Rich Honey-Golden Kaya Wood Base
+    const grad = ctx.createLinearGradient(0, 0, 2048, 2048);
+    grad.addColorStop(0, '#dfb068');
+    grad.addColorStop(0.5, '#d7a354');
+    grad.addColorStop(1, '#c99344');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 2048, 2048);
+
+    // 2. Organic Wood Grain Fibers
+    for (let i = 0; i < 420; i++) {
+      const x = Math.random() * 2048;
+      const w = 1.5 + Math.random() * 5;
+      ctx.fillStyle = i % 2 === 0 ? 'rgba(130, 78, 20, 0.032)' : 'rgba(255, 228, 175, 0.03)';
+      ctx.fillRect(x, 0, w, 2048);
+    }
+
+    // Subtle Cathedral Grain Rings
+    ctx.strokeStyle = 'rgba(120, 68, 15, 0.04)';
+    ctx.lineWidth = 3;
+    for (let r = 100; r < 2600; r += 28) {
+      ctx.beginPath();
+      ctx.ellipse(1024 + Math.sin(r * 0.02) * 90, -300, r * 0.45, r * 1.35, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // 3. Calculate Grid Mapping matching 3D world coordinates
+    const marginPx = ((BOARD_PHYSICAL_SIZE - GRID_SPAN) / 2 / BOARD_PHYSICAL_SIZE) * 2048;
+    const gridPx = 2048 - marginPx * 2;
+    const cellPx = gridPx / (boardSize - 1);
+
+    // 4. Crisp Urushi Black Lacquer Grid Lines
+    ctx.strokeStyle = '#14110e';
+    ctx.lineCap = 'square';
+
+    for (let i = 0; i < boardSize; i++) {
+      const pos = marginPx + i * cellPx;
+      const isBorder = (i === 0 || i === boardSize - 1);
+      ctx.lineWidth = isBorder ? 6.5 : 3.8;
+
+      // Horizontal line
+      ctx.beginPath();
+      ctx.moveTo(marginPx, pos);
+      ctx.lineTo(2048 - marginPx, pos);
+      ctx.stroke();
+
+      // Vertical line
+      ctx.beginPath();
+      ctx.moveTo(pos, marginPx);
+      ctx.lineTo(pos, 2048 - marginPx);
+      ctx.stroke();
+    }
+
+    // 5. Star Points (Hoshi)
+    const starCoords = [];
+    if (boardSize === 9) {
+      starCoords.push([2,2], [6,2], [4,4], [2,6], [6,6]);
+    } else if (boardSize === 13) {
+      starCoords.push([3,3], [9,3], [6,6], [3,9], [9,9]);
+    } else if (boardSize === 19) {
+      const pts = [3, 9, 15];
+      for (const r of pts) for (const c of pts) starCoords.push([c, r]);
+    }
+
+    ctx.fillStyle = '#14110e';
+    const starRadius = boardSize === 19 ? 11 : 13;
+    starCoords.forEach(([cx, cy]) => {
+      const px = marginPx + cx * cellPx;
+      const py = marginPx + cy * cellPx;
+      ctx.beginPath();
+      ctx.arc(px, py, starRadius, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // 6. Subtle Coordinate Labels Along Borders (A-T skipping I, 1-19)
+    const letters = 'ABCDEFGHJKLMNOPQRST';
+    ctx.fillStyle = 'rgba(35, 24, 12, 0.65)';
+    ctx.font = 'bold 34px "Segoe UI", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    const labelOffset = marginPx * 0.48;
+    for (let i = 0; i < boardSize; i++) {
+      const pos = marginPx + i * cellPx;
+      const ch = letters[i];
+      const num = String(boardSize - i);
+
+      // Top & Bottom letters
+      ctx.fillText(ch, pos, labelOffset);
+      ctx.fillText(ch, pos, 2048 - labelOffset);
+      // Left & Right numbers
+      ctx.fillText(num, labelOffset, pos);
+      ctx.fillText(num, 2048 - labelOffset, pos);
+    }
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    tex.needsUpdate = true;
+    return tex;
+  }
+
+  function generateSideWoodTexture() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 256;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#b9833b';
+    ctx.fillRect(0, 0, 512, 256);
+    for (let i = 0; i < 180; i++) {
+      ctx.fillStyle = i % 2 === 0 ? 'rgba(70, 38, 8, 0.06)' : 'rgba(240, 195, 120, 0.05)';
+      ctx.fillRect(0, Math.random() * 256, 512, 2 + Math.random() * 4);
+    }
+    const tex = new THREE.CanvasTexture(canvas);
+    return tex;
+  }
+
+  function generateTatamiTableTexture() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1024;
+    canvas.height = 1024;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#181412';
+    ctx.fillRect(0, 0, 1024, 1024);
+    // Subtle dark rosewood / wenge wood grain
+    for (let i = 0; i < 300; i++) {
+      ctx.fillStyle = i % 2 === 0 ? 'rgba(255, 200, 140, 0.015)' : 'rgba(0, 0, 0, 0.15)';
+      ctx.fillRect(Math.random() * 1024, 0, 2 + Math.random() * 6, 1024);
+    }
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(2, 2);
+    return tex;
+  }
+
+  function generateClamshellTexture() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 256;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#f8f7f2';
+    ctx.fillRect(0, 0, 256, 256);
+    // Delicate Hyuga clamshell growth striations
+    for (let y = 0; y < 256; y += 3) {
+      ctx.fillStyle = (y % 6 === 0) ? 'rgba(220, 216, 205, 0.38)' : 'rgba(255, 255, 255, 0.4)';
+      ctx.fillRect(0, y, 256, 1.5);
+    }
+    return new THREE.CanvasTexture(canvas);
+  }
+
+  // Construct the 3D Goban, Carved Feet, Dark Rosewood Table & Go Bowls (Goke)
+  const boardGroup = new THREE.Group();
+  scene.add(boardGroup);
+
+  const sideWoodMat = new THREE.MeshStandardMaterial({
+    map: generateSideWoodTexture(),
+    roughness: 0.42,
+    metalness: 0.05
+  });
+
+  const topWoodMat = new THREE.MeshStandardMaterial({
+    map: generateGobanTopTexture(9),
+    roughness: 0.32,
+    metalness: 0.04
+  });
+
+  const gobanMaterials = [
+    sideWoodMat, sideWoodMat,
+    topWoodMat,  sideWoodMat,
+    sideWoodMat, sideWoodMat
+  ];
+
+  const gobanGeo = new THREE.BoxGeometry(BOARD_PHYSICAL_SIZE, BOARD_THICKNESS, BOARD_PHYSICAL_SIZE);
+  const gobanMesh = new THREE.Mesh(gobanGeo, gobanMaterials);
+  gobanMesh.position.y = 0;
+  gobanMesh.castShadow = true;
+  gobanMesh.receiveShadow = true;
+  boardGroup.add(gobanMesh);
+
+  // Decorative Lacquer Bevel Frame under Goban
+  const trimGeo = new THREE.BoxGeometry(BOARD_PHYSICAL_SIZE - 0.3, 0.25, BOARD_PHYSICAL_SIZE - 0.3);
+  const trimMat = new THREE.MeshStandardMaterial({ color: 0x2b190d, roughness: 0.5 });
+  const trimMesh = new THREE.Mesh(trimGeo, trimMat);
+  trimMesh.position.y = -BOARD_THICKNESS / 2 - 0.12;
+  trimMesh.castShadow = true;
+  boardGroup.add(trimMesh);
+
+  // 4 Carved Kuchinashi (Gardenia Seed Pod) Legs
+  const legGeo = new THREE.CylinderGeometry(0.45, 0.28, 1.1, 8);
+  const legOffset = BOARD_PHYSICAL_SIZE / 2 - 1.3;
+  [[-legOffset, -legOffset], [legOffset, -legOffset], [-legOffset, legOffset], [legOffset, legOffset]].forEach(([lx, lz]) => {
+    const leg = new THREE.Mesh(legGeo, trimMat);
+    leg.position.set(lx, -BOARD_THICKNESS / 2 - 0.65, lz);
+    leg.castShadow = true;
+    boardGroup.add(leg);
+  });
+
+  // Dark Rosewood Zen Table Backdrop beneath the Goban
+  const tableGeo = new THREE.CylinderGeometry(28, 28, 0.5, 64);
+  const tableMat = new THREE.MeshStandardMaterial({
+    map: generateTatamiTableTexture(),
+    roughness: 0.65,
+    metalness: 0.08
+  });
+  const tableMesh = new THREE.Mesh(tableGeo, tableMat);
+  tableMesh.position.y = -BOARD_THICKNESS / 2 - 1.4;
+  tableMesh.receiveShadow = true;
+  scene.add(tableMesh);
+
+  // Carved Wooden Go Bowls (Goke) beside the Goban
+  function createGoBowl(x, z, isBlackBowl) {
+    const bowlGroup = new THREE.Group();
+    bowlGroup.position.set(x, -BOARD_THICKNESS / 2 - 0.2, z);
+
+    // Lathe profile for authentic curved Goke bowl
+    const points = [
+      new THREE.Vector2(0.0, 0.0),
+      new THREE.Vector2(1.3, 0.0),
+      new THREE.Vector2(1.85, 0.55),
+      new THREE.Vector2(1.95, 1.25),
+      new THREE.Vector2(1.65, 1.75),
+      new THREE.Vector2(1.48, 1.75),
+      new THREE.Vector2(1.72, 1.15),
+      new THREE.Vector2(1.2, 0.25),
+      new THREE.Vector2(0.0, 0.25)
+    ];
+    const latheGeo = new THREE.LatheGeometry(points, 36);
+    const bowlMat = new THREE.MeshStandardMaterial({
+      color: isBlackBowl ? 0x3b2010 : 0x5c3419,
+      roughness: 0.28,
+      metalness: 0.08
+    });
+    const bowlMesh = new THREE.Mesh(latheGeo, bowlMat);
+    bowlMesh.castShadow = true;
+    bowlMesh.receiveShadow = true;
+    bowlGroup.add(bowlMesh);
+
+    scene.add(bowlGroup);
+    return bowlGroup;
+  }
+
+  const blackBowl = createGoBowl(10.4, 4.8, true);
+  const whiteBowl = createGoBowl(-10.4, -4.8, false);
+
+  // ============================================================================
+  // 4. BICONVEX 3D GO STONES, HOVER GHOST, LAST MOVE MARKER & TERRITORY OVERLAY
+  // ============================================================================
+  const clamshellTex = generateClamshellTexture();
+
+  // Authentic Nachi Black Slate Material (Satin Matte)
+  const blackStoneMat = new THREE.MeshPhysicalMaterial({
+    color: 0x141619,
+    roughness: 0.36,
+    metalness: 0.06,
+    clearcoat: 0.22,
+    clearcoatRoughness: 0.35
+  });
+
+  // Authentic Hyuga White Clamshell Material (Pearlescent Gloss)
+  const whiteStoneMat = new THREE.MeshPhysicalMaterial({
+    color: 0xfaf9f5,
+    map: clamshellTex,
+    roughness: 0.16,
+    metalness: 0.02,
+    clearcoat: 0.65,
+    clearcoatRoughness: 0.15
+  });
+
+  // Unit Biconvex Stone Geometry (scaled dynamically for 9x9, 13x13, 19x19)
+  const unitStoneGeo = new THREE.SphereGeometry(1, 32, 20);
+  unitStoneGeo.scale(1, 0.46, 1);
+
+  // Add decorative reserve stones inside the two bowls
+  function populateBowlStones(bowlGroup, mat) {
+    for (let i = 0; i < 18; i++) {
+      const s = new THREE.Mesh(unitStoneGeo, mat);
+      const r = Math.random() * 1.05;
+      const theta = Math.random() * Math.PI * 2;
+      s.scale.setScalar(0.36);
+      s.position.set(Math.cos(theta) * r, 0.35 + (i * 0.038), Math.sin(theta) * r);
+      s.rotation.set((Math.random() - 0.5) * 0.4, Math.random() * Math.PI, (Math.random() - 0.5) * 0.4);
+      bowlGroup.add(s);
+    }
+  }
+  populateBowlStones(blackBowl, blackStoneMat);
+  populateBowlStones(whiteBowl, whiteStoneMat);
+
+  // Hover Ghost Stone
+  const ghostMat = new THREE.MeshBasicMaterial({
+    color: 0x111111,
+    transparent: true,
+    opacity: 0.48
+  });
+  const ghostStone = new THREE.Mesh(unitStoneGeo, ghostMat);
+  ghostStone.visible = false;
+  scene.add(ghostStone);
+
+  // Last Move Indicator Ring
+  const lastMoveRingGeo = new THREE.RingGeometry(0.32, 0.48, 32);
+  lastMoveRingGeo.rotateX(-Math.PI / 2);
+  const lastMoveRingMat = new THREE.MeshBasicMaterial({
+    color: 0xe0b973,
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity: 0.95
+  });
+  const lastMoveMarker = new THREE.Mesh(lastMoveRingGeo, lastMoveRingMat);
+  lastMoveMarker.visible = false;
+  scene.add(lastMoveMarker);
+
+  // AI Hint / MCTS Candidate Ring Markers
+  const hintGroup = new THREE.Group();
+  scene.add(hintGroup);
+
+  // 3D Territory Overlay Cubes
+  const territoryGroup = new THREE.Group();
+  scene.add(territoryGroup);
+
+  // Invisible Raycast Plane on top of the Goban surface
+  const BOARD_TOP_Y = BOARD_THICKNESS / 2;
+  const hitPlaneGeo = new THREE.PlaneGeometry(BOARD_PHYSICAL_SIZE, BOARD_PHYSICAL_SIZE);
+  hitPlaneGeo.rotateX(-Math.PI / 2);
+  const hitPlane = new THREE.Mesh(hitPlaneGeo, new THREE.MeshBasicMaterial({ visible: false }));
+  hitPlane.position.y = BOARD_TOP_Y;
+  scene.add(hitPlane);
+
+  // ============================================================================
+  // 5. GAME STATE, COORDINATE MAPPING, ANIMATIONS & MCTS INTEGRATION
+  // ============================================================================
+  const state = {
+    size: 9,
+    difficulty: 'medium',
+    humanColor: GoEngine.BLACK,
+    aiColor: GoEngine.WHITE,
+    turn: GoEngine.BLACK,
+    board: new Int8Array(81),
+    koPoint: -1,
+    lastMove: -1,
+    capturesBlack: 0,
+    capturesWhite: 0,
+    passCount: 0,
+    moveNumber: 0,
+    history: [], // Stack of snapshots for Undo
+    gameOver: false,
+    aiThinking: false,
+    showTerritory: false,
+    hoveredIdx: -1,
+    winRateBlack: 0.5
+  };
+
+  // Active 3D stone meshes indexed by board coordinate (0 .. size*size - 1)
+  let stoneMeshes = [];
+  const activeAnimations = [];
+
+  function getCellSpacing(size = state.size) {
+    return GRID_SPAN / (size - 1);
+  }
+
+  function getStoneRadius(size = state.size) {
+    return getCellSpacing(size) * 0.475;
+  }
+
+  function indexToWorldXZ(idx, size = state.size) {
+    const x = idx % size;
+    const y = Math.floor(idx / size);
+    const spacing = getCellSpacing(size);
+    const half = GRID_SPAN / 2;
+    return {
+      wx: -half + x * spacing,
+      wz: -half + y * spacing
+    };
+  }
+
+  function worldXZToIndex(wx, wz, size = state.size) {
+    const spacing = getCellSpacing(size);
+    const half = GRID_SPAN / 2;
+    const gx = Math.round((wx + half) / spacing);
+    const gy = Math.round((wz + half) / spacing);
+    if (gx < 0 || gx >= size || gy < 0 || gy >= size) return -1;
+
+    // Verify distance to intersection is within snapping tolerance
+    const ix = -half + gx * spacing;
+    const iz = -half + gy * spacing;
+    if (Math.hypot(wx - ix, wz - iz) > spacing * 0.58) return -1;
+    return gy * size + gx;
+  }
+
+  function indexToAlgebraic(idx, size = state.size) {
+    if (idx === GoEngine.PASS_MOVE) return 'PASS';
+    const letters = 'ABCDEFGHJKLMNOPQRST';
+    const x = idx % size;
+    const y = Math.floor(idx / size);
+    return `${letters[x]}${size - y}`;
+  }
+
+  // Clear all 3D stones and rebuild for current board state
+  function clearAllStoneMeshes() {
+    stoneMeshes.forEach(m => {
+      if (m) scene.remove(m);
+    });
+    stoneMeshes = new Array(state.size * state.size).fill(null);
+    lastMoveMarker.visible = false;
+    clearHints();
+  }
+
+  function clearHints() {
+    while (hintGroup.children.length > 0) {
+      hintGroup.remove(hintGroup.children[0]);
+    }
+  }
+
+  // Spawn a 3D stone with smooth parabolic drop animation
+  function spawnStoneMesh(idx, color, animate = true) {
+    const r = getStoneRadius();
+    const mat = color === GoEngine.BLACK ? blackStoneMat : whiteStoneMat;
+    const mesh = new THREE.Mesh(unitStoneGeo, mat);
+    mesh.scale.setScalar(r);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+
+    const { wx, wz } = indexToWorldXZ(idx);
+    // Slight organic micro-jitter like real hand-placed stones
+    const jitterX = (Math.random() - 0.5) * r * 0.04;
+    const jitterZ = (Math.random() - 0.5) * r * 0.04;
+    const targetY = BOARD_TOP_Y + r * 0.44;
+
+    mesh.rotation.y = Math.random() * Math.PI * 2;
+
+    if (animate) {
+      mesh.position.set(wx + jitterX, targetY + 2.4, wz + jitterZ);
+      activeAnimations.push({
+        type: 'drop',
+        mesh,
+        startY: targetY + 2.4,
+        targetY,
+        progress: 0,
+        duration: 0.21
+      });
+    } else {
+      mesh.position.set(wx + jitterX, targetY, wz + jitterZ);
+    }
+
+    scene.add(mesh);
+    stoneMeshes[idx] = mesh;
+    updateLastMoveMarker(idx, color);
+  }
+
+  function updateLastMoveMarker(idx, color) {
+    if (idx < 0) {
+      lastMoveMarker.visible = false;
+      return;
+    }
+    const r = getStoneRadius();
+    const { wx, wz } = indexToWorldXZ(idx);
+    lastMoveMarker.scale.setScalar(r);
+    lastMoveMarker.position.set(wx, BOARD_TOP_Y + r * 0.91, wz);
+    lastMoveRingMat.color.setHex(color === GoEngine.BLACK ? 0xf7d794 : 0xd63031);
+    lastMoveMarker.visible = true;
+  }
+
+  // Animate captured stones lifting off the board and arcing into the capturer's Goke bowl
+  function animateCapturedStones(capturedIndices, capturerColor) {
+    const targetBowl = capturerColor === GoEngine.BLACK ? blackBowl.position : whiteBowl.position;
+    capturedIndices.forEach((idx, i) => {
+      const mesh = stoneMeshes[idx];
+      if (!mesh) return;
+      stoneMeshes[idx] = null;
+
+      activeAnimations.push({
+        type: 'capture',
+        mesh,
+        startPos: mesh.position.clone(),
+        endPos: new THREE.Vector3(
+          targetBowl.x + (Math.random() - 0.5) * 0.9,
+          BOARD_TOP_Y + 0.5,
+          targetBowl.z + (Math.random() - 0.5) * 0.9
+        ),
+        delay: i * 0.04,
+        progress: 0,
+        duration: 0.46
+      });
+    });
+  }
+
+  // Update 3D Territory Markers
+  const blackTerrMat = new THREE.MeshBasicMaterial({ color: 0x111111, transparent: true, opacity: 0.78 });
+  const whiteTerrMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 });
+  const terrBoxGeo = new THREE.BoxGeometry(1, 0.35, 1);
+
+  function refreshTerritoryVisuals() {
+    while (territoryGroup.children.length > 0) {
+      territoryGroup.remove(territoryGroup.children[0]);
+    }
+    const evalData = GoEngine.evaluateBoardTerritory(
+      state.board,
+      state.size,
+      state.capturesBlack,
+      state.capturesWhite
+    );
+
+    // Update HUD Score Cards
+    document.getElementById('cap-black').textContent = state.capturesBlack;
+    document.getElementById('cap-white').textContent = state.capturesWhite;
+    document.getElementById('terr-black').textContent = evalData.blackTerritory;
+    document.getElementById('terr-white').textContent = evalData.whiteTerritory;
+    document.getElementById('score-black').textContent = evalData.blackTotal.toFixed(1);
+    document.getElementById('score-white').textContent = evalData.whiteTotal.toFixed(1);
+
+    if (!state.showTerritory) return;
+
+    const r = getStoneRadius() * 0.42;
+    for (let i = 0; i < state.board.length; i++) {
+      const owner = evalData.territoryMap[i];
+      if (owner !== GoEngine.EMPTY) {
+        const marker = new THREE.Mesh(terrBoxGeo, owner === GoEngine.BLACK ? blackTerrMat : whiteTerrMat);
+        marker.scale.set(r, r, r);
+        const { wx, wz } = indexToWorldXZ(i);
+        marker.position.set(wx, BOARD_TOP_Y + 0.08, wz);
+        territoryGroup.add(marker);
+      }
+    }
+  }
+
+  // Highlight MCTS Candidate Moves on the 3D Board
+  function showMCTSCandidatesOnBoard(candidates, isHint = false) {
+    clearHints();
+    if (!candidates || candidates.length === 0) return;
+
+    const r = getStoneRadius();
+    candidates.forEach((cand, idx) => {
+      if (cand.move < 0) return;
+      const { wx, wz } = indexToWorldXZ(cand.move);
+      const ringGeo = new THREE.RingGeometry(r * 0.55, r * (idx === 0 ? 0.88 : 0.72), 28);
+      ringGeo.rotateX(-Math.PI / 2);
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: isHint ? 0x38ada9 : (idx === 0 ? 0xf7d794 : 0xe0b973),
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: idx === 0 ? 0.92 : 0.45
+      });
+      const mesh = new THREE.Mesh(ringGeo, ringMat);
+      mesh.position.set(wx, BOARD_TOP_Y + 0.03, wz);
+      hintGroup.add(mesh);
+    });
+  }
+
+  // ============================================================================
+  // 6. TURN EXECUTION, AI SEARCH DISPATCH & GAME FLOW
+  // ============================================================================
+  function updateHUDTurnState(message = null) {
+    const isBlack = state.turn === GoEngine.BLACK;
+    document.getElementById('card-black').classList.toggle('active-turn', isBlack);
+    document.getElementById('card-white').classList.toggle('active-turn', !isBlack);
+
+    document.getElementById('name-black').textContent = state.humanColor === GoEngine.BLACK ? 'You (Black)' : 'MCTS AI (Black)';
+    document.getElementById('name-white').textContent = state.humanColor === GoEngine.WHITE ? 'You (White)' : 'MCTS AI (White)';
+
+    document.getElementById('pill-black').textContent = state.aiThinking && isBlack ? 'Searching...' : 'To Play';
+    document.getElementById('pill-white').textContent = state.aiThinking && !isBlack ? 'Searching...' : 'To Play';
+
+    const bPct = Math.round(state.winRateBlack * 100);
+    const wPct = 100 - bPct;
+    document.getElementById('winrate-black').textContent = `${bPct}%`;
+    document.getElementById('winrate-white').textContent = `${wPct}%`;
+    document.getElementById('eval-bar-black').style.width = `${bPct}%`;
+
+    const banner = document.getElementById('status-banner');
+    if (message) {
+      banner.textContent = message;
+    } else if (state.gameOver) {
+      banner.textContent = 'Game Finished — Inspect the board or start a New Game';
+    } else if (state.aiThinking) {
+      banner.textContent = `MCTS AI (${state.difficulty.toUpperCase()}) is analyzing tactical trees...`;
+    } else {
+      const turnStr = isBlack ? 'Black' : 'White';
+      banner.textContent = `${turnStr} to play • Click any intersection to place a stone`;
+    }
+
+    const disableControls = state.aiThinking || state.gameOver;
+    document.getElementById('btn-pass').disabled = disableControls;
+    document.getElementById('btn-hint').disabled = disableControls;
+    document.getElementById('btn-undo').disabled = state.aiThinking || state.history.length === 0;
+  }
+
+  function saveSnapshot() {
+    state.history.push({
+      board: new Int8Array(state.board),
+      turn: state.turn,
+      koPoint: state.koPoint,
+      lastMove: state.lastMove,
+      capturesBlack: state.capturesBlack,
+      capturesWhite: state.capturesWhite,
+      passCount: state.passCount,
+      moveNumber: state.moveNumber,
+      winRateBlack: state.winRateBlack
+    });
+  }
+
+  function executeMove(idx) {
+    if (state.gameOver) return false;
+
+    const color = state.turn;
+    const res = GoEngine.attemptMove(state.board, state.size, idx, color, state.koPoint);
+    if (!res.valid) {
+      sound.playError();
+      updateHUDTurnState(`⚠️ ${res.reason}`);
+      return false;
+    }
+
+    saveSnapshot();
+    clearHints();
+    ghostStone.visible = false;
+
+    state.board = res.newBoard;
+    state.koPoint = res.nextKo;
+    state.lastMove = idx;
+    state.moveNumber++;
+
+    if (idx === GoEngine.PASS_MOVE) {
+      state.passCount++;
+      sound.playPassChime();
+      const who = color === GoEngine.BLACK ? 'Black' : 'White';
+      updateHUDTurnState(`${who} passed (${state.passCount}/2 consecutive passes)`);
+      lastMoveMarker.visible = false;
+    } else {
+      state.passCount = 0;
+      spawnStoneMesh(idx, color, true);
+      sound.playStoneSnap(color === GoEngine.WHITE);
+
+      if (res.captured.length > 0) {
+        if (color === GoEngine.BLACK) state.capturesBlack += res.captured.length;
+        else state.capturesWhite += res.captured.length;
+        animateCapturedStones(res.captured, color);
+        sound.playCapture(res.captured.length);
+      }
+    }
+
+    state.turn = color === GoEngine.BLACK ? GoEngine.WHITE : GoEngine.BLACK;
+    refreshTerritoryVisuals();
+
+    const coordStr = indexToAlgebraic(idx);
+    document.getElementById('mcts-telemetry').textContent =
+      `Move #${state.moveNumber} (${coordStr})`;
+
+    // Check for 2 consecutive passes -> Game Over
+    if (state.passCount >= 2) {
+      finishAndScoreGame('Both players passed consecutively');
+      return true;
+    }
+
+    updateHUDTurnState();
+
+    // If it's now AI's turn, trigger MCTS Search
+    if (state.turn === state.aiColor && !state.gameOver) {
+      requestAIMove();
+    }
+    return true;
+  }
+
+  let currentJobId = 0;
+
+  function requestAIMove(isHintForHuman = false) {
+    const searchColor = isHintForHuman ? state.turn : state.aiColor;
+    state.aiThinking = true;
+    document.getElementById('ai-spinner').classList.add('visible');
+    updateHUDTurnState(isHintForHuman ? 'MCTS AI computing recommended hint...' : null);
+
+    const jobId = ++currentJobId;
+    const config = {
+      board: state.board,
+      size: state.size,
+      aiColor: searchColor,
+      koPoint: state.koPoint,
+      lastMove: state.lastMove,
+      difficulty: isHintForHuman ? 'hard' : state.difficulty,
+      komi: 6.5
+    };
+
+    const handleResult = (result) => {
+      if (jobId !== currentJobId) return;
+      state.aiThinking = false;
+      document.getElementById('ai-spinner').classList.remove('visible');
+
+      // Update winrate bar from AI perspective
+      const wr = Math.max(0.02, Math.min(0.98, result.winRate));
+      state.winRateBlack = searchColor === GoEngine.BLACK ? wr : (1 - wr);
+
+      const moveCoord = indexToAlgebraic(result.move);
+      document.getElementById('mcts-telemetry').textContent =
+        `${result.iterations} playouts • Best: ${moveCoord} (${Math.round(wr * 100)}%)`;
+
+      if (isHintForHuman) {
+        showMCTSCandidatesOnBoard(result.topCandidates, true);
+        updateHUDTurnState(`✨ AI Hint recommends ${moveCoord} (${Math.round(wr * 100)}% win rate)`);
+      } else {
+        executeMove(result.move);
+      }
+    };
+
+    if (aiWorker) {
+      aiWorker.onmessage = (e) => {
+        if (e.data.id !== jobId) return;
+        if (e.data.type === 'progress') {
+          const p = e.data.data;
+          const wr = Math.max(0.02, Math.min(0.98, p.winRate));
+          state.winRateBlack = searchColor === GoEngine.BLACK ? wr : (1 - wr);
+          document.getElementById('mcts-telemetry').textContent =
+            `Searching: ${p.iterations} playouts...`;
+          showMCTSCandidatesOnBoard(p.topCandidates, isHintForHuman);
+          updateHUDTurnState();
+        } else if (e.data.type === 'done') {
+          handleResult(e.data.data);
+        }
+      };
+      aiWorker.postMessage({ id: jobId, config });
+    } else {
+      setTimeout(() => {
+        const res = GoEngine.runMCTSSearch(config);
+        handleResult(res);
+      }, 40);
+    }
+  }
+
+  function finishAndScoreGame(reason = 'Game Complete') {
+    state.gameOver = true;
+    state.aiThinking = false;
+    document.getElementById('ai-spinner').classList.remove('visible');
+
+    // Enable territory overlay automatically so player sees final territory
+    state.showTerritory = true;
+    document.getElementById('btn-territory').classList.add('active');
+    refreshTerritoryVisuals();
+
+    const evalData = GoEngine.evaluateBoardTerritory(
+      state.board,
+      state.size,
+      state.capturesBlack,
+      state.capturesWhite
+    );
+
+    const diff = evalData.blackTotal - evalData.whiteTotal;
+    const winnerStr = diff > 0
+      ? `⚫ BLACK WINS BY ${Math.abs(diff).toFixed(1)} PTS`
+      : `⚪ WHITE WINS BY ${Math.abs(diff).toFixed(1)} PTS`;
+
+    document.getElementById('modal-winner').textContent = winnerStr;
+    document.getElementById('modal-reason').textContent = reason;
+
+    document.getElementById('m-terr-b').textContent = evalData.blackTerritory;
+    document.getElementById('m-terr-w').textContent = evalData.whiteTerritory;
+    document.getElementById('m-stones-b').textContent = evalData.blackStones;
+    document.getElementById('m-stones-w').textContent = evalData.whiteStones;
+    document.getElementById('m-caps-b').textContent = evalData.capturesBlack;
+    document.getElementById('m-caps-w').textContent = evalData.capturesWhite;
+    document.getElementById('m-total-b').textContent = evalData.blackTotal.toFixed(1);
+    document.getElementById('m-total-w').textContent = evalData.whiteTotal.toFixed(1);
+
+    document.getElementById('modal-overlay').style.display = 'flex';
+    sound.playVictory();
+    updateHUDTurnState(`${winnerStr}`);
+  }
+
+  function startNewGame(newSize = state.size) {
+    currentJobId++; // Cancel any pending AI worker job
+    state.size = newSize;
+    state.board = new Int8Array(newSize * newSize);
+    state.turn = GoEngine.BLACK;
+    state.koPoint = -1;
+    state.lastMove = -1;
+    state.capturesBlack = 0;
+    state.capturesWhite = 0;
+    state.passCount = 0;
+    state.moveNumber = 0;
+    state.history = [];
+    state.gameOver = false;
+    state.aiThinking = false;
+    state.winRateBlack = 0.5;
+
+    document.getElementById('ai-spinner').classList.remove('visible');
+    document.getElementById('modal-overlay').style.display = 'none';
+    document.getElementById('mcts-telemetry').textContent = `Ready • ${newSize}×${newSize} Kaya Goban`;
+
+    // Regenerate procedural Kaya wood top texture for the selected grid size
+    topWoodMat.map.dispose();
+    topWoodMat.map = generateGobanTopTexture(newSize);
+    topWoodMat.needsUpdate = true;
+
+    clearAllStoneMeshes();
+    refreshTerritoryVisuals();
+    updateHUDTurnState();
+
+    // If human chose White, AI plays Black's opening move automatically
+    if (state.humanColor === GoEngine.WHITE) {
+      requestAIMove(false);
+    }
+  }
+
+  function undoLastMove() {
+    if (state.aiThinking || state.history.length === 0) return;
+    currentJobId++;
+
+    // Pop until it's the human player's turn again (or 1 snapshot if at start)
+    let snap = state.history.pop();
+    if (state.history.length > 0 && snap.turn !== state.humanColor) {
+      snap = state.history.pop();
+    }
+
+    state.board = new Int8Array(snap.board);
+    state.turn = snap.turn;
+    state.koPoint = snap.koPoint;
+    state.lastMove = snap.lastMove;
+    state.capturesBlack = snap.capturesBlack;
+    state.capturesWhite = snap.capturesWhite;
+    state.passCount = snap.passCount;
+    state.moveNumber = snap.moveNumber;
+    state.winRateBlack = snap.winRateBlack;
+    state.gameOver = false;
+
+    clearAllStoneMeshes();
+    for (let i = 0; i < state.board.length; i++) {
+      if (state.board[i] !== GoEngine.EMPTY) {
+        spawnStoneMesh(i, state.board[i], false);
+      }
+    }
+    if (state.lastMove >= 0) {
+      updateLastMoveMarker(state.lastMove, state.board[state.lastMove]);
+    }
+    refreshTerritoryVisuals();
+    updateHUDTurnState('Move taken back');
+  }
+
+  // ============================================================================
+  // 7. POINTER RAYCASTING, HOVER GHOST & CAMERA PRESETS
+  // ============================================================================
+  const raycaster = new THREE.Raycaster();
+  const pointer = new THREE.Vector2();
+  let pointerDownPos = { x: 0, y: 0 };
+
+  function updatePointerIntersection(clientX, clientY) {
+    pointer.x = (clientX / window.innerWidth) * 2 - 1;
+    pointer.y = -(clientY / window.innerHeight) * 2 + 1;
+    raycaster.setFromCamera(pointer, camera);
+
+    const hits = raycaster.intersectObject(hitPlane);
+    if (hits.length === 0) {
+      ghostStone.visible = false;
+      state.hoveredIdx = -1;
+      return -1;
+    }
+
+    const pt = hits[0].point;
+    const idx = worldXZToIndex(pt.x, pt.z);
+    state.hoveredIdx = idx;
+
+    if (
+      idx >= 0 &&
+      !state.gameOver &&
+      !state.aiThinking &&
+      state.turn === state.humanColor &&
+      state.board[idx] === GoEngine.EMPTY
+    ) {
+      const check = GoEngine.attemptMove(state.board, state.size, idx, state.turn, state.koPoint);
+      const r = getStoneRadius();
+      const { wx, wz } = indexToWorldXZ(idx);
+      ghostStone.scale.setScalar(r);
+      ghostStone.position.set(wx, BOARD_TOP_Y + r * 0.44, wz);
+
+      if (check.valid) {
+        ghostMat.color.setHex(state.turn === GoEngine.BLACK ? 0x111111 : 0xffffff);
+        ghostMat.opacity = 0.52;
+      } else {
+        ghostMat.color.setHex(0xe84118); // Red warning tint for illegal Ko / Suicide
+        ghostMat.opacity = 0.65;
+      }
+      ghostStone.visible = true;
+    } else {
+      ghostStone.visible = false;
+    }
+
+    return idx;
+  }
+
+  renderer.domElement.addEventListener('pointermove', (e) => {
+    updatePointerIntersection(e.clientX, e.clientY);
+  });
+
+  renderer.domElement.addEventListener('pointerdown', (e) => {
+    pointerDownPos = { x: e.clientX, y: e.clientY };
+  });
+
+  renderer.domElement.addEventListener('pointerup', (e) => {
+    if (e.button !== 0 && e.pointerType === 'mouse') return;
+    const dragDist = Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y);
+    // Distinguish a clean click/tap from a camera orbit drag
+    if (dragDist > 7) return;
+
+    if (state.gameOver || state.aiThinking || state.turn !== state.humanColor) return;
+    const idx = updatePointerIntersection(e.clientX, e.clientY);
+    if (idx >= 0) {
+      executeMove(idx);
+    }
+  });
+
+  // Camera Presets
+  const cameraPresets = [
+    { name: '3D Perspective', pos: new THREE.Vector3(0, 21, 18.5) },
+    { name: 'Top-Down Zenith', pos: new THREE.Vector3(0, 27.5, 0.01) },
+    { name: 'Low Master View', pos: new THREE.Vector3(0, 12.5, 22.5) }
+  ];
+  let currentCamPreset = 0;
+  let camTransition = null;
+
+  document.getElementById('cam-preset-btn').addEventListener('click', () => {
+    currentCamPreset = (currentCamPreset + 1) % cameraPresets.length;
+    const preset = cameraPresets[currentCamPreset];
+    document.getElementById('cam-label').textContent = preset.name;
+    camTransition = {
+      startPos: camera.position.clone(),
+      endPos: preset.pos.clone(),
+      startTarget: controls.target.clone(),
+      endTarget: new THREE.Vector3(0, 0.5, 0),
+      progress: 0
+    };
+  });
+
+  // ============================================================================
+  // 8. UI CONTROLS & EVENT BINDINGS
+  // ============================================================================
+  // Board Size Selector
+  document.querySelectorAll('#size-selector .seg-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#size-selector .seg-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const sz = parseInt(btn.getAttribute('data-size'), 10);
+      startNewGame(sz);
+    });
+  });
+
+  // AI Difficulty Selector
+  document.querySelectorAll('#diff-selector .seg-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#diff-selector .seg-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      state.difficulty = btn.getAttribute('data-diff');
+      updateHUDTurnState(`AI Difficulty set to ${state.difficulty.toUpperCase()}`);
+    });
+  });
+
+  // Player Color Selector
+  document.querySelectorAll('#color-selector .seg-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#color-selector .seg-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const col = parseInt(btn.getAttribute('data-color'), 10);
+      state.humanColor = col;
+      state.aiColor = col === GoEngine.BLACK ? GoEngine.WHITE : GoEngine.BLACK;
+      startNewGame(state.size);
+    });
+  });
+
+  // Sound Toggle
+  document.getElementById('sound-toggle-btn').addEventListener('click', () => {
+    const on = sound.toggle();
+    document.getElementById('sound-icon').textContent = on ? '🔊' : '🔇';
+  });
+
+  // Action Buttons
+  document.getElementById('btn-pass').addEventListener('click', () => {
+    if (!state.aiThinking && !state.gameOver && state.turn === state.humanColor) {
+      executeMove(GoEngine.PASS_MOVE);
+    }
+  });
+
+  document.getElementById('btn-undo').addEventListener('click', undoLastMove);
+
+  document.getElementById('btn-hint').addEventListener('click', () => {
+    if (!state.aiThinking && !state.gameOver && state.turn === state.humanColor) {
+      requestAIMove(true);
+    }
+  });
+
+  document.getElementById('btn-territory').addEventListener('click', (e) => {
+    state.showTerritory = !state.showTerritory;
+    e.currentTarget.classList.toggle('active', state.showTerritory);
+    refreshTerritoryVisuals();
+  });
+
+  document.getElementById('btn-score').addEventListener('click', () => {
+    if (!state.aiThinking) {
+      finishAndScoreGame('Manual Territory Scoring Requested');
+    }
+  });
+
+  document.getElementById('btn-newgame').addEventListener('click', () => startNewGame(state.size));
+  document.getElementById('modal-playagain-btn').addEventListener('click', () => startNewGame(state.size));
+  document.getElementById('modal-inspect-btn').addEventListener('click', () => {
+    document.getElementById('modal-overlay').style.display = 'none';
+  });
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  // ============================================================================
+  // 9. RENDER & ANIMATION LOOP
+  // ============================================================================
+  const clock = new THREE.Clock();
+
+  function animate() {
+    requestAnimationFrame(animate);
+    const dt = Math.min(clock.getDelta(), 0.1);
+    const elapsed = clock.getElapsedTime();
+
+    // Update smooth stone drop & capture animations
+    for (let i = activeAnimations.length - 1; i >= 0; i--) {
+      const anim = activeAnimations[i];
+      if (anim.delay && anim.delay > 0) {
+        anim.delay -= dt;
+        continue;
+      }
+      anim.progress += dt / anim.duration;
+      const t = Math.min(1, anim.progress);
+
+      if (anim.type === 'drop') {
+        // Ease-out cubic drop onto Goban
+        const ease = 1 - Math.pow(1 - t, 3);
+        anim.mesh.position.y = anim.startY + (anim.targetY - anim.startY) * ease;
+        if (t >= 1) activeAnimations.splice(i, 1);
+      } else if (anim.type === 'capture') {
+        // Parabolic arc into player's wooden Goke bowl
+        const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+        anim.mesh.position.lerpVectors(anim.startPos, anim.endPos, ease);
+        anim.mesh.position.y += Math.sin(t * Math.PI) * 3.2;
+        anim.mesh.scale.multiplyScalar(0.97);
+        if (t >= 1) {
+          scene.remove(anim.mesh);
+          activeAnimations.splice(i, 1);
+        }
+      }
+    }
+
+    // Smooth camera preset transitions
+    if (camTransition) {
+      camTransition.progress += dt * 2.2;
+      const t = Math.min(1, camTransition.progress);
+      const ease = 1 - Math.pow(1 - t, 3);
+      camera.position.lerpVectors(camTransition.startPos, camTransition.endPos, ease);
+      controls.target.lerpVectors(camTransition.startTarget, camTransition.endTarget, ease);
+      if (t >= 1) camTransition = null;
+    }
+
+    // Subtle pulse on Last Move Marker & Hint Rings
+    if (lastMoveMarker.visible) {
+      lastMoveRingMat.opacity = 0.72 + Math.sin(elapsed * 4.5) * 0.25;
+    }
+
+    controls.update();
+    renderer.render(scene, camera);
+  }
+
+  // Initialize Game
+  startNewGame(9);
+  animate();
+})();
+</script>
+</body>
+</html>
